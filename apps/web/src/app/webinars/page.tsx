@@ -1,70 +1,72 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { webinarApi, type Webinar } from '@/lib/api'
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { webinarApi, type Webinar } from '@/lib/api';
 
 const STATUS_LABEL: Record<Webinar['status'], string> = {
-  draft: '下書き', active: '公開中', archived: 'アーカイブ',
-}
+  draft: '下書き',
+  active: '公開中',
+  archived: 'アーカイブ',
+};
 
 const STATUS_BADGE: Record<Webinar['status'], string> = {
   draft: 'bg-gray-100 text-gray-600',
   active: 'bg-green-100 text-green-700',
   archived: 'bg-amber-100 text-amber-700',
-}
+};
 
 function scheduleSummary(w: Webinar): string {
-  if (w.schedule.length === 0) return '未設定'
-  const DAYS = ['日', '月', '火', '水', '木', '金', '土']
+  if (w.schedule.length === 0) return '未設定';
+  const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
   const dailyTimes = w.schedule
     .filter((rule) => rule.type === 'daily' && rule.time)
     .map((rule) => rule.time as string)
-    .sort()
-  const otherRules = w.schedule.filter((rule) => rule.type !== 'daily')
-  const parts: string[] = []
+    .sort();
+  const otherRules = w.schedule.filter((rule) => rule.type !== 'daily');
+  const parts: string[] = [];
   if (dailyTimes.length > 0) {
     const toMinutes = (time: string) => {
-      const [hours, minutes] = time.split(':').map(Number)
-      return hours * 60 + minutes
-    }
-    const intervals = dailyTimes.slice(1).map((time, index) => toMinutes(time) - toMinutes(dailyTimes[index]))
-    const interval = intervals.length > 0 && intervals.every((value) => value === intervals[0]) ? intervals[0] : null
+      const [hours, minutes] = time.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    const intervals = dailyTimes.slice(1).map((time, index) => toMinutes(time) - toMinutes(dailyTimes[index]));
+    const interval = intervals.length > 0 && intervals.every((value) => value === intervals[0]) ? intervals[0] : null;
     parts.push(
       dailyTimes.length === 1
         ? `毎日 ${dailyTimes[0]}`
         : `毎日 ${dailyTimes[0]}〜${dailyTimes[dailyTimes.length - 1]}${interval ? `・${interval}分間隔` : ''}（${dailyTimes.length}枠）`,
-    )
+    );
   }
   otherRules.forEach((rule) => {
-    if (rule.type === 'weekly') parts.push(`毎週${(rule.days ?? []).map((day) => DAYS[day]).join('・')} ${rule.time}`)
-    if (rule.type === 'once') parts.push(rule.at ? new Date(rule.at).toLocaleString('ja-JP') : '単発・日時未設定')
-  })
-  return parts.join(' / ')
+    if (rule.type === 'weekly') parts.push(`毎週${(rule.days ?? []).map((day) => DAYS[day]).join('・')} ${rule.time}`);
+    if (rule.type === 'once') parts.push(rule.at ? new Date(rule.at).toLocaleString('ja-JP') : '単発・日時未設定');
+  });
+  return parts.join(' / ');
 }
 
 export default function WebinarsPage() {
-  const [items, setItems] = useState<Webinar[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [items, setItems] = useState<Webinar[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const res = await webinarApi.list()
-      setItems(res.data)
+      const res = await webinarApi.list();
+      setItems(res.data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refresh();
+  }, [refresh]);
 
   return (
     <>
@@ -82,9 +84,7 @@ export default function WebinarsPage() {
       />
       <div className="p-6 max-w-6xl mx-auto">
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
         )}
 
         {loading ? (
@@ -114,12 +114,24 @@ export default function WebinarsPage() {
               >
                 <div className="flex items-start gap-4 p-5">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm">
-                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2"><path d="M15 10l4.55-2.28A1 1 0 0 1 21 8.62v6.76a1 1 0 0 1-1.45.9L15 14M5 18h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2Z" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2">
+                      <path
+                        d="M15 10l4.55-2.28A1 1 0 0 1 21 8.62v6.76a1 1 0 0 1-1.45.9L15 14M5 18h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2Z"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <h2 className="line-clamp-2 font-bold leading-6 text-slate-900 group-hover:text-blue-700">{w.title}</h2>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_BADGE[w.status]}`}>{STATUS_LABEL[w.status]}</span>
+                      <h2 className="line-clamp-2 font-bold leading-6 text-slate-900 group-hover:text-blue-700">
+                        {w.title}
+                      </h2>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_BADGE[w.status]}`}
+                      >
+                        {STATUS_LABEL[w.status]}
+                      </span>
                     </div>
                     <p className="mt-3 text-sm leading-6 text-slate-600">{scheduleSummary(w)}</p>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
@@ -134,5 +146,5 @@ export default function WebinarsPage() {
         )}
       </div>
     </>
-  )
+  );
 }

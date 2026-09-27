@@ -18,9 +18,7 @@ describe('resolveActiveLineAccountIdByLiffId', () => {
   test('returns only the active account selected by LIFF id', async () => {
     const { db, prepare, bind } = database({ id: 'account-1' });
     await expect(resolveActiveLineAccountIdByLiffId(db, 'liff-1')).resolves.toBe('account-1');
-    expect(prepare).toHaveBeenCalledWith(
-      'SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1',
-    );
+    expect(prepare).toHaveBeenCalledWith('SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1');
     expect(bind).toHaveBeenCalledWith('liff-1');
   });
 });

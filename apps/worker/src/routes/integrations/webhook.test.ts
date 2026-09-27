@@ -12,14 +12,16 @@ const credentialStoreMocks = vi.hoisted(() => ({
 }));
 
 const outboundDeliveryMocks = vi.hoisted(() => ({
-  deliverTrackedLinePush: vi.fn(async (input: {
-    operationId: string;
-    request: { to: string; messages: unknown[] };
-    send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
-  }) => {
-    await input.send(input.request, input.operationId);
-    return 'sent';
-  }),
+  deliverTrackedLinePush: vi.fn(
+    async (input: {
+      operationId: string;
+      request: { to: string; messages: unknown[] };
+      send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+    }) => {
+      await input.send(input.request, input.operationId);
+      return 'sent';
+    },
+  ),
   deliverTrackedLineReply: vi.fn(async (input: { send: () => Promise<void> }) => {
     await input.send();
     return 'sent';
@@ -86,9 +88,10 @@ vi.mock('../../services/step-delivery.js', () => ({
   expandVariables: vi.fn(),
   resolveMetadata: vi.fn(),
   messageToLogPayload: vi.fn(),
-  isDeterministicInvalidReplyToken: vi.fn((error: unknown) => error instanceof Error
-    && error.message.includes('400')
-    && error.message.includes('Invalid reply token')),
+  isDeterministicInvalidReplyToken: vi.fn(
+    (error: unknown) =>
+      error instanceof Error && error.message.includes('400') && error.message.includes('Invalid reply token'),
+  ),
 }));
 
 import { LineClient, verifySignature } from '@line-crm/line-sdk';
@@ -114,10 +117,7 @@ import {
 } from '@line-crm/db';
 import { fireEvent } from '../../services/event-bus.js';
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
-import {
-  deliverTrackedLinePush,
-  deliverTrackedLineReply,
-} from '../../services/outbound-line-delivery.js';
+import { deliverTrackedLinePush, deliverTrackedLineReply } from '../../services/outbound-line-delivery.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 import { buildMessage, expandVariables, messageToLogPayload } from '../../services/step-delivery.js';
 import { webhook } from './webhook.js';
@@ -151,14 +151,15 @@ function withWebhookIdentity(
       return {
         bind(destination: string) {
           return {
-            first: async () => identity?.botUserId === destination
-              ? {
-                  id: identity.accountId,
-                  tenant_id: identity.tenantId,
-                  channel_secret: identity.channelSecret,
-                  channel_access_token: identity.channelAccessToken,
-                }
-              : null,
+            first: async () =>
+              identity?.botUserId === destination
+                ? {
+                    id: identity.accountId,
+                    tenant_id: identity.tenantId,
+                    channel_secret: identity.channelSecret,
+                    channel_access_token: identity.channelAccessToken,
+                  }
+                : null,
           };
         },
       } as unknown as D1PreparedStatement;
@@ -188,14 +189,17 @@ const baseExecutionCtx = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-    input.kind === 'channel_secret' ? 'env-default-secret' : 'env-default-token');
-  vi.mocked(getActiveTenantLineAccounts).mockResolvedValue([{
-    id: 'account-env',
-    tenant_id: 'tenant-env',
-    is_active: 1,
-    channel_secret: 'env-default-secret',
-    channel_access_token: 'env-default-token',
-  } as never]);
+    input.kind === 'channel_secret' ? 'env-default-secret' : 'env-default-token',
+  );
+  vi.mocked(getActiveTenantLineAccounts).mockResolvedValue([
+    {
+      id: 'account-env',
+      tenant_id: 'tenant-env',
+      is_active: 1,
+      channel_secret: 'env-default-secret',
+      channel_access_token: 'env-default-token',
+    } as never,
+  ]);
 });
 
 describe('POST /webhook — DoS defenses (#104)', () => {
@@ -243,18 +247,24 @@ describe('POST /webhook — DoS defenses (#104)', () => {
   test.each([undefined, '1'])('stops reading an oversized stream with Content-Length %s', async (declared) => {
     let reads = 0;
     const cancel = vi.fn();
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        reads++;
-        if (reads <= 8) controller.enqueue(new Uint8Array(256 * 1024));
-        else controller.close();
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          reads++;
+          if (reads <= 8) controller.enqueue(new Uint8Array(256 * 1024));
+          else controller.close();
+        },
+        cancel,
       },
-      cancel,
-    }, { highWaterMark: 0 });
+      { highWaterMark: 0 },
+    );
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (declared !== undefined) headers['Content-Length'] = declared;
     const request = new Request('http://localhost/webhook', {
-      method: 'POST', headers, body, duplex: 'half',
+      method: 'POST',
+      headers,
+      body,
+      duplex: 'half',
     } as RequestInit);
     const response = await setupApp().fetch(request, baseEnv, baseExecutionCtx);
     expect(response.status).toBe(413);
@@ -282,7 +292,10 @@ describe('POST /webhook — DoS defenses (#104)', () => {
     });
     const signature = `${'A'.repeat(43)}=`;
     const request = new Request('http://localhost/webhook', {
-      method: 'POST', headers: { 'X-Line-Signature': signature }, body, duplex: 'half',
+      method: 'POST',
+      headers: { 'X-Line-Signature': signature },
+      body,
+      duplex: 'half',
     } as RequestInit);
     const response = await setupApp().fetch(request, baseEnv, baseExecutionCtx);
     expect(response.status).toBe(200);
@@ -319,14 +332,19 @@ describe('POST /webhook — DoS defenses (#104)', () => {
       props: {},
     } as unknown as ExecutionContext;
 
-    const res = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const res = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({ destination: 'bot', events: [] }),
       },
-      body: JSON.stringify({ destination: 'bot', events: [] }),
-    }, { ...baseEnv, DB: withWebhookIdentity(emptyDb, null) }, executionCtx);
+      { ...baseEnv, DB: withWebhookIdentity(emptyDb, null) },
+      executionCtx,
+    );
 
     expect(res.status).toBe(200);
     expect(executionCtx.waitUntil).not.toHaveBeenCalled();
@@ -334,48 +352,64 @@ describe('POST /webhook — DoS defenses (#104)', () => {
 
   test('uses destination to verify exactly one tenant secret', async () => {
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'secret-99' : 'token-99');
+      input.kind === 'channel_secret' ? 'secret-99' : 'token-99',
+    );
     vi.mocked(verifySignature).mockImplementation(async (secret) => secret === 'secret-99');
     const executionCtx = {
-      waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {},
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
     } as unknown as ExecutionContext;
 
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({ destination: 'bot-99', events: [] }),
       },
-      body: JSON.stringify({ destination: 'bot-99', events: [] }),
-    }, {
-      ...baseEnv,
-      DB: withWebhookIdentity(emptyDb, {
-        botUserId: 'bot-99', accountId: 'account-99', tenantId: 'tenant-99',
-        channelSecret: 'secret-99', channelAccessToken: 'token-99',
-      }),
-    }, executionCtx);
+      {
+        ...baseEnv,
+        DB: withWebhookIdentity(emptyDb, {
+          botUserId: 'bot-99',
+          accountId: 'account-99',
+          tenantId: 'tenant-99',
+          channelSecret: 'secret-99',
+          channelAccessToken: 'token-99',
+        }),
+      },
+      executionCtx,
+    );
 
     expect(response.status).toBe(200);
     expect(verifySignature).toHaveBeenCalledTimes(1);
-    expect(verifySignature).toHaveBeenCalledWith(
-      'secret-99', expect.any(String), `${'A'.repeat(43)}=`,
-    );
+    expect(verifySignature).toHaveBeenCalledWith('secret-99', expect.any(String), `${'A'.repeat(43)}=`);
     expect(executionCtx.waitUntil).toHaveBeenCalledTimes(1);
   });
 
   test('fails closed for an unknown destination without testing other tenant secrets', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     const executionCtx = {
-      waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {},
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
     } as unknown as ExecutionContext;
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({ destination: 'unknown-bot', events: [] }),
       },
-      body: JSON.stringify({ destination: 'unknown-bot', events: [] }),
-    }, { ...baseEnv, DB: withWebhookIdentity(emptyDb, null) }, executionCtx);
+      { ...baseEnv, DB: withWebhookIdentity(emptyDb, null) },
+      executionCtx,
+    );
 
     expect(response.status).toBe(200);
     expect(verifySignature).not.toHaveBeenCalled();
@@ -385,7 +419,8 @@ describe('POST /webhook — DoS defenses (#104)', () => {
   test('derives the tenant account from destination and reads both credentials from the store', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-secret' : 'stored-token',
+    );
     const db = withWebhookIdentity(emptyDb, {
       botUserId: 'bot',
       accountId: 'account-a',
@@ -394,28 +429,37 @@ describe('POST /webhook — DoS defenses (#104)', () => {
       channelAccessToken: 'legacy-token',
     });
     const executionCtx = {
-      waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {},
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
     } as unknown as ExecutionContext;
 
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({ destination: 'bot', events: [] }),
       },
-      body: JSON.stringify({ destination: 'bot', events: [] }),
-    }, { ...baseEnv, DB: db }, executionCtx);
+      { ...baseEnv, DB: db },
+      executionCtx,
+    );
 
     expect(response.status).toBe(200);
     expect(readLineCredential).toHaveBeenNthCalledWith(1, db, 'root-key-for-webhook-tests-v1', {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_secret',
     });
     expect(readLineCredential).toHaveBeenNthCalledWith(2, db, 'root-key-for-webhook-tests-v1', {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
     });
-    expect(verifySignature).toHaveBeenCalledWith(
-      'stored-secret', expect.any(String), `${'A'.repeat(43)}=`,
-    );
+    expect(verifySignature).toHaveBeenCalledWith('stored-secret', expect.any(String), `${'A'.repeat(43)}=`);
     expect(LineClient).toHaveBeenCalledWith('stored-token');
     expect(executionCtx.waitUntil).toHaveBeenCalledOnce();
   });
@@ -438,21 +482,28 @@ describe('POST /webhook — DoS defenses (#104)', () => {
       channelAccessToken: 'legacy-token',
     });
     const executionCtx = {
-      waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {},
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
     } as unknown as ExecutionContext;
 
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({ destination: 'bot', events: [] }),
       },
-      body: JSON.stringify({ destination: 'bot', events: [] }),
-    }, {
-      ...baseEnv,
-      DB: db,
-      LINE_CREDENTIAL_KEY_V1: mode === undefined ? undefined : 'root-key-for-webhook-tests-v1',
-    }, executionCtx);
+      {
+        ...baseEnv,
+        DB: db,
+        LINE_CREDENTIAL_KEY_V1: mode === undefined ? undefined : 'root-key-for-webhook-tests-v1',
+      },
+      executionCtx,
+    );
 
     expect(response.status).toBe(200);
     expect(verifySignature).not.toHaveBeenCalled();
@@ -505,28 +556,35 @@ describe('POST /webhook — DoS defenses (#104)', () => {
     } as unknown as ExecutionContext;
 
     try {
-      const response = await setupApp().request('/webhook', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Line-Signature': `${'A'.repeat(43)}=`,
+      const response = await setupApp().request(
+        '/webhook',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Line-Signature': `${'A'.repeat(43)}=`,
+          },
+          body: JSON.stringify({
+            destination: 'bot',
+            events: [
+              {
+                type: 'unfollow',
+                source: { type: 'user', userId: 'U-runner' },
+                webhookEventId: 'event-runner-failed',
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          destination: 'bot',
-          events: [{
-            type: 'unfollow',
-            source: { type: 'user', userId: 'U-runner' },
-            webhookEventId: 'event-runner-failed',
-          }],
-        }),
-      }, { ...baseEnv, DB: db }, executionCtx);
+        { ...baseEnv, DB: db },
+        executionCtx,
+      );
       await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
 
       expect(response.status).toBe(200);
       const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
-      expect(lines).toEqual(expect.arrayContaining([
-        expect.stringContaining('"event":"pharmacy_webhook_inbox_runner_failed"'),
-      ]));
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining('"event":"pharmacy_webhook_inbox_runner_failed"')]),
+      );
       expect(lines.join('\n')).not.toContain('synthetic-runner-detail');
     } finally {
       consoleError.mockRestore();
@@ -562,9 +620,9 @@ describe('POST /webhook — postback events', () => {
       all: vi.fn().mockResolvedValue({ results: [] }), // no auto_reply match
     };
     stmt.bind.mockReturnValue(stmt);
-    const db = withWebhookIdentity(
-      { prepare: vi.fn().mockReturnValue(stmt) } as unknown as D1Database,
-    );
+    const db = withWebhookIdentity({
+      prepare: vi.fn().mockReturnValue(stmt),
+    } as unknown as D1Database);
 
     const executionCtx = {
       waitUntil: vi.fn(),
@@ -659,9 +717,9 @@ describe('POST /webhook — postback events', () => {
       }),
     };
     stmt.bind.mockReturnValue(stmt);
-    const db = withWebhookIdentity(
-      { prepare: vi.fn().mockReturnValue(stmt) } as unknown as D1Database,
-    );
+    const db = withWebhookIdentity({
+      prepare: vi.fn().mockReturnValue(stmt),
+    } as unknown as D1Database);
 
     const executionCtx = {
       waitUntil: vi.fn(),
@@ -741,23 +799,25 @@ describe('POST /webhook — postback events', () => {
     vi.mocked(expandVariables).mockReturnValueOnce('reply');
     vi.mocked(buildMessage).mockReturnValueOnce({ type: 'text', text: 'reply' });
     vi.mocked(messageToLogPayload).mockReturnValueOnce({ messageType: 'text', content: 'reply' });
-    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(
-      new Error('synthetic D1 prepare failure'),
-    );
+    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(new Error('synthetic D1 prepare failure'));
 
     const prepare = vi.fn((sql: string) => {
       const statement = {
         bind: vi.fn(),
         run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
         all: vi.fn().mockResolvedValue({
-          results: sql.includes('FROM auto_replies') ? [{
-            id: 'rule-1',
-            keyword: 'tag:premium',
-            match_type: 'exact',
-            response_type: 'text',
-            response_content: 'reply',
-            template_id: null,
-          }] : [],
+          results: sql.includes('FROM auto_replies')
+            ? [
+                {
+                  id: 'rule-1',
+                  keyword: 'tag:premium',
+                  match_type: 'exact',
+                  response_type: 'text',
+                  response_content: 'reply',
+                  template_id: null,
+                },
+              ]
+            : [],
         }),
       };
       statement.bind.mockReturnValue(statement);
@@ -770,30 +830,36 @@ describe('POST /webhook — postback events', () => {
       props: {},
     } as unknown as ExecutionContext;
 
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({
+          destination: 'bot',
+          events: [
+            {
+              type: 'postback',
+              replyToken: 'reply-token-postback',
+              postback: { data: 'tag:premium' },
+              source: { type: 'user', userId: 'U-existing' },
+              webhookEventId: 'event-postback-retry',
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        destination: 'bot',
-        events: [{
-          type: 'postback',
-          replyToken: 'reply-token-postback',
-          postback: { data: 'tag:premium' },
-          source: { type: 'user', userId: 'U-existing' },
-          webhookEventId: 'event-postback-retry',
-        }],
-      }),
-    }, { ...baseEnv, DB: db }, executionCtx);
+      { ...baseEnv, DB: db },
+      executionCtx,
+    );
     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
 
     expect(response.status).toBe(200);
     expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect(prepare.mock.calls.some(([sql]) =>
-      String(sql).includes("SET status = 'failed'"))).toBe(true);
+    expect(prepare.mock.calls.some(([sql]) => String(sql).includes("SET status = 'failed'"))).toBe(true);
   });
 });
 
@@ -839,9 +905,9 @@ describe('POST /webhook — first-contact existing friends', () => {
       all: vi.fn().mockResolvedValue({ results: [] }),
     };
     stmt.bind.mockReturnValue(stmt);
-    const db = withWebhookIdentity(
-      { prepare: vi.fn().mockReturnValue(stmt) } as unknown as D1Database,
-    );
+    const db = withWebhookIdentity({
+      prepare: vi.fn().mockReturnValue(stmt),
+    } as unknown as D1Database);
 
     const executionCtx = {
       waitUntil: vi.fn(),
@@ -923,7 +989,12 @@ describe('POST /webhook — first-contact existing friends', () => {
 });
 
 describe('POST /webhook — referral intro delivery', () => {
-  test.each([['tenant-referral', 'tenant-referral'], ['tenant-other', 'tenant-other'], [null, null], ['tenant-referral', 'tenant-other']])('scopes referral route %s and template %s', async (routeTenant, templateTenant) => {
+  test.each([
+    ['tenant-referral', 'tenant-referral'],
+    ['tenant-other', 'tenant-other'],
+    [null, null],
+    ['tenant-referral', 'tenant-other'],
+  ])('scopes referral route %s and template %s', async (routeTenant, templateTenant) => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     const introMessage = { type: 'text', text: 'Referral intro' } as const;
     vi.mocked(buildMessage).mockReturnValue(introMessage);
@@ -966,35 +1037,42 @@ describe('POST /webhook — referral intro delivery', () => {
       run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
     };
     statement.bind.mockReturnValue(statement);
-    const db = withWebhookIdentity(
-      { prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database,
-      {
-        botUserId: 'bot',
-        accountId: 'account-referral',
-        tenantId: 'tenant-referral',
-        channelSecret: 'referral-secret',
-        channelAccessToken: 'referral-token',
-      },
-    );
+    const db = withWebhookIdentity({ prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database, {
+      botUserId: 'bot',
+      accountId: 'account-referral',
+      tenantId: 'tenant-referral',
+      channelSecret: 'referral-secret',
+      channelAccessToken: 'referral-token',
+    });
     const executionCtx = {
       waitUntil: vi.fn(),
       passThroughOnException: vi.fn(),
       props: {},
     } as unknown as ExecutionContext;
 
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({
+          destination: 'bot',
+          events: [
+            {
+              type: 'follow',
+              replyToken: 'reply-referral',
+              source: { type: 'user', userId: 'U-referral' },
+              webhookEventId: 'event-referral-intro-1',
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({ destination: 'bot', events: [{
-        type: 'follow',
-        replyToken: 'reply-referral',
-        source: { type: 'user', userId: 'U-referral' },
-        webhookEventId: 'event-referral-intro-1',
-      }] }),
-    }, { ...baseEnv, DB: db }, executionCtx);
+      { ...baseEnv, DB: db },
+      executionCtx,
+    );
     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
 
     if (routeTenant !== 'tenant-referral' || templateTenant !== 'tenant-referral') {
@@ -1016,19 +1094,19 @@ describe('POST /webhook — referral intro delivery', () => {
     );
     expect(response.status).toBe(200);
     expect(messageToLogPayload).toHaveBeenCalledWith(introMessage);
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId,
-      tenantId: 'tenant-referral',
-      lineAccountId: 'account-referral',
-      friendId: 'friend-referral',
-      messageType: 'text',
-      content: 'Referral intro',
-      source: 'automation',
-      request: { to: 'U-referral', messages: [introMessage] },
-    }));
-    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
-      'U-referral', [introMessage], operationId,
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId,
+        tenantId: 'tenant-referral',
+        lineAccountId: 'account-referral',
+        friendId: 'friend-referral',
+        messageType: 'text',
+        content: 'Referral intro',
+        source: 'automation',
+        request: { to: 'U-referral', messages: [introMessage] },
+      }),
     );
+    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith('U-referral', [introMessage], operationId);
   });
 });
 
@@ -1040,12 +1118,15 @@ describe('POST /webhook — cross-account credentials', () => {
     legacyToken?: string;
     failUserLookup?: boolean;
   }) {
-    const statements = new Map<string, {
-      bind: ReturnType<typeof vi.fn>;
-      first: ReturnType<typeof vi.fn>;
-      all: ReturnType<typeof vi.fn>;
-      run: ReturnType<typeof vi.fn>;
-    }>();
+    const statements = new Map<
+      string,
+      {
+        bind: ReturnType<typeof vi.fn>;
+        first: ReturnType<typeof vi.fn>;
+        all: ReturnType<typeof vi.fn>;
+        run: ReturnType<typeof vi.fn>;
+      }
+    >();
     const db = {
       prepare(sql: string) {
         const statement = {
@@ -1058,13 +1139,17 @@ describe('POST /webhook — cross-account credentials', () => {
           }),
           all: vi.fn().mockResolvedValue(
             sql.includes('provider_line_user_id AS line_user_id')
-              ? { results: [{
-                  friend_id: 'target-friend',
-                  line_user_id: target.lineUserId,
-                  line_account_id: target.lineAccountId,
-                  tenant_id: target.tenantId,
-                  channel_access_token: target.legacyToken ?? 'legacy-target-token',
-                }] }
+              ? {
+                  results: [
+                    {
+                      friend_id: 'target-friend',
+                      line_user_id: target.lineUserId,
+                      line_account_id: target.lineAccountId,
+                      tenant_id: target.tenantId,
+                      channel_access_token: target.legacyToken ?? 'legacy-target-token',
+                    },
+                  ],
+                }
               : { results: [] },
           ),
           run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
@@ -1074,13 +1159,16 @@ describe('POST /webhook — cross-account credentials', () => {
         return statement;
       },
     } as unknown as D1Database;
-    return { db: withWebhookIdentity(db, {
-      botUserId: 'bot',
-      accountId: 'account-a',
-      tenantId: 'tenant-a',
-      channelSecret: 'legacy-secret',
-      channelAccessToken: 'legacy-token',
-    }), statements };
+    return {
+      db: withWebhookIdentity(db, {
+        botUserId: 'bot',
+        accountId: 'account-a',
+        tenantId: 'tenant-a',
+        channelSecret: 'legacy-secret',
+        channelAccessToken: 'legacy-token',
+      }),
+      statements,
+    };
   }
 
   async function deliverCrossAccount(db: D1Database) {
@@ -1100,22 +1188,34 @@ describe('POST /webhook — cross-account credentials', () => {
       updated_at: '2026-08-18T00:00:00.000Z',
     });
     const executionCtx = {
-      waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {},
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
     } as unknown as ExecutionContext;
-    const response = await setupApp().request('/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Line-Signature': `${'A'.repeat(43)}=`,
+    const response = await setupApp().request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({
+          destination: 'bot',
+          events: [
+            {
+              type: 'message',
+              replyToken: 'reply-token',
+              message: { type: 'text', id: 'message-1', text: '体験を完了する' },
+              source: { type: 'user', userId: 'U-source' },
+              webhookEventId: 'event-cross-account-1',
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({ destination: 'bot', events: [{
-        type: 'message',
-        replyToken: 'reply-token',
-        message: { type: 'text', id: 'message-1', text: '体験を完了する' },
-        source: { type: 'user', userId: 'U-source' },
-        webhookEventId: 'event-cross-account-1',
-      }] }),
-    }, { ...baseEnv, DB: db }, executionCtx);
+      { ...baseEnv, DB: db },
+      executionCtx,
+    );
     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
     expect(response.status).toBe(200);
   }
@@ -1126,17 +1226,21 @@ describe('POST /webhook — cross-account credentials', () => {
       return input.lineAccountId === 'target-account' ? 'stored-target-token' : 'stored-source-token';
     });
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
-    const targetQuery = [...statements.entries()].find(([sql]) =>
-      sql.includes('provider_line_user_id AS line_user_id'))?.[0] ?? '';
+    const targetQuery =
+      [...statements.entries()].find(([sql]) => sql.includes('provider_line_user_id AS line_user_id'))?.[0] ?? '';
     expect(targetQuery).toContain('tenant_line_accounts');
     expect(targetQuery).not.toContain('channel_access_token');
     expect(readLineCredential).toHaveBeenCalledWith(db, 'root-key-for-webhook-tests-v1', {
-      tenantId: 'tenant-a', lineAccountId: 'target-account', kind: 'channel_access_token',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      kind: 'channel_access_token',
     });
     expect(LineClient).toHaveBeenNthCalledWith(2, 'stored-target-token');
     expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
@@ -1144,29 +1248,33 @@ describe('POST /webhook — cross-account credentials', () => {
       expect.any(Array),
       expect.stringMatching(/^[0-9a-f-]{36}$/u),
     );
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: await createBroadcastRetryKey(
-        'webhook-cross-account',
-        'tenant-a',
-        'account-a',
-        'target-account',
-        'event-cross-account-1',
-      ),
-      tenantId: 'tenant-a',
-      lineAccountId: 'target-account',
-      friendId: 'target-friend',
-    }));
-    expect(deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: await createBroadcastRetryKey(
-        'webhook-cross-account-confirmation',
-        'tenant-a',
-        'account-a',
-        'event-cross-account-1',
-      ),
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      friendId: 'friend-1',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: await createBroadcastRetryKey(
+          'webhook-cross-account',
+          'tenant-a',
+          'account-a',
+          'target-account',
+          'event-cross-account-1',
+        ),
+        tenantId: 'tenant-a',
+        lineAccountId: 'target-account',
+        friendId: 'target-friend',
+      }),
+    );
+    expect(deliverTrackedLineReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: await createBroadcastRetryKey(
+          'webhook-cross-account-confirmation',
+          'tenant-a',
+          'account-a',
+          'event-cross-account-1',
+        ),
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        friendId: 'friend-1',
+      }),
+    );
   });
 
   test('does not reuse the confirmation token after LINE was attempted', async () => {
@@ -1175,27 +1283,30 @@ describe('POST /webhook — cross-account credentials', () => {
       throw new Error('synthetic D1 settlement failure');
     });
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
     expect(lineClientMocks.replyMessage).toHaveBeenCalledOnce();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'"))).toBe(true);
   });
 
   test('returns a pre-LINE confirmation failure to the durable inbox', async () => {
-    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(
-      new Error('synthetic D1 prepare failure'),
-    );
+    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(new Error('synthetic D1 prepare failure'));
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
@@ -1205,26 +1316,27 @@ describe('POST /webhook — cross-account credentials', () => {
   });
 
   test('returns a target push settlement failure to the durable inbox', async () => {
-    vi.mocked(deliverTrackedLinePush).mockRejectedValueOnce(
-      new Error('OUTBOUND_LINE_SETTLEMENT_FAILED'),
-    );
+    vi.mocked(deliverTrackedLinePush).mockRejectedValueOnce(new Error('OUTBOUND_LINE_SETTLEMENT_FAILED'));
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
     expect(deliverTrackedLineReply).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'"))).toBe(true);
   });
 
   test('returns a cross-account lookup failure to the durable inbox', async () => {
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db, statements } = crossAccountDb({
       tenantId: 'tenant-a',
       lineAccountId: 'target-account',
@@ -1237,24 +1349,25 @@ describe('POST /webhook — cross-account credentials', () => {
     expect(deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(deliverTrackedLineReply).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'"))).toBe(true);
   });
 
   test('returns a target push reconciliation result to the durable inbox', async () => {
     vi.mocked(deliverTrackedLinePush).mockResolvedValueOnce('reconciliation_required');
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
     expect(deliverTrackedLineReply).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'"))).toBe(true);
   });
 
   test('returns a missing same-tenant target credential to the durable inbox', async () => {
@@ -1263,7 +1376,9 @@ describe('POST /webhook — cross-account credentials', () => {
       return input.lineAccountId === 'target-account' ? null : 'stored-source-token';
     });
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
@@ -1271,43 +1386,49 @@ describe('POST /webhook — cross-account credentials', () => {
     expect(deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(deliverTrackedLineReply).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'"))).toBe(true);
   });
 
   test('completes the event after a deterministic confirmation-token rejection', async () => {
     vi.mocked(deliverTrackedLineReply).mockResolvedValueOnce('not_sent');
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db, statements } = crossAccountDb({
-      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
     expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
     expect(fireEvent).not.toHaveBeenCalled();
-    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'")))
-      .toBe(true);
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'"))).toBe(true);
     const options = vi.mocked(deliverTrackedLineReply).mock.calls[0]?.[0] as {
       isDeterministicRejection?: (error: unknown) => boolean;
     };
-    expect(options.isDeterministicRejection?.(
-      new Error('LINE API error: 400 Bad Request — Invalid reply token'),
-    )).toBe(true);
+    expect(options.isDeterministicRejection?.(new Error('LINE API error: 400 Bad Request — Invalid reply token'))).toBe(
+      true,
+    );
   });
 
   test('does not notify a target mapped to another tenant', async () => {
     vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
-      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token',
+    );
     const { db } = crossAccountDb({
-      tenantId: 'tenant-b', lineAccountId: 'target-account', lineUserId: 'U-target',
+      tenantId: 'tenant-b',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
     });
 
     await deliverCrossAccount(db);
 
     expect(readLineCredential).not.toHaveBeenCalledWith(db, 'root-key-for-webhook-tests-v1', {
-      tenantId: 'tenant-b', lineAccountId: 'target-account', kind: 'channel_access_token',
+      tenantId: 'tenant-b',
+      lineAccountId: 'target-account',
+      kind: 'channel_access_token',
     });
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
     expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();

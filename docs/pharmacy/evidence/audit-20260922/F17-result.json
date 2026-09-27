@@ -1,0 +1,10 @@
+{
+  "redExit": 1,
+  "nearExit": 0,
+  "typeExit": 0,
+  "verifyExit": 0,
+  "buildExit": 0,
+  "artifactRuntimeExit": 0,
+  "patchReplay": "PASS",
+  "independentReview": "NOT_RUN"
+}

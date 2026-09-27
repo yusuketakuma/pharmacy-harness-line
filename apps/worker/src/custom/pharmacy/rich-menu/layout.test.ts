@@ -21,9 +21,14 @@ describe('pharmacy rich-menu layout', () => {
       effectiveOrder: ['pharmacy-info', 'manual-chat'],
       variantKey: 'v4-compact-pharmacy-info.manual-chat',
     });
-    expect(derivePharmacyRichMenuLayout(preferredOrder, [
-      'prescription_intake', 'medication_followup', 'manual_chat', 'pharmacy_info',
-    ]).effectiveOrder).toEqual(preferredOrder);
+    expect(
+      derivePharmacyRichMenuLayout(preferredOrder, [
+        'prescription_intake',
+        'medication_followup',
+        'manual_chat',
+        'pharmacy_info',
+      ]).effectiveOrder,
+    ).toEqual(preferredOrder);
   });
 
   it('uses every LINE menu size and removes empty cells from the saved image', () => {
@@ -37,41 +42,57 @@ describe('pharmacy rich-menu layout', () => {
     ] as const;
 
     for (const item of expected) {
-      const presentation = getPharmacyRichMenuPresentation(
-        DEFAULT_PHARMACY_RICH_MENU_ORDER.slice(0, item.direct),
-      );
+      const presentation = getPharmacyRichMenuPresentation(DEFAULT_PHARMACY_RICH_MENU_ORDER.slice(0, item.direct));
       expect(presentation).toMatchObject({ size: item.size });
       expect(presentation.bounds).toHaveLength(item.cells);
-      expect(presentation.bounds.reduce((sum, area) => sum + area.width * area.height, 0))
-        .toBe(2500 * (item.size === 'large' ? 1686 : 843));
+      expect(presentation.bounds.reduce((sum, area) => sum + area.width * area.height, 0)).toBe(
+        2500 * (item.size === 'large' ? 1686 : 843),
+      );
     }
   });
 
   it('rejects incomplete, duplicate, and unknown preferred orders', () => {
     expect(() => validatePharmacyRichMenuPreferredOrder(DEFAULT_PHARMACY_RICH_MENU_ORDER.slice(1))).toThrow(/exactly/i);
-    expect(() => validatePharmacyRichMenuPreferredOrder([
-      'prescription-send', 'prescription-send', 'medication-followup', 'manual-chat', 'pharmacy-info',
-    ])).toThrow(/duplicate/i);
-    expect(() => validatePharmacyRichMenuPreferredOrder([
-      'prescription-send', 'prescription-history', 'medication-followup', 'manual-chat', 'unknown',
-    ])).toThrow(/unknown/i);
+    expect(() =>
+      validatePharmacyRichMenuPreferredOrder([
+        'prescription-send',
+        'prescription-send',
+        'medication-followup',
+        'manual-chat',
+        'pharmacy-info',
+      ]),
+    ).toThrow(/duplicate/i);
+    expect(() =>
+      validatePharmacyRichMenuPreferredOrder([
+        'prescription-send',
+        'prescription-history',
+        'medication-followup',
+        'manual-chat',
+        'unknown',
+      ]),
+    ).toThrow(/unknown/i);
   });
 
   it('enumerates every legal ON/OFF and reorder variant exactly once', () => {
     const variants = listPharmacyRichMenuVariantOrders();
-    const keys = variants.map((order) => derivePharmacyRichMenuLayout(
-      validatePharmacyRichMenuPreferredOrder([
-        ...order,
-        ...DEFAULT_PHARMACY_RICH_MENU_ORDER.filter((key) => !order.includes(key)),
-      ]),
-      order.flatMap((key) => key === 'prescription-send' || key === 'prescription-history'
-        ? ['prescription_intake' as const]
-        : key === 'medication-followup'
-          ? ['medication_followup' as const]
-          : key === 'manual-chat'
-            ? ['manual_chat' as const]
-            : ['pharmacy_info' as const]),
-    ).variantKey);
+    const keys = variants.map(
+      (order) =>
+        derivePharmacyRichMenuLayout(
+          validatePharmacyRichMenuPreferredOrder([
+            ...order,
+            ...DEFAULT_PHARMACY_RICH_MENU_ORDER.filter((key) => !order.includes(key)),
+          ]),
+          order.flatMap((key) =>
+            key === 'prescription-send' || key === 'prescription-history'
+              ? ['prescription_intake' as const]
+              : key === 'medication-followup'
+                ? ['medication_followup' as const]
+                : key === 'manual-chat'
+                  ? ['manual_chat' as const]
+                  : ['pharmacy_info' as const],
+          ),
+        ).variantKey,
+    );
 
     expect(variants).toHaveLength(228);
     expect(new Set(keys).size).toBe(228);

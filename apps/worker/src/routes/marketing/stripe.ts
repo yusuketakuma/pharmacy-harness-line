@@ -38,7 +38,12 @@ stripe.get('/api/integrations/stripe/events', async (c) => {
     // 認証 tenant が解決できている呼び出しはその tenant の friend に帰属する
     // イベントだけに絞る（pharmacy allowlist 経由の cross-tenant 閲覧を防ぐ）。
     const tenantId = c.get('tenantId') ?? undefined;
-    const items = await getStripeEvents(c.env.DB, { friendId, eventType, limit: page.limit, tenantId });
+    const items = await getStripeEvents(c.env.DB, {
+      friendId,
+      eventType,
+      limit: page.limit,
+      tenantId,
+    });
     return c.json({
       success: true,
       data: items.map((e) => ({
@@ -75,13 +80,9 @@ async function verifyStripeSignature(secret: string, rawBody: string, sigHeader:
 
   const encoder = new TextEncoder();
   const signedPayload = `${timestamp}.${rawBody}`;
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(signedPayload));
   const computedSig = Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -223,7 +224,12 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
 
     return c.json({
       success: true,
-      data: { id: event.id, stripeEventId: event.stripe_event_id, eventType: event.event_type, processedAt: event.processed_at },
+      data: {
+        id: event.id,
+        stripeEventId: event.stripe_event_id,
+        eventType: event.event_type,
+        processedAt: event.processed_at,
+      },
     });
   } catch (err) {
     console.error('POST /api/integrations/stripe/webhook error:', err);

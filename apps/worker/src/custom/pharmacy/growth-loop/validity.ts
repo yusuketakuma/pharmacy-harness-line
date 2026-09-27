@@ -16,15 +16,22 @@ type DueValidity = {
 
 export async function processDuePrescriptionValidityReminders(
   db: D1Database,
-  options: { proxyBaseUrl: string; proxyDispatch?: HarnessProxyDispatch; lineCredentialKey?: string; now?: Date; limit?: number },
+  options: {
+    proxyBaseUrl: string;
+    proxyDispatch?: HarnessProxyDispatch;
+    lineCredentialKey?: string;
+    now?: Date;
+    limit?: number;
+  },
 ): Promise<{ sent: number; failed: number; skipped: number; expiredReviewRequired: number }> {
   const now = options.now ?? new Date();
   const timestamp = now.toISOString();
   const today = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const staleClaim = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
-  const expiredRows = await db.prepare(
-    `SELECT v.submission_id, v.line_account_id
+  const expiredRows = await db
+    .prepare(
+      `SELECT v.submission_id, v.line_account_id
        FROM pharmacy_prescription_validities v
        INNER JOIN line_accounts la
          ON la.id = v.line_account_id AND la.is_active = 1
@@ -41,21 +48,30 @@ export async function processDuePrescriptionValidityReminders(
              AND s.status NOT IN ('closed','cancelled')
         )
       ORDER BY v.valid_until, v.submission_id LIMIT ?`,
-  ).bind(today, limit).all<Pick<DueValidity, 'submission_id' | 'line_account_id'>>();
+    )
+    .bind(today, limit)
+    .all<Pick<DueValidity, 'submission_id' | 'line_account_id'>>();
   let expiredReviewRequired = 0;
   for (const row of expiredRows.results ?? []) {
-    if (await markPrescriptionValidityExpiredReview(db, {
-      lineAccountId: row.line_account_id,
-      submissionId: row.submission_id,
-      localDate: today,
-      actorId: 'system',
-      at: now,
-    })) expiredReviewRequired++;
+    if (
+      await markPrescriptionValidityExpiredReview(db, {
+        lineAccountId: row.line_account_id,
+        submissionId: row.submission_id,
+        localDate: today,
+        actorId: 'system',
+        at: now,
+      })
+    )
+      expiredReviewRequired++;
   }
-  const columns = await db.prepare('PRAGMA table_info(pharmacy_prescription_validities)').bind().all<{ name: string }>();
-  const notificationQueue = columns.results?.some(column => column.name === 'notification_checked_at') ?? false;
-  const rows = await db.prepare(
-    `SELECT v.submission_id, v.line_account_id, s.friend_id, patient.patient_id, v.valid_until,
+  const columns = await db
+    .prepare('PRAGMA table_info(pharmacy_prescription_validities)')
+    .bind()
+    .all<{ name: string }>();
+  const notificationQueue = columns.results?.some((column) => column.name === 'notification_checked_at') ?? false;
+  const rows = await db
+    .prepare(
+      `SELECT v.submission_id, v.line_account_id, s.friend_id, patient.patient_id, v.valid_until,
             f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_prescription_validities v
        INNER JOIN pharmacy_prescription_submissions s
@@ -80,7 +96,9 @@ export async function processDuePrescriptionValidityReminders(
         AND s.status = 'ready'
         AND f.is_following = 1 AND la.is_active = 1
       ORDER BY ${notificationQueue ? 'COALESCE(v.notification_checked_at, v.reminder_due_at), ' : ''}v.reminder_due_at, v.submission_id LIMIT ?`,
-  ).bind(today, timestamp, staleClaim, limit).all<DueValidity>();
+    )
+    .bind(today, timestamp, staleClaim, limit)
+    .all<DueValidity>();
 
   const result = {
     sent: 0,
@@ -89,12 +107,17 @@ export async function processDuePrescriptionValidityReminders(
     expiredReviewRequired,
   };
   for (const row of rows.results ?? []) {
-    const claim = await db.prepare(
-      `UPDATE pharmacy_prescription_validities
-          SET reminder_claimed_at = ?, updated_at = ?${notificationQueue ? `,
+    const claim = await db
+      .prepare(
+        `UPDATE pharmacy_prescription_validities
+          SET reminder_claimed_at = ?, updated_at = ?${
+            notificationQueue
+              ? `,
               notification_checked_at = CASE
                 WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
-                ELSE notification_checked_at END` : ''}
+                ELSE notification_checked_at END`
+              : ''
+          }
         WHERE submission_id = ? AND line_account_id = ?
           AND EXISTS (
             SELECT 1 FROM tenant_line_accounts AS mapping
@@ -118,27 +141,39 @@ export async function processDuePrescriptionValidityReminders(
                AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                             WHERE value = 'prescription_intake')
           )`,
-    ).bind(
-      timestamp, timestamp, ...(notificationQueue ? [timestamp, timestamp] : []),
-      row.submission_id, row.line_account_id, row.tenant_id, staleClaim, today,
-    ).run();
+      )
+      .bind(
+        timestamp,
+        timestamp,
+        ...(notificationQueue ? [timestamp, timestamp] : []),
+        row.submission_id,
+        row.line_account_id,
+        row.tenant_id,
+        staleClaim,
+        today,
+      )
+      .run();
     if ((claim.meta?.changes ?? 0) !== 1) {
       result.skipped++;
       continue;
     }
     // Hands the claim back so the reminder is due again on the next sweep.
-    const releaseClaim = () => db.prepare(
-      `UPDATE pharmacy_prescription_validities
+    const releaseClaim = () =>
+      db
+        .prepare(
+          `UPDATE pharmacy_prescription_validities
           SET reminder_claimed_at = NULL, updated_at = ?
         WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-    ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+        )
+        .bind(timestamp, row.submission_id, row.line_account_id, timestamp)
+        .run();
 
     const accessToken = options.lineCredentialKey
       ? await readLineCredential(db, options.lineCredentialKey, {
-        tenantId: row.tenant_id,
-        lineAccountId: row.line_account_id,
-        kind: 'channel_access_token',
-      }).catch(() => null)
+          tenantId: row.tenant_id,
+          lineAccountId: row.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
       : null;
     if (!accessToken) {
       await releaseClaim();
@@ -149,11 +184,11 @@ export async function processDuePrescriptionValidityReminders(
       const retryKey = `prescription-validity:${row.submission_id}:${row.valid_until}`;
       const betaMembershipId = row.patient_id
         ? await getPharmacyBetaNotificationBinding(db, {
-          lineAccountId: row.line_account_id,
-          retryKey,
-          participantFriendId: row.friend_id,
-          subjectPatientId: row.patient_id,
-        })
+            lineAccountId: row.line_account_id,
+            retryKey,
+            participantFriendId: row.friend_id,
+            subjectPatientId: row.patient_id,
+          })
         : null;
       const outcome = await sendPharmacyAutomatedPush({
         db,
@@ -176,11 +211,14 @@ export async function processDuePrescriptionValidityReminders(
         result.skipped++;
         continue;
       }
-      await db.prepare(
-        `UPDATE pharmacy_prescription_validities
+      await db
+        .prepare(
+          `UPDATE pharmacy_prescription_validities
             SET reminder_sent_at = ?, reminder_claimed_at = NULL, updated_at = ?
           WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-      ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp).run();
+        )
+        .bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp)
+        .run();
       result.sent++;
     } catch {
       await releaseClaim();

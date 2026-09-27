@@ -11,10 +11,7 @@ import type { CurrentVersion, ForkStatus, Manifest } from './types.js';
  * Worker is highest priority because a worker fork is the riskiest to update
  * automatically (it owns DB writes and webhook routing).
  */
-export function detectFork(
-  current: CurrentVersion,
-  manifest: Manifest,
-): ForkStatus {
+export function detectFork(current: CurrentVersion, manifest: Manifest): ForkStatus {
   const matched = findRelease(manifest, current.version);
   if (!matched) {
     return {

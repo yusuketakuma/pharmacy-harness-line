@@ -51,19 +51,29 @@ describe('custom_004_pharmacy_continuity.sql', () => {
     db.prepare(`INSERT INTO pharmacy_continuity_events
       (id, obligation_id, line_account_id, event_type, actor_type, created_at)
       VALUES ('event-a', 'obligation-a', 'account-a', 'opened', 'system', '2026-08-17T00:00:00Z')`).run();
-    expect(() => db.prepare(`INSERT INTO pharmacy_continuity_obligations
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_continuity_obligations
       (id, line_account_id, owner_friend_id, patient_id, source_submission_id, status,
        expected_next_from, expected_next_to, next_contact_at, consent_at, created_at, updated_at)
       VALUES ('obligation-b', 'account-a', 'friend-a', 'patient-a', 'submission-a', 'active',
-        '2026-09-01', '2026-10-31', '2026-09-01', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`).run()).toThrow(/UNIQUE constraint failed/);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM pharmacy_continuity_events').get()).toEqual({ count: 1 });
+        '2026-09-01', '2026-10-31', '2026-09-01', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM pharmacy_continuity_events').get()).toEqual({
+      count: 1,
+    });
   });
 
   it('keeps tenant and patient foreign keys enforced', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_continuity_obligations
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_continuity_obligations
       (id, line_account_id, owner_friend_id, patient_id, source_submission_id, status,
        expected_next_from, expected_next_to, next_contact_at, consent_at, created_at, updated_at)
       VALUES ('obligation-x', 'other-account', 'friend-a', 'patient-a', 'submission-a', 'active',
-        '2026-09-01', '2026-10-31', '2026-09-01', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`).run()).toThrow(/FOREIGN KEY constraint failed/);
+        '2026-09-01', '2026-10-31', '2026-09-01', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`)
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/);
   });
 });

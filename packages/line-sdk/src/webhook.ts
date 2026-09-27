@@ -19,11 +19,7 @@ function constantTimeEqual(a: string, b: string): boolean {
  * @param signature     - Value of the X-Line-Signature header (base64)
  * @returns true if the signature is valid, false otherwise
  */
-export async function verifySignature(
-  channelSecret: string,
-  body: string,
-  signature: string,
-): Promise<boolean> {
+export async function verifySignature(channelSecret: string, body: string, signature: string): Promise<boolean> {
   const encoder = new TextEncoder();
 
   const key = await crypto.subtle.importKey(
@@ -34,11 +30,7 @@ export async function verifySignature(
     ['sign'],
   );
 
-  const signatureBytes = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    encoder.encode(body),
-  );
+  const signatureBytes = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
 
   // Convert computed HMAC to base64 (safe for all buffer sizes)
   const bytes = new Uint8Array(signatureBytes);

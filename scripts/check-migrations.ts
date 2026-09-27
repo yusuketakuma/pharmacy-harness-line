@@ -80,8 +80,7 @@ const RULES: Rule[] = [
     pattern: /\bALTER\s+TABLE\s+\S+\s+RENAME\s+TO\b/i,
   },
   {
-    label:
-      'ADD COLUMN ... NOT NULL without DEFAULT is forbidden (would break existing rows)',
+    label: 'ADD COLUMN ... NOT NULL without DEFAULT is forbidden (would break existing rows)',
     // Match `ADD COLUMN <name> <type...> NOT NULL` not followed by DEFAULT
     // on the same column definition (i.e. before the next `,` `;` or end).
     // The DEFAULT must come after NOT NULL on the same column def.
@@ -141,10 +140,7 @@ export function checkMigration(sql: string): CheckResult {
   if (normalized === null) {
     return { ok: false, violation: 'Unterminated SQL quote or block comment' };
   }
-  const stripped = normalized.replace(
-    /\bIS\s+NOT\s+NULL\b/gi,
-    'IS NULL',
-  );
+  const stripped = normalized.replace(/\bIS\s+NOT\s+NULL\b/gi, 'IS NULL');
   for (const rule of RULES) {
     const m = stripped.match(rule.pattern);
     if (m) {
@@ -180,10 +176,7 @@ const BASELINE_MIGRATION = '001_v033_baseline.sql';
  * lexicographic and any newer naming scheme is assumed in-policy until we
  * decide otherwise).
  */
-export function filterMigrationsByPolicy(
-  names: string[],
-  options: { all?: boolean } = {},
-): string[] {
+export function filterMigrationsByPolicy(names: string[], options: { all?: boolean } = {}): string[] {
   if (options.all) return names;
   return names.filter((name) => name >= POLICY_CUTOFF_PREFIX);
 }
@@ -205,16 +198,11 @@ function main(rawArgs: string[]): void {
   const files = usingDefaults ? listDefaultMigrations({ all }) : fileArgs;
 
   if (usingDefaults) {
-    stdout.write(
-      `Policy: additive-only applied to v0.33 post-baseline migrations >= ${POLICY_CUTOFF_PREFIX}.\n`,
-    );
+    stdout.write(`Policy: additive-only applied to v0.33 post-baseline migrations >= ${POLICY_CUTOFF_PREFIX}.\n`);
   }
 
   if (files.length === 0) {
-    if (
-      usingDefaults &&
-      existsSync(resolve(DEFAULT_MIGRATIONS_DIR, BASELINE_MIGRATION))
-    ) {
+    if (usingDefaults && existsSync(resolve(DEFAULT_MIGRATIONS_DIR, BASELINE_MIGRATION))) {
       stdout.write('OK — 0 post-baseline migrations pass.\n');
       return;
     }

@@ -1,9 +1,6 @@
 import { patientAuthorityPredicateFor } from '../intake/repository.js';
 import { assertPharmacyAutomatedText } from '../growth-loop/policy.js';
-import {
-  pharmacyHumanStaffPredicate,
-  pharmacyStaffAccountPredicate,
-} from '../growth-loop/access.js';
+import { pharmacyHumanStaffPredicate, pharmacyStaffAccountPredicate } from '../growth-loop/access.js';
 import { tenantAuditStatement } from '../../../lib/tenant-audit.js';
 
 export type MedicationFollowUpStatus =
@@ -19,10 +16,7 @@ export type MedicationFollowUpStatus =
   | 'closed'
   | 'cancelled';
 
-export type MedicationFollowUpPatientResponse =
-  | 'no_issue'
-  | 'concern'
-  | 'pharmacist_requested';
+export type MedicationFollowUpPatientResponse = 'no_issue' | 'concern' | 'pharmacist_requested';
 
 export type MedicationFollowUpContactChannel = 'line' | 'phone';
 export type MedicationFollowUpContactOutcome =
@@ -122,15 +116,27 @@ async function medicationFollowUpSchema(db: D1Database): Promise<MedicationFollo
 }
 
 function followUpFields(schema: MedicationFollowUpSchema, alias = ''): string {
-  const field = (name: string) => alias ? `${alias}.${name}` : name;
+  const field = (name: string) => (alias ? `${alias}.${name}` : name);
   const closure = schema.closureColumns
     ? `${field('question_set_version')}, ${field('response_deadline_at')}`
     : '1 AS question_set_version, NULL AS response_deadline_at';
   return [
-    field('id'), field('line_account_id'), field('owner_friend_id'), field('patient_id'),
-    field('source_submission_id'), field('status'), field('due_at'), closure,
-    field('delivered_at'), field('responded_at'), field('assigned_to'), field('closed_at'),
-    field('version'), field('created_by'), field('created_at'), field('updated_at'),
+    field('id'),
+    field('line_account_id'),
+    field('owner_friend_id'),
+    field('patient_id'),
+    field('source_submission_id'),
+    field('status'),
+    field('due_at'),
+    closure,
+    field('delivered_at'),
+    field('responded_at'),
+    field('assigned_to'),
+    field('closed_at'),
+    field('version'),
+    field('created_by'),
+    field('created_at'),
+    field('updated_at'),
   ].join(', ');
 }
 
@@ -160,10 +166,15 @@ export function isMedicationFollowUpTransitionAllowed(
   return TRANSITIONS[fromStatus].includes(toStatus);
 }
 
-const RESPONSE_RE = /^pharmacy-followup:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(no_issue|concern|pharmacist_requested)$/i;
+const RESPONSE_RE =
+  /^pharmacy-followup:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(no_issue|concern|pharmacist_requested)$/i;
 const CONTACT_CHANNELS = new Set<MedicationFollowUpContactChannel>(['line', 'phone']);
 const CONTACT_OUTCOMES = new Set<MedicationFollowUpContactOutcome>([
-  'answered', 'no_answer', 'resolved', 'follow_up_required', 'escalated',
+  'answered',
+  'no_answer',
+  'resolved',
+  'follow_up_required',
+  'escalated',
 ]);
 
 function validOpaqueKey(value: string, maxLength = 160): boolean {
@@ -232,8 +243,7 @@ async function humanStaffAccountPredicate(db: D1Database, accountColumn: string)
 }
 
 function validStaffId(value: string | null | undefined): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 128 &&
-    /^[A-Za-z0-9._:-]+$/.test(value);
+  return typeof value === 'string' && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
 function sameContactInput(
@@ -242,10 +252,12 @@ function sameContactInput(
   nextContactAt: string | null,
   followUpId: string,
 ): boolean {
-  return existing.followup_id === followUpId &&
+  return (
+    existing.followup_id === followUpId &&
     existing.channel === input.channel &&
     existing.outcome_code === input.outcomeCode &&
-    existing.next_contact_at === nextContactAt;
+    existing.next_contact_at === nextContactAt
+  );
 }
 
 async function getMedicationFollowUpContactByKey(
@@ -253,27 +265,29 @@ async function getMedicationFollowUpContactByKey(
   lineAccountId: string,
   idempotencyKey: string,
 ): Promise<MedicationFollowUpContactRecord | null> {
-  return db.prepare(
-    `SELECT id, followup_id, line_account_id, channel, outcome_code,
+  return db
+    .prepare(
+      `SELECT id, followup_id, line_account_id, channel, outcome_code,
             next_contact_at, actor_staff_id, idempotency_key, occurred_at, created_at
        FROM pharmacy_medication_followup_contact_records
       WHERE line_account_id = ? AND idempotency_key = ?
       LIMIT 1`,
-  ).bind(lineAccountId, idempotencyKey).first<MedicationFollowUpContactRecord>();
+    )
+    .bind(lineAccountId, idempotencyKey)
+    .first<MedicationFollowUpContactRecord>();
 }
 
-async function hasResponseRecord(
-  db: D1Database,
-  lineAccountId: string,
-  followUpId: string,
-): Promise<boolean> {
-  const row = await db.prepare(
-    `SELECT 1 AS ok
+async function hasResponseRecord(db: D1Database, lineAccountId: string, followUpId: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
        FROM pharmacy_medication_followup_contact_records
       WHERE line_account_id = ? AND followup_id = ?
         AND outcome_code <> 'no_answer'
       LIMIT 1`,
-  ).bind(lineAccountId, followUpId).first<{ ok: number }>();
+    )
+    .bind(lineAccountId, followUpId)
+    .first<{ ok: number }>();
   return Boolean(row);
 }
 
@@ -283,8 +297,9 @@ async function hasPatientAuthorityForFollowUp(
   now: string,
 ): Promise<boolean> {
   const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  const row = await db.prepare(
-    `SELECT 1 AS ok
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
        FROM pharmacy_medication_followups AS followup
        INNER JOIN pharmacy_patients AS patient
          ON patient.id = followup.patient_id
@@ -294,13 +309,9 @@ async function hasPatientAuthorityForFollowUp(
         AND followup.owner_friend_id = ?
         AND patient.archived_at IS NULL
         ${authorityPredicate}`,
-  ).bind(
-    input.followUpId,
-    input.lineAccountId,
-    input.actorId,
-    input.actorId,
-    now,
-  ).first<{ ok: number }>();
+    )
+    .bind(input.followUpId, input.lineAccountId, input.actorId, input.actorId, now)
+    .first<{ ok: number }>();
   return Boolean(row);
 }
 
@@ -310,9 +321,11 @@ async function getFollowUp(
   followUpId: string,
   schema?: MedicationFollowUpSchema,
 ): Promise<MedicationFollowUp | null> {
-  const resolvedSchema = schema ?? await medicationFollowUpSchema(db);
-  return db.prepare(`${followUpSelect(resolvedSchema)} WHERE id = ? AND line_account_id = ?`)
-    .bind(followUpId, lineAccountId).first<MedicationFollowUp>();
+  const resolvedSchema = schema ?? (await medicationFollowUpSchema(db));
+  return db
+    .prepare(`${followUpSelect(resolvedSchema)} WHERE id = ? AND line_account_id = ?`)
+    .bind(followUpId, lineAccountId)
+    .first<MedicationFollowUp>();
 }
 
 export async function scheduleMedicationFollowUp(
@@ -349,8 +362,9 @@ export async function scheduleMedicationFollowUp(
     throw new Error('follow-up closure unavailable');
   }
   const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, '?');
-  const source = await db.prepare(
-    `SELECT pp.patient_id, pp.owner_friend_id
+  const source = await db
+    .prepare(
+      `SELECT pp.patient_id, pp.owner_friend_id
        FROM pharmacy_prescription_patients pp
        INNER JOIN pharmacy_prescription_submissions s
          ON s.id = pp.submission_id AND s.line_account_id = pp.line_account_id
@@ -360,15 +374,18 @@ export async function scheduleMedicationFollowUp(
       WHERE pp.submission_id = ? AND pp.line_account_id = ?
         AND s.status = 'closed' AND p.archived_at IS NULL
       LIMIT 1`,
-  ).bind(input.submissionId, input.lineAccountId).first<{
-    patient_id: string;
-    owner_friend_id: string;
-  }>();
+    )
+    .bind(input.submissionId, input.lineAccountId)
+    .first<{
+      patient_id: string;
+      owner_friend_id: string;
+    }>();
   if (!source) throw new Error('eligible closed submission not found');
 
-  const existing = await db.prepare(
-    `${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`,
-  ).bind(input.lineAccountId, input.submissionId).first<MedicationFollowUp>();
+  const existing = await db
+    .prepare(`${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`)
+    .bind(input.lineAccountId, input.submissionId)
+    .first<MedicationFollowUp>();
   if (existing) {
     if (existing.due_at !== dueAt || existing.response_deadline_at !== responseDeadlineAt) {
       throw new Error('medication follow-up already scheduled');
@@ -381,8 +398,9 @@ export async function scheduleMedicationFollowUp(
   const timestamp = now.toISOString();
   const eventKey = `schedule:${input.idempotencyKey}`;
   const followUpInsert = schema.closureColumns
-    ? db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followups
+    ? db
+        .prepare(
+          `INSERT OR IGNORE INTO pharmacy_medication_followups
         (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          status, due_at, question_set_version, response_deadline_at,
          created_by, created_at, updated_at)
@@ -398,15 +416,28 @@ export async function scheduleMedicationFollowUp(
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
         )`,
-    ).bind(
-      id, input.lineAccountId, source.owner_friend_id, source.patient_id,
-      input.submissionId, dueAt, responseDeadlineAt, input.staffId, timestamp, timestamp,
-      input.lineAccountId,
-      input.lineAccountId, input.lineAccountId, input.staffId,
-      input.lineAccountId, eventKey,
-    )
-    : db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followups
+        )
+        .bind(
+          id,
+          input.lineAccountId,
+          source.owner_friend_id,
+          source.patient_id,
+          input.submissionId,
+          dueAt,
+          responseDeadlineAt,
+          input.staffId,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.staffId,
+          input.lineAccountId,
+          eventKey,
+        )
+    : db
+        .prepare(
+          `INSERT OR IGNORE INTO pharmacy_medication_followups
         (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          status, due_at, created_by, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?
@@ -421,17 +452,29 @@ export async function scheduleMedicationFollowUp(
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
         )`,
-    ).bind(
-      id, input.lineAccountId, source.owner_friend_id, source.patient_id,
-      input.submissionId, dueAt, input.staffId, timestamp, timestamp,
-      input.lineAccountId,
-      input.lineAccountId, input.lineAccountId, input.staffId,
-      input.lineAccountId, eventKey,
-    );
+        )
+        .bind(
+          id,
+          input.lineAccountId,
+          source.owner_friend_id,
+          source.patient_id,
+          input.submissionId,
+          dueAt,
+          input.staffId,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.staffId,
+          input.lineAccountId,
+          eventKey,
+        );
   await db.batch([
     followUpInsert,
-    db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followup_events
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO pharmacy_medication_followup_events
         (id, followup_id, line_account_id, event_type, to_status, actor_type,
          actor_id, idempotency_key, occurred_at)
        SELECT ?, f.id, f.line_account_id, 'scheduled', 'scheduled', 'staff', ?, ?, ?
@@ -442,14 +485,13 @@ export async function scheduleMedicationFollowUp(
              WHERE e.followup_id = f.id AND e.line_account_id = f.line_account_id
                AND e.event_type = 'scheduled'
           )`,
-    ).bind(
-      eventId, input.staffId, eventKey, timestamp,
-      input.lineAccountId, input.submissionId, dueAt,
-    ),
+      )
+      .bind(eventId, input.staffId, eventKey, timestamp, input.lineAccountId, input.submissionId, dueAt),
   ]);
-  const saved = await db.prepare(
-    `${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`,
-  ).bind(input.lineAccountId, input.submissionId).first<MedicationFollowUp>();
+  const saved = await db
+    .prepare(`${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`)
+    .bind(input.lineAccountId, input.submissionId)
+    .first<MedicationFollowUp>();
   if (!saved || saved.due_at !== dueAt || saved.response_deadline_at !== responseDeadlineAt) {
     throw new Error('medication follow-up scheduling conflict');
   }
@@ -479,53 +521,70 @@ export async function transitionMedicationFollowUp(
   if (!current) throw new Error('medication follow-up not found');
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
-  if (input.assigneeStaffId !== undefined && input.assigneeStaffId !== null &&
-      !validStaffId(input.assigneeStaffId)) {
+  if (input.assigneeStaffId !== undefined && input.assigneeStaffId !== null && !validStaffId(input.assigneeStaffId)) {
     throw new Error('invalid assigned staff');
   }
   if (input.toStatus !== 'assigned' && input.assigneeStaffId !== undefined) {
     throw new Error('invalid assigned staff');
   }
-  const idempotencyKey = input.idempotencyKey
-    ?? `transition:${input.followUpId}:${input.expectedVersion}:${input.toStatus}`;
+  const idempotencyKey =
+    input.idempotencyKey ?? `transition:${input.followUpId}:${input.expectedVersion}:${input.toStatus}`;
   if (!validOpaqueKey(idempotencyKey)) throw new Error('invalid medication follow-up transition');
-  if (input.actorType === 'patient' &&
-      !(await hasPatientAuthorityForFollowUp(db, {
+  if (
+    input.actorType === 'patient' &&
+    !(await hasPatientAuthorityForFollowUp(
+      db,
+      {
         lineAccountId: input.lineAccountId,
         followUpId: input.followUpId,
         actorId: input.actorId,
-      }, timestamp))) {
+      },
+      timestamp,
+    ))
+  ) {
     throw new Error('medication follow-up transition conflict');
   }
   if (input.contact && !schema.contactRecords) {
     throw new Error('follow-up closure unavailable');
   }
-  if (!schema.contactRecords &&
-      (input.toStatus === 'responded' || (input.toStatus === 'closed' && current.status === 'responded'))) {
+  if (
+    !schema.contactRecords &&
+    (input.toStatus === 'responded' || (input.toStatus === 'closed' && current.status === 'responded'))
+  ) {
     throw new Error('follow-up closure unavailable');
   }
-  const eventAssigneeColumn = (input.toStatus === 'assigned' || input.assigneeStaffId !== undefined) &&
-    schema.eventAssigneeColumn;
-  const replay = await db.prepare(
-    `SELECT 1 AS ok${eventAssigneeColumn ? ', assignee_staff_id' : ', NULL AS assignee_staff_id'}
+  const eventAssigneeColumn =
+    (input.toStatus === 'assigned' || input.assigneeStaffId !== undefined) && schema.eventAssigneeColumn;
+  const replay = await db
+    .prepare(
+      `SELECT 1 AS ok${eventAssigneeColumn ? ', assignee_staff_id' : ', NULL AS assignee_staff_id'}
        FROM pharmacy_medication_followup_events
       WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.followUpId, input.lineAccountId, idempotencyKey).first<{
-    ok: number;
-    assignee_staff_id: string | null;
-  }>();
+    )
+    .bind(input.followUpId, input.lineAccountId, idempotencyKey)
+    .first<{
+      ok: number;
+      assignee_staff_id: string | null;
+    }>();
   if (replay) {
-    if (eventAssigneeColumn && input.toStatus === 'assigned' &&
-        replay.assignee_staff_id !== (input.assigneeStaffId ?? null)) {
+    if (
+      eventAssigneeColumn &&
+      input.toStatus === 'assigned' &&
+      replay.assignee_staff_id !== (input.assigneeStaffId ?? null)
+    ) {
       throw new Error('medication follow-up transition conflict');
     }
     return current;
   }
-  if (current.version !== input.expectedVersion ||
-      !isMedicationFollowUpTransitionAllowed(current.status, input.toStatus)) {
-    throw new Error(current.version !== input.expectedVersion
-      ? 'medication follow-up transition conflict'
-      : 'invalid follow-up transition');
+  if (
+    current.version !== input.expectedVersion ||
+    !isMedicationFollowUpTransitionAllowed(current.status, input.toStatus)
+  ) {
+    throw new Error(
+      current.version !== input.expectedVersion
+        ? 'medication follow-up transition conflict'
+        : 'invalid follow-up transition',
+    );
   }
   if (input.toStatus === 'assigned' && !validStaffId(input.assigneeStaffId)) {
     // ponytail: preserve the pre-V036 omitted-assignee payload; new clients must send a human staff ID.
@@ -544,16 +603,14 @@ export async function transitionMedicationFollowUp(
       throw new Error('invalid medication follow-up contact');
     }
     nextContactAt = normalizeContactInput(input.contact);
-    contact = await getMedicationFollowUpContactByKey(
-      db, input.lineAccountId, input.contact.idempotencyKey,
-    );
+    contact = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.contact.idempotencyKey);
     if (contact && !sameContactInput(contact, input.contact, nextContactAt, input.followUpId)) {
       throw new Error('medication follow-up contact conflict');
     }
     if (!contact) requireFutureContactAt(nextContactAt, now);
   }
-  const requiresResponseRecord = input.toStatus === 'responded' ||
-    (input.toStatus === 'closed' && current.status === 'responded');
+  const requiresResponseRecord =
+    input.toStatus === 'responded' || (input.toStatus === 'closed' && current.status === 'responded');
   const hasExistingResponse = contact
     ? contact.outcome_code !== 'no_answer'
     : schema.contactRecords && requiresResponseRecord
@@ -566,7 +623,8 @@ export async function transitionMedicationFollowUp(
     throw new Error('follow-up response record required');
   }
 
-  const responseRecordGuard = schema.contactRecords ? `
+  const responseRecordGuard = schema.contactRecords
+    ? `
           AND (
             ? NOT IN ('responded', 'closed')
             OR (? = 'closed' AND followup.status <> 'responded')
@@ -576,8 +634,10 @@ export async function transitionMedicationFollowUp(
                  AND contact.followup_id = followup.id
                  AND contact.outcome_code <> 'no_answer'
             )
-          )` : '';
-  const contactMatchGuard = input.contact ? `
+          )`
+    : '';
+  const contactMatchGuard = input.contact
+    ? `
           AND EXISTS (
             SELECT 1 FROM pharmacy_medication_followup_contact_records AS exact_contact
              WHERE exact_contact.line_account_id = followup.line_account_id
@@ -586,17 +646,21 @@ export async function transitionMedicationFollowUp(
                AND exact_contact.channel = ?
                AND exact_contact.outcome_code = ?
                AND exact_contact.next_contact_at IS ?
-          )` : '';
+          )`
+    : '';
   const contactMatchValues = input.contact
     ? [input.contact.idempotencyKey, input.contact.channel, input.contact.outcomeCode, nextContactAt]
     : [];
 
   const eventId = crypto.randomUUID();
-  const eventStatement = db.prepare(
-    `INSERT INTO pharmacy_medication_followup_events
-      (${eventAssigneeColumn
-        ? 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at, assignee_staff_id'
-        : 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at'})
+  const eventStatement = db
+    .prepare(
+      `INSERT INTO pharmacy_medication_followup_events
+      (${
+        eventAssigneeColumn
+          ? 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at, assignee_staff_id'
+          : 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at'
+      })
      SELECT ?, followup.id, followup.line_account_id, ?, followup.status, ?, ?, ?, ?, ?
        ${eventAssigneeColumn ? ', ?' : ''}
          FROM pharmacy_medication_followups AS followup
@@ -624,20 +688,36 @@ export async function transitionMedicationFollowUp(
             ? = 0
             OR ${humanAssigneePredicate}
           )`,
-  ).bind(
-    eventId, input.toStatus, input.toStatus, input.actorType, input.actorId,
-    idempotencyKey, timestamp,
-    ...(eventAssigneeColumn ? [input.assigneeStaffId ?? null] : []),
-    input.followUpId, input.lineAccountId, current.status, input.expectedVersion,
-    input.actorType, input.actorId, input.actorId, timestamp,
-    input.actorType, input.actorId,
-    ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
-    ...contactMatchValues,
-    requiresHumanAssignee ? 1 : 0, input.assigneeStaffId ?? input.actorId,
-  );
-  const contactStatement = schema.contactRecords && input.contact && !contact
-    ? db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
+    )
+    .bind(
+      eventId,
+      input.toStatus,
+      input.toStatus,
+      input.actorType,
+      input.actorId,
+      idempotencyKey,
+      timestamp,
+      ...(eventAssigneeColumn ? [input.assigneeStaffId ?? null] : []),
+      input.followUpId,
+      input.lineAccountId,
+      current.status,
+      input.expectedVersion,
+      input.actorType,
+      input.actorId,
+      input.actorId,
+      timestamp,
+      input.actorType,
+      input.actorId,
+      ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
+      ...contactMatchValues,
+      requiresHumanAssignee ? 1 : 0,
+      input.assigneeStaffId ?? input.actorId,
+    );
+  const contactStatement =
+    schema.contactRecords && input.contact && !contact
+      ? db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
         (id, followup_id, line_account_id, channel, outcome_code, next_contact_at,
          actor_staff_id, idempotency_key, occurred_at, created_at)
        SELECT ?, followup.id, followup.line_account_id, ?, ?, ?, ?, ?, ?, ?
@@ -649,19 +729,31 @@ export async function transitionMedicationFollowUp(
             ? = 0
             OR ${humanAssigneePredicate}
           )`,
-    ).bind(
-      crypto.randomUUID(), input.contact.channel, input.contact.outcomeCode, nextContactAt,
-      input.actorId, input.contact.idempotencyKey, timestamp, timestamp,
-      input.followUpId, input.lineAccountId, current.status, input.expectedVersion,
-      input.actorId,
-      requiresHumanAssignee ? 1 : 0, input.assigneeStaffId ?? input.actorId,
-    )
-    : null;
+          )
+          .bind(
+            crypto.randomUUID(),
+            input.contact.channel,
+            input.contact.outcomeCode,
+            nextContactAt,
+            input.actorId,
+            input.contact.idempotencyKey,
+            timestamp,
+            timestamp,
+            input.followUpId,
+            input.lineAccountId,
+            current.status,
+            input.expectedVersion,
+            input.actorId,
+            requiresHumanAssignee ? 1 : 0,
+            input.assigneeStaffId ?? input.actorId,
+          )
+      : null;
   const results = await db.batch([
     ...(contactStatement ? [contactStatement] : []),
     eventStatement,
-    db.prepare(
-      `UPDATE pharmacy_medication_followups AS followup
+    db
+      .prepare(
+        `UPDATE pharmacy_medication_followups AS followup
           SET status = ?,
               delivered_at = CASE WHEN ? = 'delivered' THEN ? ELSE delivered_at END,
               responded_at = CASE WHEN ? IN ('no_issue','concern','pharmacist_requested')
@@ -697,28 +789,44 @@ export async function transitionMedicationFollowUp(
             ? = 0
             OR ${humanAssigneePredicate}
           )`,
-    ).bind(
-      input.toStatus,
-      input.toStatus, timestamp,
-      input.toStatus, timestamp,
-      input.toStatus, input.assigneeStaffId ?? null,
-      input.toStatus, timestamp,
-      timestamp,
-      input.followUpId, input.lineAccountId, current.status, input.expectedVersion,
-      eventId, input.followUpId, input.lineAccountId,
-      input.actorType, input.actorId, input.actorId, timestamp,
-      input.actorType, input.actorId,
-      ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
-      requiresHumanAssignee ? 1 : 0, input.assigneeStaffId ?? input.actorId,
-    ),
+      )
+      .bind(
+        input.toStatus,
+        input.toStatus,
+        timestamp,
+        input.toStatus,
+        timestamp,
+        input.toStatus,
+        input.assigneeStaffId ?? null,
+        input.toStatus,
+        timestamp,
+        timestamp,
+        input.followUpId,
+        input.lineAccountId,
+        current.status,
+        input.expectedVersion,
+        eventId,
+        input.followUpId,
+        input.lineAccountId,
+        input.actorType,
+        input.actorId,
+        input.actorId,
+        timestamp,
+        input.actorType,
+        input.actorId,
+        ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
+        requiresHumanAssignee ? 1 : 0,
+        input.assigneeStaffId ?? input.actorId,
+      ),
   ]);
   const eventIndex = contactStatement ? 1 : 0;
   const updateIndex = eventIndex + 1;
-  if ((results[eventIndex]?.meta?.changes ?? 0) !== 1 ||
-      (results[updateIndex]?.meta?.changes ?? 0) !== 1) {
+  if ((results[eventIndex]?.meta?.changes ?? 0) !== 1 || (results[updateIndex]?.meta?.changes ?? 0) !== 1) {
     if (input.contact) {
       const racedContact = await getMedicationFollowUpContactByKey(
-        db, input.lineAccountId, input.contact.idempotencyKey,
+        db,
+        input.lineAccountId,
+        input.contact.idempotencyKey,
       );
       if (racedContact && !sameContactInput(racedContact, input.contact, nextContactAt, input.followUpId)) {
         throw new Error('medication follow-up contact conflict');
@@ -745,9 +853,13 @@ export async function recordMedicationFollowUpContact(
     now?: Date;
   },
 ): Promise<MedicationFollowUpContactRecord> {
-  if (!input.lineAccountId || !input.followUpId || !input.actorStaffId ||
-      !validOpaqueKey(input.idempotencyKey) ||
-      (input.expectedVersion !== undefined && !Number.isInteger(input.expectedVersion))) {
+  if (
+    !input.lineAccountId ||
+    !input.followUpId ||
+    !input.actorStaffId ||
+    !validOpaqueKey(input.idempotencyKey) ||
+    (input.expectedVersion !== undefined && !Number.isInteger(input.expectedVersion))
+  ) {
     throw new Error('invalid medication follow-up contact');
   }
   const schema = await medicationFollowUpSchema(db);
@@ -760,9 +872,7 @@ export async function recordMedicationFollowUpContact(
     nextContactAt: input.nextContactAt,
     idempotencyKey: input.idempotencyKey,
   };
-  const existing = await getMedicationFollowUpContactByKey(
-    db, input.lineAccountId, input.idempotencyKey,
-  );
+  const existing = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
   if (existing) {
     if (!sameContactInput(existing, contactInput, nextContactAt, input.followUpId)) {
       throw new Error('medication follow-up contact conflict');
@@ -771,13 +881,12 @@ export async function recordMedicationFollowUpContact(
   }
   requireFutureContactAt(nextContactAt, now);
 
-  const versionPredicate = input.expectedVersion === undefined
-    ? ''
-    : ' AND followup.version = ?';
+  const versionPredicate = input.expectedVersion === undefined ? '' : ' AND followup.version = ?';
   const timestamp = now.toISOString();
   const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, 'followup.line_account_id');
-  const result = await db.prepare(
-    `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
       (id, followup_id, line_account_id, channel, outcome_code, next_contact_at,
        actor_staff_id, idempotency_key, occurred_at, created_at)
      SELECT ?, followup.id, followup.line_account_id, ?, ?, ?, ?, ?, ?, ?
@@ -786,17 +895,24 @@ export async function recordMedicationFollowUpContact(
         AND followup.status NOT IN ('closed', 'cancelled')
         ${versionPredicate}
         AND ${staffAuthorityPredicate}`,
-  ).bind(
-    crypto.randomUUID(), input.channel, input.outcomeCode, nextContactAt,
-    input.actorStaffId, input.idempotencyKey, timestamp, timestamp,
-    input.followUpId, input.lineAccountId,
-    ...(input.expectedVersion === undefined ? [] : [input.expectedVersion]),
-    input.actorStaffId,
-  ).run();
+    )
+    .bind(
+      crypto.randomUUID(),
+      input.channel,
+      input.outcomeCode,
+      nextContactAt,
+      input.actorStaffId,
+      input.idempotencyKey,
+      timestamp,
+      timestamp,
+      input.followUpId,
+      input.lineAccountId,
+      ...(input.expectedVersion === undefined ? [] : [input.expectedVersion]),
+      input.actorStaffId,
+    )
+    .run();
   if ((result.meta?.changes ?? 0) !== 1) {
-    const raced = await getMedicationFollowUpContactByKey(
-      db, input.lineAccountId, input.idempotencyKey,
-    );
+    const raced = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
     if (raced) {
       if (!sameContactInput(raced, contactInput, nextContactAt, input.followUpId)) {
         throw new Error('medication follow-up contact conflict');
@@ -808,9 +924,7 @@ export async function recordMedicationFollowUpContact(
     }
     throw new Error('medication follow-up contact conflict');
   }
-  const saved = await getMedicationFollowUpContactByKey(
-    db, input.lineAccountId, input.idempotencyKey,
-  );
+  const saved = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
   if (!saved) throw new Error('medication follow-up contact conflict');
   return saved;
 }
@@ -822,14 +936,17 @@ export async function listMedicationFollowUpContacts(
 ): Promise<MedicationFollowUpContactRecord[]> {
   const schema = await medicationFollowUpSchema(db);
   if (!schema.contactRecords) throw new Error('follow-up closure unavailable');
-  const result = await db.prepare(
-    `SELECT id, followup_id, line_account_id, channel, outcome_code,
+  const result = await db
+    .prepare(
+      `SELECT id, followup_id, line_account_id, channel, outcome_code,
             next_contact_at, actor_staff_id, idempotency_key, occurred_at, created_at
        FROM pharmacy_medication_followup_contact_records
       WHERE line_account_id = ? AND followup_id = ?
       ORDER BY occurred_at DESC, id DESC
       LIMIT 100`,
-  ).bind(lineAccountId, followUpId).all<MedicationFollowUpContactRecord>();
+    )
+    .bind(lineAccountId, followUpId)
+    .all<MedicationFollowUpContactRecord>();
   return result.results ?? [];
 }
 
@@ -838,8 +955,9 @@ export async function listMedicationFollowUpAssignees(
   lineAccountId: string,
 ): Promise<MedicationFollowUpAssignee[]> {
   const humanStaffPredicate = await pharmacyHumanStaffPredicate(db, 'staff');
-  const result = await db.prepare(
-    `SELECT DISTINCT staff.id, staff.name, membership.role
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT staff.id, staff.name, membership.role
        FROM tenant_line_accounts AS mapping
        INNER JOIN line_accounts AS account
                ON account.id = mapping.line_account_id AND account.is_active = 1
@@ -857,7 +975,9 @@ export async function listMedicationFollowUpAssignees(
               AND assignment.is_active = 1
       WHERE mapping.line_account_id = ?
       ORDER BY staff.name COLLATE NOCASE, staff.id`,
-  ).bind(lineAccountId).all<MedicationFollowUpAssignee>();
+    )
+    .bind(lineAccountId)
+    .all<MedicationFollowUpAssignee>();
   return result.results ?? [];
 }
 
@@ -865,10 +985,12 @@ export function parseMedicationFollowUpPostback(
   data: string,
 ): { followUpId: string; response: MedicationFollowUpPatientResponse } | null {
   const match = RESPONSE_RE.exec(data);
-  return match ? {
-    followUpId: match[1].toLowerCase(),
-    response: match[2].toLowerCase() as MedicationFollowUpPatientResponse,
-  } : null;
+  return match
+    ? {
+        followUpId: match[1].toLowerCase(),
+        response: match[2].toLowerCase() as MedicationFollowUpPatientResponse,
+      }
+    : null;
 }
 
 export async function respondToMedicationFollowUp(
@@ -887,8 +1009,9 @@ export async function respondToMedicationFollowUp(
   const now = input.now ?? new Date();
   const schema = await medicationFollowUpSchema(db);
   const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  const row = await db.prepare(
-    `SELECT ${followUpFields(schema, 'followup')}
+  const row = await db
+    .prepare(
+      `SELECT ${followUpFields(schema, 'followup')}
        FROM pharmacy_medication_followups AS followup
        INNER JOIN pharmacy_patients AS patient
          ON patient.id = followup.patient_id
@@ -897,14 +1020,17 @@ export async function respondToMedicationFollowUp(
       WHERE followup.id = ? AND followup.line_account_id = ? AND followup.owner_friend_id = ?
         AND patient.archived_at IS NULL
         ${patientAuthorityPredicate}`,
-  ).bind(
-    input.followUpId, input.lineAccountId, input.friendId, input.friendId, now.toISOString(),
-  ).first<MedicationFollowUp>();
+    )
+    .bind(input.followUpId, input.lineAccountId, input.friendId, input.friendId, now.toISOString())
+    .first<MedicationFollowUp>();
   if (!row) throw new Error('follow-up response unavailable');
-  const replay = await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_medication_followup_events
+  const replay = await db
+    .prepare(
+      `SELECT 1 AS ok FROM pharmacy_medication_followup_events
       WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.followUpId, input.lineAccountId, input.idempotencyKey).first<{ ok: number }>();
+    )
+    .bind(input.followUpId, input.lineAccountId, input.idempotencyKey)
+    .first<{ ok: number }>();
   if (replay) return row;
   if (input.expectedVersion !== undefined && row.version !== input.expectedVersion) {
     throw new Error('medication follow-up transition conflict');
@@ -961,19 +1087,17 @@ export async function listOwnerMedicationFollowUps(
 ): Promise<PatientMedicationFollowUp[]> {
   const schema = await medicationFollowUpSchema(db);
   const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  const result = await db.prepare(
-    `${patientFollowUpSelect(schema)}
+  const result = await db
+    .prepare(
+      `${patientFollowUpSelect(schema)}
       WHERE f.line_account_id = ? AND f.owner_friend_id = ?
         AND patient.archived_at IS NULL
       ${patientAuthorityPredicate}
       ORDER BY f.created_at DESC, f.id DESC
       LIMIT 20`,
-  ).bind(
-    lineAccountId,
-    friendId,
-    friendId,
-    new Date().toISOString(),
-  ).all<PatientMedicationFollowUp>();
+    )
+    .bind(lineAccountId, friendId, friendId, new Date().toISOString())
+    .all<PatientMedicationFollowUp>();
   return result.results ?? [];
 }
 
@@ -991,18 +1115,15 @@ export async function getOwnerMedicationFollowUp(
 ): Promise<PatientMedicationFollowUp | null> {
   const schema = await medicationFollowUpSchema(db);
   const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  return db.prepare(
-    `${patientFollowUpSelect(schema)}
+  return db
+    .prepare(
+      `${patientFollowUpSelect(schema)}
       WHERE f.id = ? AND f.line_account_id = ? AND f.owner_friend_id = ?
         AND patient.archived_at IS NULL
       ${patientAuthorityPredicate}`,
-  ).bind(
-    followUpId,
-    lineAccountId,
-    friendId,
-    friendId,
-    new Date().toISOString(),
-  ).first<PatientMedicationFollowUp>();
+    )
+    .bind(followUpId, lineAccountId, friendId, friendId, new Date().toISOString())
+    .first<PatientMedicationFollowUp>();
 }
 
 export async function listPatientMedicationFollowUps(
@@ -1011,10 +1132,13 @@ export async function listPatientMedicationFollowUps(
   patientId: string,
 ): Promise<MedicationFollowUp[]> {
   const schema = await medicationFollowUpSchema(db);
-  const result = await db.prepare(
-    `${followUpSelect(schema)} WHERE line_account_id = ? AND patient_id = ?
+  const result = await db
+    .prepare(
+      `${followUpSelect(schema)} WHERE line_account_id = ? AND patient_id = ?
       ORDER BY created_at DESC, id DESC`,
-  ).bind(lineAccountId, patientId).all<MedicationFollowUp>();
+    )
+    .bind(lineAccountId, patientId)
+    .all<MedicationFollowUp>();
   return result.results ?? [];
 }
 
@@ -1025,8 +1149,9 @@ export async function listDueMedicationFollowUps(
 ): Promise<DueMedicationFollowUp[]> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
   const schema = await medicationFollowUpSchema(db);
-  const result = await db.prepare(
-    `SELECT ${followUpFields(schema, 'f')},
+  const result = await db
+    .prepare(
+      `SELECT ${followUpFields(schema, 'f')},
             friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id,
             account.liff_id${schema.notificationQueue ? ', f.notification_checked_at' : ''}
        FROM pharmacy_medication_followups f
@@ -1047,7 +1172,9 @@ export async function listDueMedicationFollowUps(
         AND friend.is_following = 1 AND account.is_active = 1
       ORDER BY ${schema.notificationQueue ? 'COALESCE(f.notification_checked_at, f.due_at), ' : ''}f.due_at, f.id
       LIMIT ?`,
-  ).bind(now.toISOString(), boundedLimit).all<DueMedicationFollowUp>();
+    )
+    .bind(now.toISOString(), boundedLimit)
+    .all<DueMedicationFollowUp>();
   return result.results ?? [];
 }
 
@@ -1060,8 +1187,9 @@ export async function markMedicationFollowUpNotificationChecked(
   // Old schemas retain their existing query and delivery contract during rollout.
   if (!('notification_checked_at' in row)) return true;
   const timestamp = now.toISOString();
-  const result = await db.prepare(
-    `UPDATE pharmacy_medication_followups
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_medication_followups
         SET notification_checked_at = CASE
           WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
           ELSE notification_checked_at END
@@ -1073,12 +1201,13 @@ export async function markMedicationFollowUpNotificationChecked(
           INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
           WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_medication_followups.line_account_id
         )`,
-  ).bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id).run();
+    )
+    .bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id)
+    .run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
-export type FollowUpOperationsMessageCode =
-  'contact_pharmacy_during_hours' | 'seek_urgent_care';
+export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care';
 
 export interface MedicationFollowUpOperationsOutlook {
   serviceHoursText: string;
@@ -1089,17 +1218,20 @@ export interface MedicationFollowUpOperationsOutlook {
 
 // response_sla_json has no defined shape; only a bounded minute estimate is
 // patient-facing. Anything else in the JSON stays internal.
-const SLA_MINUTE_KEYS = new Set([
-  'typical_minutes', 'sla_minutes', 'response_minutes', 'minutes', 'typical',
-]);
+const SLA_MINUTE_KEYS = new Set(['typical_minutes', 'sla_minutes', 'response_minutes', 'minutes', 'typical']);
 
 function patientSafeSlaMinutes(raw: string): number | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (SLA_MINUTE_KEYS.has(key) && typeof value === 'number' &&
-          Number.isFinite(value) && value > 0 && value <= 10080) {
+      if (
+        SLA_MINUTE_KEYS.has(key) &&
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value > 0 &&
+        value <= 10080
+      ) {
         return value;
       }
     }
@@ -1119,17 +1251,20 @@ export async function getMedicationFollowUpOperationsOutlook(
   lineAccountId: string,
 ): Promise<MedicationFollowUpOperationsOutlook | null> {
   try {
-    const row = await db.prepare(
-      `SELECT service_hours_text, response_sla_json, after_hours_message_code, emergency_message_code
+    const row = await db
+      .prepare(
+        `SELECT service_hours_text, response_sla_json, after_hours_message_code, emergency_message_code
          FROM pharmacy_medication_followup_operations
         WHERE line_account_id = ? AND enabled = 1
         LIMIT 1`,
-    ).bind(lineAccountId).first<{
-      service_hours_text: string;
-      response_sla_json: string;
-      after_hours_message_code: FollowUpOperationsMessageCode;
-      emergency_message_code: FollowUpOperationsMessageCode;
-    }>();
+      )
+      .bind(lineAccountId)
+      .first<{
+        service_hours_text: string;
+        response_sla_json: string;
+        after_hours_message_code: FollowUpOperationsMessageCode;
+        emergency_message_code: FollowUpOperationsMessageCode;
+      }>();
     if (!row) return null;
     return {
       serviceHoursText: row.service_hours_text,
@@ -1159,12 +1294,17 @@ export interface MedicationFollowUpOperations {
 // Per-status SLA minute keys plus the patient-facing typical estimate.
 // Values are whole minutes in 1..10080 (7 days).
 export const FOLLOWUP_OPERATIONS_SLA_KEYS = new Set([
-  'typical_minutes', 'concern_minutes', 'pharmacist_requested_minutes',
-  'assigned_minutes', 'escalated_minutes', 'responded_minutes',
+  'typical_minutes',
+  'concern_minutes',
+  'pharmacist_requested_minutes',
+  'assigned_minutes',
+  'escalated_minutes',
+  'responded_minutes',
 ]);
 
 const FOLLOWUP_OPERATIONS_MESSAGE_CODES = new Set<FollowUpOperationsMessageCode>([
-  'contact_pharmacy_during_hours', 'seek_urgent_care',
+  'contact_pharmacy_during_hours',
+  'seek_urgent_care',
 ]);
 
 async function requireFollowUpOperationsTable(db: D1Database): Promise<void> {
@@ -1184,14 +1324,17 @@ export async function getMedicationFollowUpOperations(
   lineAccountId: string,
 ): Promise<MedicationFollowUpOperations | null> {
   await requireFollowUpOperationsTable(db);
-  return db.prepare(
-    `SELECT line_account_id, service_hours_text, response_sla_json,
+  return db
+    .prepare(
+      `SELECT line_account_id, service_hours_text, response_sla_json,
             primary_staff_id, backup_staff_id, after_hours_message_code,
             emergency_message_code, enabled, version, created_at, updated_at
        FROM pharmacy_medication_followup_operations
       WHERE line_account_id = ?
       LIMIT 1`,
-  ).bind(lineAccountId).first<MedicationFollowUpOperations>();
+    )
+    .bind(lineAccountId)
+    .first<MedicationFollowUpOperations>();
 }
 
 function normalizeOperationsSla(value: unknown): string {
@@ -1200,8 +1343,13 @@ function normalizeOperationsSla(value: unknown): string {
   }
   const normalized: Record<string, number> = {};
   for (const [key, raw] of Object.entries(value)) {
-    if (!FOLLOWUP_OPERATIONS_SLA_KEYS.has(key) ||
-        typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1 || raw > 10080) {
+    if (
+      !FOLLOWUP_OPERATIONS_SLA_KEYS.has(key) ||
+      typeof raw !== 'number' ||
+      !Number.isInteger(raw) ||
+      raw < 1 ||
+      raw > 10080
+    ) {
       throw new Error('invalid follow-up operations');
     }
     normalized[key] = raw;
@@ -1227,21 +1375,21 @@ export async function saveMedicationFollowUpOperations(
     now?: Date;
   },
 ): Promise<MedicationFollowUpOperations> {
-  const serviceHoursText = typeof input.serviceHoursText === 'string'
-    ? input.serviceHoursText.trim()
-    : '';
+  const serviceHoursText = typeof input.serviceHoursText === 'string' ? input.serviceHoursText.trim() : '';
   const backupStaffId = input.backupStaffId ?? null;
-  if (!input.lineAccountId ||
-      serviceHoursText.length < 1 || serviceHoursText.length > 2048 ||
-      !Number.isInteger(input.expectedVersion) || input.expectedVersion < 0 ||
-      !validStaffId(input.actorStaffId) || !validStaffId(input.primaryStaffId) ||
-      (backupStaffId !== null &&
-       (!validStaffId(backupStaffId) || backupStaffId === input.primaryStaffId)) ||
-      !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(
-        input.afterHoursMessageCode as FollowUpOperationsMessageCode) ||
-      !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(
-        input.emergencyMessageCode as FollowUpOperationsMessageCode) ||
-      typeof input.enabled !== 'boolean') {
+  if (
+    !input.lineAccountId ||
+    serviceHoursText.length < 1 ||
+    serviceHoursText.length > 2048 ||
+    !Number.isInteger(input.expectedVersion) ||
+    input.expectedVersion < 0 ||
+    !validStaffId(input.actorStaffId) ||
+    !validStaffId(input.primaryStaffId) ||
+    (backupStaffId !== null && (!validStaffId(backupStaffId) || backupStaffId === input.primaryStaffId)) ||
+    !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(input.afterHoursMessageCode as FollowUpOperationsMessageCode) ||
+    !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(input.emergencyMessageCode as FollowUpOperationsMessageCode) ||
+    typeof input.enabled !== 'boolean'
+  ) {
     throw new Error('invalid follow-up operations');
   }
   // serviceHoursText is shown verbatim to patients, so the same PHI-free
@@ -1254,8 +1402,7 @@ export async function saveMedicationFollowUpOperations(
   const responseSlaJson = normalizeOperationsSla(input.responseSla);
   // The patient outlook surfaces a typical estimate, so enabling operations
   // without one would publish an incomplete read model.
-  if (input.enabled &&
-      typeof (input.responseSla as Record<string, unknown>).typical_minutes !== 'number') {
+  if (input.enabled && typeof (input.responseSla as Record<string, unknown>).typical_minutes !== 'number') {
     throw new Error('invalid follow-up operations');
   }
   await requireFollowUpOperationsTable(db);
@@ -1266,20 +1413,30 @@ export async function saveMedicationFollowUpOperations(
   const nextVersion = input.expectedVersion + 1;
   const timestamp = (input.now ?? new Date()).toISOString();
   const write = current
-    ? db.prepare(
-      `UPDATE pharmacy_medication_followup_operations
+    ? db
+        .prepare(
+          `UPDATE pharmacy_medication_followup_operations
           SET service_hours_text = ?, response_sla_json = ?,
               primary_staff_id = ?, backup_staff_id = ?,
               after_hours_message_code = ?, emergency_message_code = ?,
               enabled = ?, version = version + 1, updated_at = ?
         WHERE line_account_id = ? AND version = ?`,
-    ).bind(
-      serviceHoursText, responseSlaJson, input.primaryStaffId, backupStaffId,
-      input.afterHoursMessageCode, input.emergencyMessageCode,
-      input.enabled ? 1 : 0, timestamp, input.lineAccountId, input.expectedVersion,
-    )
-    : db.prepare(
-      `INSERT INTO pharmacy_medication_followup_operations
+        )
+        .bind(
+          serviceHoursText,
+          responseSlaJson,
+          input.primaryStaffId,
+          backupStaffId,
+          input.afterHoursMessageCode,
+          input.emergencyMessageCode,
+          input.enabled ? 1 : 0,
+          timestamp,
+          input.lineAccountId,
+          input.expectedVersion,
+        )
+    : db
+        .prepare(
+          `INSERT INTO pharmacy_medication_followup_operations
         (line_account_id, service_hours_text, response_sla_json,
          primary_staff_id, backup_staff_id, after_hours_message_code,
          emergency_message_code, enabled, version, created_at, updated_at)
@@ -1288,26 +1445,38 @@ export async function saveMedicationFollowUpOperations(
           SELECT 1 FROM pharmacy_medication_followup_operations
            WHERE line_account_id = ?
         )`,
-    ).bind(
-      input.lineAccountId, serviceHoursText, responseSlaJson,
-      input.primaryStaffId, backupStaffId, input.afterHoursMessageCode,
-      input.emergencyMessageCode, input.enabled ? 1 : 0, timestamp, timestamp,
-      input.lineAccountId,
-    );
-  const audit = tenantAuditStatement(db, {
-    lineAccountId: input.lineAccountId,
-    actorStaffId: input.actorStaffId,
-    action: 'pharmacy_followup_operations_saved',
-    resourceType: 'medication_followup_operations',
-    resourceId: input.lineAccountId,
-    detail: { enabled: input.enabled, created: current === null },
-  }, {
-    sql: `EXISTS (
+        )
+        .bind(
+          input.lineAccountId,
+          serviceHoursText,
+          responseSlaJson,
+          input.primaryStaffId,
+          backupStaffId,
+          input.afterHoursMessageCode,
+          input.emergencyMessageCode,
+          input.enabled ? 1 : 0,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+        );
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action: 'pharmacy_followup_operations_saved',
+      resourceType: 'medication_followup_operations',
+      resourceId: input.lineAccountId,
+      detail: { enabled: input.enabled, created: current === null },
+    },
+    {
+      sql: `EXISTS (
       SELECT 1 FROM pharmacy_medication_followup_operations
        WHERE line_account_id = ? AND version = ? AND updated_at = ?
     )`,
-    bindings: [input.lineAccountId, nextVersion, timestamp],
-  });
+      bindings: [input.lineAccountId, nextVersion, timestamp],
+    },
+  );
   let results: D1Result[];
   try {
     results = await db.batch([write, audit]);
@@ -1318,8 +1487,7 @@ export async function saveMedicationFollowUpOperations(
     }
     throw error;
   }
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('follow-up operations conflict');
   }
   const saved = await getMedicationFollowUpOperations(db, input.lineAccountId);

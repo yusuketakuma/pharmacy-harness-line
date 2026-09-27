@@ -41,10 +41,12 @@ describe('assessEmergencyPrecheck', () => {
       canCreateProvisional: true,
     });
 
-    expect(assessEmergencyPrecheck({
-      ...base,
-      consultationMinutes: 31,
-    })).toMatchObject({
+    expect(
+      assessEmergencyPrecheck({
+        ...base,
+        consultationMinutes: 31,
+      }),
+    ).toMatchObject({
       canCreateProvisional: false,
       blockingReason: 'outside_72_hours',
     });
@@ -70,10 +72,7 @@ describe('assessEmergencyPrecheck', () => {
     });
 
     expect(result.canCreateProvisional).toBe(true);
-    expect(result.riskFlags).toEqual(expect.arrayContaining([
-      'under_16',
-      'repeat_purchase_review',
-    ]));
+    expect(result.riskFlags).toEqual(expect.arrayContaining(['under_16', 'repeat_purchase_review']));
     expect(result).not.toHaveProperty('eligible');
   });
 
@@ -95,12 +94,13 @@ describe('assessEmergencyPrecheck', () => {
   });
 
   it('rejects future or malformed intercourse timestamps', () => {
-    expect(() => assessEmergencyPrecheck({
-      ...base,
-      intercourseAt: '2026-08-20T10:00:00+09:00',
-    })).toThrow('invalid intercourse time');
-    expect(() => assessEmergencyPrecheck({ ...base, intercourseAt: 'not-a-date' }))
-      .toThrow('invalid intercourse time');
+    expect(() =>
+      assessEmergencyPrecheck({
+        ...base,
+        intercourseAt: '2026-08-20T10:00:00+09:00',
+      }),
+    ).toThrow('invalid intercourse time');
+    expect(() => assessEmergencyPrecheck({ ...base, intercourseAt: 'not-a-date' })).toThrow('invalid intercourse time');
   });
 });
 
@@ -149,37 +149,50 @@ describe('assessEmergencyPrecheck v2 pre-review flags (B1-B4)', () => {
 
 describe('assessEmergencyPrecheck pregnancy test recommendation (C1/C2)', () => {
   it('recommends a test when the last menstruation date is unknown (null)', () => {
-    const result = assessEmergencyPrecheck({ ...base, lastMenstruationDate: null, menstruationSignals: noSignals });
+    const result = assessEmergencyPrecheck({
+      ...base,
+      lastMenstruationDate: null,
+      menstruationSignals: noSignals,
+    });
     expect(result.pregnancyTestRecommended).toBe(true);
     expect(result.riskFlags).not.toContain('pregnancy_test_recommended' as never);
   });
 
   it('recommends a test when the unknown checkbox is checked', () => {
     const result = assessEmergencyPrecheck({
-      ...base, menstruationSignals: { ...noSignals, unknown: true },
+      ...base,
+      menstruationSignals: { ...noSignals, unknown: true },
     });
     expect(result.pregnancyTestRecommended).toBe(true);
   });
 
   it.each([
-    'overOneMonthNoPeriod', 'notRecoveredAfterBirth', 'lastPeriodDifferent', 'earlierConcernOver3Weeks',
+    'overOneMonthNoPeriod',
+    'notRecoveredAfterBirth',
+    'lastPeriodDifferent',
+    'earlierConcernOver3Weeks',
   ] as const)('recommends a test when %s is checked', (signal) => {
     const result = assessEmergencyPrecheck({
-      ...base, menstruationSignals: { ...noSignals, [signal]: true },
+      ...base,
+      menstruationSignals: { ...noSignals, [signal]: true },
     });
     expect(result.pregnancyTestRecommended).toBe(true);
   });
 
   it('does not recommend a test when none apply and the date is known', () => {
     const result = assessEmergencyPrecheck({
-      ...base, lastMenstruationDate: '2026-08-01', menstruationSignals: { ...noSignals, noneApply: true },
+      ...base,
+      lastMenstruationDate: '2026-08-01',
+      menstruationSignals: { ...noSignals, noneApply: true },
     });
     expect(result.pregnancyTestRecommended).toBe(false);
   });
 
   it('never leaks pregnancy_test_recommended into risk_flags_json (plaintext)', () => {
     const result = assessEmergencyPrecheck({
-      ...base, lastMenstruationDate: null, menstruationSignals: { ...noSignals, unknown: false },
+      ...base,
+      lastMenstruationDate: null,
+      menstruationSignals: { ...noSignals, unknown: false },
     });
     expect(result.riskFlags).not.toContain('pregnancy_test_recommended' as never);
   });
@@ -188,14 +201,22 @@ describe('assessEmergencyPrecheck pregnancy test recommendation (C1/C2)', () => 
 describe('validMenstruationSignals exclusivity', () => {
   it('accepts an unanswered C2 (noneApply/unknown/signals all unset) but recommends a test as the safe default', () => {
     expect(validMenstruationSignals(noSignals)).toBe(true);
-    const result = assessEmergencyPrecheck({ ...base, lastMenstruationDate: '2026-08-01', menstruationSignals: noSignals });
+    const result = assessEmergencyPrecheck({
+      ...base,
+      lastMenstruationDate: '2026-08-01',
+      menstruationSignals: noSignals,
+    });
     expect(result.pregnancyTestRecommended).toBe(true);
   });
 
   it('accepts multiple positive signals together', () => {
-    expect(validMenstruationSignals({
-      ...noSignals, overOneMonthNoPeriod: true, lastPeriodDifferent: true,
-    })).toBe(true);
+    expect(
+      validMenstruationSignals({
+        ...noSignals,
+        overOneMonthNoPeriod: true,
+        lastPeriodDifferent: true,
+      }),
+    ).toBe(true);
   });
 
   it('rejects noneApply combined with unknown', () => {

@@ -11,10 +11,7 @@ export interface SaveIdempotencyParams {
   now: Date;
 }
 
-export async function saveIdempotencyResponse(
-  db: D1Database,
-  params: SaveIdempotencyParams,
-): Promise<void> {
+export async function saveIdempotencyResponse(db: D1Database, params: SaveIdempotencyParams): Promise<void> {
   const expires = new Date(params.now.getTime() + params.ttlMinutes * 60_000).toISOString();
   await db
     .prepare(
@@ -23,14 +20,7 @@ export async function saveIdempotencyResponse(
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO NOTHING`,
     )
-    .bind(
-      params.key,
-      params.lineAccountId,
-      params.friendId,
-      params.status,
-      JSON.stringify(params.body),
-      expires,
-    )
+    .bind(params.key, params.lineAccountId, params.friendId, params.status, JSON.stringify(params.body), expires)
     .run();
 }
 
@@ -63,10 +53,7 @@ export async function findIdempotencyResponse(
             WHERE key = ? AND line_account_id = ? AND friend_id = ?
          ) ORDER BY source_order`,
     )
-    .bind(
-      params.key, params.lineAccountId, params.friendId,
-      params.key, params.lineAccountId, params.friendId,
-    )
+    .bind(params.key, params.lineAccountId, params.friendId, params.key, params.lineAccountId, params.friendId)
     .all<{ response_status: number; response_body: string; expires_at: string }>();
   for (const row of results ?? []) {
     if (new Date(row.expires_at) > params.now) {

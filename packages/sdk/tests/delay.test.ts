@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { parseDelay } from '../src/delay.js'
+import { describe, it, expect } from 'vitest';
+import { parseDelay } from '../src/delay.js';
 
 describe('parseDelay', () => {
   it.each([
@@ -11,12 +11,12 @@ describe('parseDelay', () => {
     ['3d', 4320],
     ['1w', 10080],
   ])('parses "%s" to %d minutes', (input, expected) => {
-    expect(parseDelay(input)).toBe(expected)
-  })
+    expect(parseDelay(input)).toBe(expected);
+  });
 
   it('throws on invalid format', () => {
-    expect(() => parseDelay('abc')).toThrow('Invalid delay format')
-    expect(() => parseDelay('')).toThrow('Invalid delay format')
-    expect(() => parseDelay('5x')).toThrow('Invalid delay format')
-  })
-})
+    expect(() => parseDelay('abc')).toThrow('Invalid delay format');
+    expect(() => parseDelay('')).toThrow('Invalid delay format');
+    expect(() => parseDelay('5x')).toThrow('Invalid delay format');
+  });
+});

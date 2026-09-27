@@ -18,11 +18,7 @@ async function hmac(secret: string, msg: string): Promise<string> {
   return b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(msg)));
 }
 
-export async function signWebinarToken(
-  secret: string,
-  slug: string,
-  expEpochSeconds: number,
-): Promise<string> {
+export async function signWebinarToken(secret: string, slug: string, expEpochSeconds: number): Promise<string> {
   const sig = await hmac(secret, `${slug}:${expEpochSeconds}`);
   return `${expEpochSeconds}.${sig}`;
 }

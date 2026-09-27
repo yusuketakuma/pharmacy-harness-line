@@ -47,10 +47,10 @@ const URL_REGEX = /https?:\/\/[^\s"'<>\])}]+/g;
 
 // URLs that should NOT be wrapped (internal/system URLs)
 const SKIP_PATTERNS = [
-  /\/t\/[0-9a-f-]{36}/,       // already a tracking link (legacy UUID form)
-  /liff\.line\.me/,            // LIFF URLs
-  /line\.me\/R\//,             // LINE deep links
-  /your-worker-name/,           // our own worker
+  /\/t\/[0-9a-f-]{36}/, // already a tracking link (legacy UUID form)
+  /liff\.line\.me/, // LIFF URLs
+  /line\.me\/R\//, // LINE deep links
+  /your-worker-name/, // our own worker
 ];
 
 function shouldSkip(url: string, skipPrefixes: string[]): boolean {
@@ -100,17 +100,17 @@ async function createTrackingMap(
 }
 
 /** Build a Flex bubble from text + tracked URLs */
-function textToFlex(
-  text: string,
-  links: { trackingUrl: string; originalUrl: string; label: string }[],
-): string {
+function textToFlex(text: string, links: { trackingUrl: string; originalUrl: string; label: string }[]): string {
   // Remove URLs from the text body
   let cleanText = text;
   for (const link of links) {
     cleanText = cleanText.split(link.originalUrl).join('').trim();
   }
   // Clean up leftover whitespace/punctuation
-  cleanText = cleanText.replace(/\s{2,}/g, ' ').replace(/[👉🔗➡️]\s*$/g, '').trim();
+  cleanText = cleanText
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[👉🔗➡️]\s*$/g, '')
+    .trim();
 
   const bodyContents: unknown[] = [];
   if (cleanText) {
@@ -258,9 +258,10 @@ export async function autoTrackContent(
     // app-link domain は tracking 不要なので createTrackedLink 自体スキップする
     // (無駄な link_clicks レコード防止)。
     const trackable = new Set([...urls].filter((u) => !isAppLinkDomain(u)));
-    const urlMap = trackable.size > 0
-      ? await createTrackingMap(db, trackable, linkBase, options?.lineAccountId)
-      : new Map<string, { trackingUrl: string; originalUrl: string; label: string }>();
+    const urlMap =
+      trackable.size > 0
+        ? await createTrackingMap(db, trackable, linkBase, options?.lineAccountId)
+        : new Map<string, { trackingUrl: string; originalUrl: string; label: string }>();
 
     let result = content;
     for (const url of urls) {
@@ -294,17 +295,13 @@ export async function autoTrackContent(
   // line://, etc., and hand-written JSON can hold malformed URLs like a bare
   // "https://" — createTrackingMap calls `new URL()`, so an invalid URI here
   // would throw and fail the whole delivery instead of one link).
-  const trackableUris = new Set(
-    [...actionUris].filter((u) => isTrackableHttpUrl(u) && !shouldSkip(u, skipPrefixes)),
-  );
+  const trackableUris = new Set([...actionUris].filter((u) => isTrackableHttpUrl(u) && !shouldSkip(u, skipPrefixes)));
   if (trackableUris.size === 0) return { messageType, content };
   const uriMap = await createTrackingMap(db, trackableUris, linkBase, options?.lineAccountId);
   rewriteActionUris(tree, (u) => {
     const tracked = uriMap.get(u);
     if (!tracked) return u;
-    return isAppLinkDomain(u)
-      ? appendOpenExternalBrowser(tracked.trackingUrl)
-      : tracked.trackingUrl;
+    return isAppLinkDomain(u) ? appendOpenExternalBrowser(tracked.trackingUrl) : tracked.trackingUrl;
   });
   return { messageType, content: JSON.stringify(tree) };
 }

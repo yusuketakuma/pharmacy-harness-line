@@ -12,10 +12,7 @@ function requireStrings(value: unknown, field: string): asserts value is string[
 }
 
 /** Validate the optional commercial-fork release authority at every trust boundary. */
-export function validateReleaseEntry(
-  release: ReleaseEntry,
-  previous?: ReleaseEntry,
-): void {
+export function validateReleaseEntry(release: ReleaseEntry, previous?: ReleaseEntry): void {
   const source = release.customer_source_update;
   if (!source) return;
 
@@ -106,8 +103,7 @@ export function validateManifest(value: unknown): asserts value is Manifest {
   }
   if (
     body.revoked_release_ids !== undefined &&
-    (!Array.isArray(body.revoked_release_ids) ||
-      body.revoked_release_ids.some((id) => typeof id !== 'string'))
+    (!Array.isArray(body.revoked_release_ids) || body.revoked_release_ids.some((id) => typeof id !== 'string'))
   ) {
     throw new Error('invalid release manifest: revoked_release_ids must be strings');
   }
@@ -126,9 +122,7 @@ export function validateManifest(value: unknown): asserts value is Manifest {
 export async function fetchManifest(url: string): Promise<Manifest> {
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) {
-    throw new Error(
-      `failed to fetch manifest from ${url}: HTTP ${res.status}`,
-    );
+    throw new Error(`failed to fetch manifest from ${url}: HTTP ${res.status}`);
   }
 
   const body: unknown = await res.json();
@@ -137,10 +131,7 @@ export async function fetchManifest(url: string): Promise<Manifest> {
 }
 
 /** Find a release entry by exact version match. */
-export function findRelease(
-  manifest: Manifest,
-  version: string,
-): ReleaseEntry | undefined {
+export function findRelease(manifest: Manifest, version: string): ReleaseEntry | undefined {
   return manifest.releases.find((r) => r.version === version);
 }
 
@@ -148,10 +139,7 @@ export function findRelease(
  * Return the latest release entry if it is strictly newer than `current`,
  * otherwise `null` (i.e. nothing to upgrade to).
  */
-export function findLatestUpgrade(
-  manifest: Manifest,
-  current: string,
-): ReleaseEntry | null {
+export function findLatestUpgrade(manifest: Manifest, current: string): ReleaseEntry | null {
   if (compareSemver(manifest.latest, current) <= 0) {
     return null;
   }

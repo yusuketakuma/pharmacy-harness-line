@@ -5,10 +5,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 
 /** Absolute path of packages/db, for bootstrap.sql / schema.sql / migration fixtures. */
-export const DB_PACKAGE_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../packages/db',
-);
+export const DB_PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/db');
 
 export interface TestSqliteStatement {
   readonly reader: boolean;
@@ -27,9 +24,9 @@ export interface TestSqliteDatabase {
 
 // better-sqlite3 is a packages/db devDependency and pnpm does not hoist it
 // into the worker workspace, so tests resolve it by path from this one place.
-export const Sqlite = require(
-  join(DB_PACKAGE_ROOT, 'node_modules/better-sqlite3'),
-) as new (filename: string) => TestSqliteDatabase;
+export const Sqlite = require(join(DB_PACKAGE_ROOT, 'node_modules/better-sqlite3')) as new (
+  filename: string,
+) => TestSqliteDatabase;
 
 export function openTestSqlite(options?: { foreignKeys?: boolean }): TestSqliteDatabase {
   const sqlite = new Sqlite(':memory:');
@@ -64,23 +61,22 @@ export function d1FromSqlite(sqlite: TestSqliteDatabase): D1Database {
     batch: async (statements: D1PreparedStatement[]) => {
       sqlite.exec('BEGIN');
       try {
-        const results = (statements as unknown as Array<{ __sql?: string; __values?: unknown[] }>)
-          .map((item) => {
-            if (!item.__sql) throw new Error('test adapter statement missing SQL');
-            const prepared = sqlite.prepare(item.__sql);
-            if (prepared.reader) {
-              return {
-                success: true,
-                meta: { changes: 0 },
-                results: prepared.all(...(item.__values ?? [])),
-              };
-            }
+        const results = (statements as unknown as Array<{ __sql?: string; __values?: unknown[] }>).map((item) => {
+          if (!item.__sql) throw new Error('test adapter statement missing SQL');
+          const prepared = sqlite.prepare(item.__sql);
+          if (prepared.reader) {
             return {
               success: true,
-              meta: { changes: prepared.run(...(item.__values ?? [])).changes },
-              results: [],
+              meta: { changes: 0 },
+              results: prepared.all(...(item.__values ?? [])),
             };
-          });
+          }
+          return {
+            success: true,
+            meta: { changes: prepared.run(...(item.__values ?? [])).changes },
+            results: [],
+          };
+        });
         sqlite.exec('COMMIT');
         return results;
       } catch (error) {

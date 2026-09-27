@@ -12,10 +12,7 @@ import { richMenuGroups } from '../../../routes/messaging/rich-menu-groups.js';
 import { accountSettings } from '../../../routes/admin/account-settings.js';
 import { capabilities } from '../../../routes/admin/capabilities.js';
 import { images } from '../../../routes/admin/images.js';
-import {
-  findPharmacyAdminApiCoverage,
-  findPharmacyAdminApiDeferred,
-} from './api-coverage.js';
+import { findPharmacyAdminApiCoverage, findPharmacyAdminApiDeferred } from './api-coverage.js';
 
 const routeCandidates = [
   ...emergencyContraceptionRoutes.routes,
@@ -31,24 +28,25 @@ const routeCandidates = [
   ...accountSettings.routes,
   ...capabilities.routes,
   ...images.routes,
-].filter(({ method, path }) => method !== 'ALL' && (
-  path.startsWith('/api/custom/pharmacy/') ||
-  path.startsWith('/api/staff') ||
-  path.startsWith('/api/line-accounts') ||
-  path.startsWith('/api/rich-menu-groups') ||
-  path.startsWith('/api/rich-menu-images') ||
-  path.startsWith('/api/account-settings') ||
-  path.startsWith('/api/capabilities') ||
-  path.startsWith('/api/images')
-));
-const routes = [...new Map(routeCandidates.map((route) => [
-  `${route.method} ${route.path}`, route,
-])).values()];
+].filter(
+  ({ method, path }) =>
+    method !== 'ALL' &&
+    (path.startsWith('/api/custom/pharmacy/') ||
+      path.startsWith('/api/staff') ||
+      path.startsWith('/api/line-accounts') ||
+      path.startsWith('/api/rich-menu-groups') ||
+      path.startsWith('/api/rich-menu-images') ||
+      path.startsWith('/api/account-settings') ||
+      path.startsWith('/api/capabilities') ||
+      path.startsWith('/api/images')),
+);
+const routes = [...new Map(routeCandidates.map((route) => [`${route.method} ${route.path}`, route])).values()];
 
 describe('pharmacy admin API coverage leak detector', () => {
   it('classifies every custom pharmacy route exposed by admin-facing modules', () => {
-    const unclassified = routes.filter(({ method, path }) =>
-      !findPharmacyAdminApiCoverage(method, path) && !findPharmacyAdminApiDeferred(method, path));
+    const unclassified = routes.filter(
+      ({ method, path }) => !findPharmacyAdminApiCoverage(method, path) && !findPharmacyAdminApiDeferred(method, path),
+    );
 
     expect(unclassified.map(({ method, path }) => `${method} ${path}`)).toEqual([]);
   });
@@ -59,10 +57,16 @@ describe('pharmacy admin API coverage leak detector', () => {
       return deferred ? [deferred.reason] : [];
     });
 
-    expect(new Set(reasons)).toEqual(new Set([
-      'binary-output', 'destructive-operation', 'external-operation', 'legacy-lifecycle',
-      'patient-operation', 'retired',
-    ]));
+    expect(new Set(reasons)).toEqual(
+      new Set([
+        'binary-output',
+        'destructive-operation',
+        'external-operation',
+        'legacy-lifecycle',
+        'patient-operation',
+        'retired',
+      ]),
+    );
   });
 
   it('covers tenant-scoped staff lifecycle changes behind explicit output and apply gates', () => {
@@ -140,7 +144,6 @@ describe('pharmacy admin API coverage leak detector', () => {
     expect(readback?.path.test('/api/rich-menu-groups/group-a')).toBe(false);
     expect(findPharmacyAdminApiDeferred('GET', '/api/rich-menu-groups/external')).toBeUndefined();
     expect(findPharmacyAdminApiCoverage('POST', '/api/rich-menu-groups/import')).toBeUndefined();
-    expect(findPharmacyAdminApiCoverage('DELETE', '/api/rich-menu-groups/external/richmenu-a'))
-      .toBeUndefined();
+    expect(findPharmacyAdminApiCoverage('DELETE', '/api/rich-menu-groups/external/richmenu-a')).toBeUndefined();
   });
 });

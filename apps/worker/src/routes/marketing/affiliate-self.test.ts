@@ -62,11 +62,10 @@ const env = {
 } as unknown as import('../../index.js').Env['Bindings'];
 
 function call(path: string, init?: RequestInit) {
-  return worker.fetch(
-    new Request(`https://worker.example.com${path}`, init),
-    env,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
-  );
+  return worker.fetch(new Request(`https://worker.example.com${path}`, init), env, {
+    waitUntil() {},
+    passThroughOnException() {},
+  } as unknown as ExecutionContext);
 }
 
 // ── LINE API fetch mock ───────────────────────────────────────────────────────
@@ -110,12 +109,40 @@ function installLineFetchMock(clientId: string = LOGIN_CHANNEL_ID) {
 }
 
 // ── in-memory affiliate store backing the db mocks ────────────────────────────
-type AffRow = { id: string; name: string; code: string; commission_rate: number; is_active: number; created_at: string; friend_id: string };
-type LinkRow = { id: string; affiliate_id: string; ref_code: string; label: string | null; line_account_id: string | null; is_active: number; created_at: string; click_count: number };
+type AffRow = {
+  id: string;
+  name: string;
+  code: string;
+  commission_rate: number;
+  is_active: number;
+  created_at: string;
+  friend_id: string;
+};
+type LinkRow = {
+  id: string;
+  affiliate_id: string;
+  ref_code: string;
+  label: string | null;
+  line_account_id: string | null;
+  is_active: number;
+  created_at: string;
+  click_count: number;
+};
 
 let affiliatesByFriend: Map<string, AffRow>;
 let linksByAffiliate: Map<string, LinkRow[]>;
-let statsByAffiliate: Map<string, Map<string, { friendAdds: number; conversions: number; conversionsPending: number; conversionsApproved: number }>>;
+let statsByAffiliate: Map<
+  string,
+  Map<
+    string,
+    {
+      friendAdds: number;
+      conversions: number;
+      conversionsPending: number;
+      conversionsApproved: number;
+    }
+  >
+>;
 let slugCounter: number;
 
 const FRIENDS: Record<string, { id: string; display_name: string; user_id: string }> = {
@@ -238,7 +265,10 @@ describe('POST /api/liff/affiliate/register — idempotency', () => {
       body: JSON.stringify({ lineAccessToken: 'tok-alice' }),
     });
     expect(res1.status).toBe(200);
-    const body1 = (await res1.json()) as { affiliate: { id: string; name: string }; links: unknown[] };
+    const body1 = (await res1.json()) as {
+      affiliate: { id: string; name: string };
+      links: unknown[];
+    };
     expect(body1.affiliate.name).toBe('Alice');
     // Registration auto-issues exactly one link.
     expect(body1.links).toHaveLength(1);
@@ -279,16 +309,11 @@ describe('GET /api/liff/mileage/me — generic wallet', () => {
       ctaLabel: '今すぐ参加する',
     });
     expect(dbMocks.getMileageSummaryForFriend).toHaveBeenCalledWith(DB, 'friend-alice');
-    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(
-      DB,
-      'friend-alice',
-      { limit: 10 },
-    );
+    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(DB, 'friend-alice', {
+      limit: 10,
+    });
     expect(dbMocks.getMileageSelfInsights).toHaveBeenCalledWith(DB, 'friend-alice');
-    expect(dbMocks.getMileageEarningOpportunitiesForFriend).toHaveBeenCalledWith(
-      DB,
-      'friend-alice',
-    );
+    expect(dbMocks.getMileageEarningOpportunitiesForFriend).toHaveBeenCalledWith(DB, 'friend-alice');
     expect(dbMocks.getAffiliateByFriendId).not.toHaveBeenCalled();
   });
 
@@ -314,8 +339,9 @@ describe('GET /api/liff/mileage/me — generic wallet', () => {
     const missionUrl = new URL(body.opportunities[0].url);
     const token = missionUrl.searchParams.get('crossAccountToken');
     expect(token).toMatch(/^v1\./u);
-    await expect(verifyCrossAccountToken(env.CROSS_ACCOUNT_TOKEN_KEY, token!))
-      .resolves.toMatchObject({ targetAccountId: 'account-2' });
+    await expect(verifyCrossAccountToken(env.CROSS_ACCOUNT_TOKEN_KEY, token!)).resolves.toMatchObject({
+      targetAccountId: 'account-2',
+    });
     await expect(verifyCrossAccountToken(env.LINE_CHANNEL_SECRET, token!)).resolves.toBeNull();
   });
 });
@@ -335,7 +361,10 @@ describe('GET /api/liff/affiliate/me — cross-affiliate isolation', () => {
     });
 
     const resAlice = await call('/api/liff/affiliate/me?lineAccessToken=tok-alice');
-    const alice = (await resAlice.json()) as { affiliate: { name: string; friendId?: string }; links: unknown[] };
+    const alice = (await resAlice.json()) as {
+      affiliate: { name: string; friendId?: string };
+      links: unknown[];
+    };
     expect(alice.affiliate.name).toBe('Alice');
 
     const resBob = await call('/api/liff/affiliate/me?lineAccessToken=tok-bob');
@@ -362,11 +391,23 @@ describe('GET /api/liff/affiliate/me — cross-affiliate isolation', () => {
 
     // Seed real per-link stats for this affiliate's link; getAffiliateLinkStats
     // (mocked) surfaces them, and serializeLink must emit the real values.
-    statsByAffiliate.set(affId, new Map([[refCode, { friendAdds: 3, conversions: 2, conversionsPending: 1, conversionsApproved: 1 }]]));
+    statsByAffiliate.set(
+      affId,
+      new Map([[refCode, { friendAdds: 3, conversions: 2, conversionsPending: 1, conversionsApproved: 1 }]]),
+    );
 
     const res = await call('/api/liff/affiliate/me?lineAccessToken=tok-alice');
     const body = (await res.json()) as {
-      links: Array<{ refCode: string; label: string | null; url: string; clickCount: number; friendAdds: number; conversions: number; conversionsPending: number; conversionsApproved: number }>;
+      links: Array<{
+        refCode: string;
+        label: string | null;
+        url: string;
+        clickCount: number;
+        friendAdds: number;
+        conversions: number;
+        conversionsPending: number;
+        conversionsApproved: number;
+      }>;
     };
     expect(body.links).toHaveLength(1);
     const link = body.links[0];
@@ -475,9 +516,7 @@ describe('LINE token verification', () => {
     // Env default channel does NOT match; a DB line_account's login_channel_id
     // does. Mirrors liff.ts allowing multi-account login channels.
     installLineFetchMock('3000000000');
-    dbMocks.getLineAccounts.mockResolvedValue([
-      { login_channel_id: '3000000000' } as unknown as never,
-    ]);
+    dbMocks.getLineAccounts.mockResolvedValue([{ login_channel_id: '3000000000' } as unknown as never]);
 
     const reg = await call('/api/liff/affiliate/register', {
       method: 'POST',

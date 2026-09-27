@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { wranglerMock, WranglerError } = vi.hoisted(() => {
   class TestWranglerError extends Error {
-    constructor(message: string, public readonly stderr: string) {
+    constructor(
+      message: string,
+      public readonly stderr: string,
+    ) {
       super(message);
     }
   }
@@ -34,24 +37,20 @@ describe('createDatabaseForBenchmark', () => {
   it('reports ownership before schema work can fail', async () => {
     const repo = repoFixture();
     const receipt: { databaseId: string; databaseName: string }[] = [];
-    wranglerMock
-      .mockResolvedValueOnce('database_id = "created-id"')
-      .mockRejectedValueOnce(new Error('schema failed'));
+    wranglerMock.mockResolvedValueOnce('database_id = "created-id"').mockRejectedValueOnce(new Error('schema failed'));
 
-    await expect(
-      createDatabaseForBenchmark(repo, 'bench-db', (value) => receipt.push(value)),
-    ).rejects.toThrow('schema failed');
+    await expect(createDatabaseForBenchmark(repo, 'bench-db', (value) => receipt.push(value))).rejects.toThrow(
+      'schema failed',
+    );
     expect(receipt).toEqual([{ databaseId: 'created-id', databaseName: 'bench-db' }]);
   });
 
   it('fails on a name collision without listing or reusing the existing database', async () => {
-    wranglerMock.mockRejectedValueOnce(
-      new WranglerError('create failed', 'database already exists'),
-    );
+    wranglerMock.mockRejectedValueOnce(new WranglerError('create failed', 'database already exists'));
 
-    await expect(
-      createDatabaseForBenchmark(repoFixture(), 'bench-db', () => undefined),
-    ).rejects.toMatchObject({ stderr: 'database already exists' });
+    await expect(createDatabaseForBenchmark(repoFixture(), 'bench-db', () => undefined)).rejects.toMatchObject({
+      stderr: 'database already exists',
+    });
     expect(wranglerMock).toHaveBeenCalledTimes(1);
     expect(wranglerMock).toHaveBeenCalledWith(['d1', 'create', 'bench-db']);
   });

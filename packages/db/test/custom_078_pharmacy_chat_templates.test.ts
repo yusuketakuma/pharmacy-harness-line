@@ -50,100 +50,138 @@ function setup(): Database.Database {
 describe('custom_078 pharmacy_chat_templates', () => {
   it('accepts a scoped draft template', () => {
     const sqlite = setup();
-    sqlite.prepare(`
+    sqlite
+      .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', '受付確認', '処方せんを受け付けました。', 'draft', 1,
               'staff-a', '${NOW}', '${NOW}')
-    `).run();
-    const row = sqlite.prepare(
-      `SELECT status, version FROM pharmacy_chat_templates
+    `)
+      .run();
+    const row = sqlite
+      .prepare(
+        `SELECT status, version FROM pharmacy_chat_templates
         WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'`,
-    ).get() as { status: string; version: number };
+      )
+      .get() as { status: string; version: number };
     expect(row.status).toBe('draft');
     expect(row.version).toBe(1);
   });
 
   it('rejects a creator scoped to another tenant', () => {
     const sqlite = setup();
-    expect(() => sqlite.prepare(`
+    expect(() =>
+      sqlite
+        .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', 't', '本文', 'draft', 1,
               'staff-b', '${NOW}', '${NOW}')
-    `).run()).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
   });
 
   it('rejects an inactive creator even within the account scope', () => {
     const sqlite = setup();
-    expect(() => sqlite.prepare(`
+    expect(() =>
+      sqlite
+        .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', 't', '本文', 'draft', 1,
               'staff-c', '${NOW}', '${NOW}')
-    `).run()).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
   });
 
   it('requires approver fields when approved and forbids self-approval', () => {
     const sqlite = setup();
-    sqlite.prepare(`
+    sqlite
+      .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', 't', '本文', 'draft', 1,
               'staff-a', '${NOW}', '${NOW}')
-    `).run();
-    expect(() => sqlite.prepare(`
+    `)
+      .run();
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_chat_templates
          SET status = 'approved'
        WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'
-    `).run()).toThrow();
-    expect(() => sqlite.prepare(`
+    `)
+        .run(),
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_chat_templates
          SET status = 'approved', approved_by_staff_id = 'staff-a',
              approved_at = '${NOW}'
        WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'
-    `).run()).toThrow();
+    `)
+        .run(),
+    ).toThrow();
   });
 
   it('rejects approver outside the account scope', () => {
     const sqlite = setup();
-    sqlite.prepare(`
+    sqlite
+      .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', 't', '本文', 'draft', 1,
               'staff-a', '${NOW}', '${NOW}')
-    `).run();
-    expect(() => sqlite.prepare(`
+    `)
+      .run();
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_chat_templates
          SET status = 'approved', approved_by_staff_id = 'staff-b',
              approved_at = '${NOW}'
        WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'
-    `).run()).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_CHAT_TEMPLATE_STAFF_SCOPE_MISMATCH/);
   });
 
   it('keeps identity columns immutable', () => {
     const sqlite = setup();
-    sqlite.prepare(`
+    sqlite
+      .prepare(`
       INSERT INTO pharmacy_chat_templates
         (line_account_id, template_id, title, body, status, version,
          created_by_staff_id, created_at, updated_at)
       VALUES ('account-a', 'tpl-00001', 't', '本文', 'draft', 1,
               'staff-a', '${NOW}', '${NOW}')
-    `).run();
-    expect(() => sqlite.prepare(`
+    `)
+      .run();
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_chat_templates
          SET template_id = 'tpl-00002'
        WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'
-    `).run()).toThrow(/PHARMACY_CHAT_TEMPLATE_IDENTITY_IMMUTABLE/);
-    expect(() => sqlite.prepare(`
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_CHAT_TEMPLATE_IDENTITY_IMMUTABLE/);
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_chat_templates
          SET created_at = '2030-01-01T00:00:00.000Z'
        WHERE line_account_id = 'account-a' AND template_id = 'tpl-00001'
-    `).run()).toThrow(/PHARMACY_CHAT_TEMPLATE_IDENTITY_IMMUTABLE/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_CHAT_TEMPLATE_IDENTITY_IMMUTABLE/);
   });
 });

@@ -1,0 +1,11 @@
+# 有効期限通知の取得・再試行調査
+
+Snapshot 75cf0b78894dc92fa61620401bbd1b796b33c206。前turnはF23実装修復・検証・commitによるprogress。本調査も新たな再現証拠を得たprogress。
+
+CONFIRMED_BUG P2: growth-loop/validity.tsのdue SELECTはreminder_due_at,submission_id固定順LIMIT50。paused/in_progress/failure/credential missingでreleaseClaimがclaimed_atをNULLへ戻すため、次回も同じ50件だけを選ぶ。6時間刻み2回、先頭50件tenant-a paused、後続1件tenant-bをfull bootstrapSQLite FK/triggers/checks有効でseed。実processor+実claim/release SQL、sender paused stubとcredential/beta synthetic stubで確認。100send境界呼出は全てaccount-a、2回同一50retryKeys、sub-050未選択。全51行claimed_at/sent_at NULL、FKcheck空。validity-queue-progress-case.txt/log/result.json、exit0/1PASSは欠陥再現を意味し修復済みではない。外部0。
+
+期待: 一方の薬局の停止・資格情報不足が、別の薬局の有効期限内通知を永久に妨げない。期限日/準備完了/検証済み/患者同意/承認済みtemplate/tenant/account/重複抑止/送信確定保存は維持。
+
+F24予定: validity通知の確認日時を追加型metadataで記録し、claimed_atの15分競合制御/即時releaseとは別に処理順を前進させる。F20/F21の旧schema fallback/monotonic timestamp/tenantaccount scopeを参考にするがschema変更はまだ未実施。expiredReview処理には期限切れ→staff reviewの既存audited batchがあり、同じ正常skipループとは別に扱う。旧app/schema互換、paused/error/missingcredential→別tenant進行、resume、clinical dates/status不変、required checksとcompiled cronを必要条件にする。finite N50/500/5000でlocal overhead事前≤50msを測り、D1費用は未測定として残す。未着手を完了扱いしない。
+
+その他の限定読取: expiredRowsはactive account/tenantとpharmacy modeを確認し、未閉鎖でvalid_until<今日を抽出。markPrescriptionValidityExpiredReviewはstatus/date/account/submissionを再検証しaudit同batch。失敗例外時の後続進行やvalidity改訂との送信直前競合は未確認。dates/制度上の既定4日規則は変更も外部検証も行っていない。

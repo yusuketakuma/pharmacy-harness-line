@@ -27,8 +27,9 @@ function tsSourceFiles(dir: string): string[] {
 // second tenant-creation path is introduced.
 describe('tenant creation invariant', () => {
   it('has exactly one production call site that can INSERT INTO tenants', () => {
-    const matches = tsSourceFiles(WORKER_SRC)
-      .filter((file) => readFileSync(file, 'utf8').includes('INSERT INTO tenants'));
+    const matches = tsSourceFiles(WORKER_SRC).filter((file) =>
+      readFileSync(file, 'utf8').includes('INSERT INTO tenants'),
+    );
 
     expect(matches).toEqual([join(WORKER_SRC, 'custom', 'pharmacy', 'provisioning', 'routes.ts')]);
   });

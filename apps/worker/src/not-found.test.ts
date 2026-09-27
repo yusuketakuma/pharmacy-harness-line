@@ -77,9 +77,12 @@ describe('notFoundHandler — root / request', () => {
           first: async () => {
             if (sql.includes('pharmacy_account_capabilities')) return { ok: 1 };
             if (sql.includes('FROM line_accounts')) return { id: 'account-a', name: '薬局A' };
-            if (sql.includes('FROM forms')) return {
-              id: args[0], name: '患者情報を含む汎用フォーム', description: 'should not leak',
-            };
+            if (sql.includes('FROM forms'))
+              return {
+                id: args[0],
+                name: '患者情報を含む汎用フォーム',
+                description: 'should not leak',
+              };
             return null;
           },
         }),
@@ -96,8 +99,9 @@ describe('notFoundHandler — root / request', () => {
     expect(html).not.toContain('患者情報を含む汎用フォーム');
     expect(html).not.toContain('should not leak');
     expect(db.prepare).not.toHaveBeenCalledWith(expect.stringContaining('FROM forms'));
-    const accountQueries = vi.mocked(db.prepare).mock.calls
-      .map(([sql]) => sql)
+    const accountQueries = vi
+      .mocked(db.prepare)
+      .mock.calls.map(([sql]) => sql)
       .filter((sql) => sql.includes('FROM line_accounts'));
     expect(accountQueries).not.toHaveLength(0);
     for (const sql of accountQueries) {

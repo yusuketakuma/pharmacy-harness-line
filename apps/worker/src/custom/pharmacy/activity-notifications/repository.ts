@@ -15,8 +15,10 @@ export interface ActivityNotification {
 }
 
 const TYPES = new Set<ActivityType>([
-  'prescription_received', 'prescription_status_changed',
-  'fulfillment_quote_created', 'myna_handoff_received',
+  'prescription_received',
+  'prescription_status_changed',
+  'fulfillment_quote_created',
+  'myna_handoff_received',
 ]);
 const SELECT = `
   SELECT id, line_account_id, activity_type, acknowledged_by, acknowledged_at,
@@ -37,18 +39,20 @@ export async function createActivityNotification(
   const hash = await dedupeHash(input.idempotencyKey);
   const timestamp = new Date().toISOString();
   const id = crypto.randomUUID();
-  await db.prepare(
-    `INSERT INTO pharmacy_activity_notifications
+  await db
+    .prepare(
+      `INSERT INTO pharmacy_activity_notifications
        (id, line_account_id, activity_type, dedupe_hash, created_at, updated_at)
      SELECT ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM line_accounts WHERE id = ? AND is_active = 1)
      ON CONFLICT (line_account_id, dedupe_hash) DO NOTHING`,
-  ).bind(
-    id, input.lineAccountId, input.activityType, hash, timestamp, timestamp, input.lineAccountId,
-  ).run();
-  const item = await db.prepare(
-    `${SELECT} WHERE line_account_id = ? AND dedupe_hash = ?`,
-  ).bind(input.lineAccountId, hash).first<ActivityNotification>();
+    )
+    .bind(id, input.lineAccountId, input.activityType, hash, timestamp, timestamp, input.lineAccountId)
+    .run();
+  const item = await db
+    .prepare(`${SELECT} WHERE line_account_id = ? AND dedupe_hash = ?`)
+    .bind(input.lineAccountId, hash)
+    .first<ActivityNotification>();
   if (item && item.activity_type !== input.activityType) throw new Error('activity idempotency conflict');
   return item;
 }
@@ -69,11 +73,14 @@ export async function listActivityNotifications(
   limit: number,
 ): Promise<ActivityNotification[]> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
-  const result = await db.prepare(
-    `${SELECT}
+  const result = await db
+    .prepare(
+      `${SELECT}
       WHERE line_account_id = ? AND acknowledged_at IS ${acknowledged ? 'NOT NULL' : 'NULL'}
       ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).bind(lineAccountId, boundedLimit).all<ActivityNotification>();
+    )
+    .bind(lineAccountId, boundedLimit)
+    .all<ActivityNotification>();
   return result.results ?? [];
 }
 
@@ -85,11 +92,16 @@ export async function acknowledgeActivityNotification(
   at = new Date(),
 ): Promise<ActivityNotification | null> {
   const timestamp = at.toISOString();
-  await db.prepare(
-    `UPDATE pharmacy_activity_notifications
+  await db
+    .prepare(
+      `UPDATE pharmacy_activity_notifications
         SET acknowledged_by = ?, acknowledged_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND acknowledged_at IS NULL`,
-  ).bind(staffId, timestamp, timestamp, notificationId, lineAccountId).run();
-  return db.prepare(`${SELECT} WHERE id = ? AND line_account_id = ?`)
-    .bind(notificationId, lineAccountId).first<ActivityNotification>();
+    )
+    .bind(staffId, timestamp, timestamp, notificationId, lineAccountId)
+    .run();
+  return db
+    .prepare(`${SELECT} WHERE id = ? AND line_account_id = ?`)
+    .bind(notificationId, lineAccountId)
+    .first<ActivityNotification>();
 }

@@ -175,10 +175,7 @@ export interface CommonGenerationSigner {
   readonly signingKeyId: string;
   readonly publicKey: string;
   sign(payload: CommonGenerationManifest): SignedCommonGenerationManifest;
-  verify(
-    input: SignedCommonGenerationManifest | string,
-    pinnedTrustStore: Record<string, string>,
-  ): VerificationResult;
+  verify(input: SignedCommonGenerationManifest | string, pinnedTrustStore: Record<string, string>): VerificationResult;
 }
 
 export interface D1CaptureArtifact {
@@ -336,20 +333,26 @@ function assertTimestamp(value: unknown, path: string): asserts value is string 
   if (!Number.isFinite(Date.parse(value))) fail(`${path} must be an ISO timestamp`);
 }
 
-function assertMarker(value: Record<string, unknown>, path: string, expected: {
-  generation: string;
-  fenceId: string;
-  fenceEpoch: number;
-  cutId: string;
-}): void {
+function assertMarker(
+  value: Record<string, unknown>,
+  path: string,
+  expected: {
+    generation: string;
+    fenceId: string;
+    fenceEpoch: number;
+    cutId: string;
+  },
+): void {
   assertString(value.embeddedGeneration, `${path}.embeddedGeneration`);
   assertString(value.embeddedFenceId, `${path}.embeddedFenceId`);
   assertInteger(value.embeddedFenceEpoch, `${path}.embeddedFenceEpoch`);
   assertString(value.embeddedCutId, `${path}.embeddedCutId`);
-  if (value.embeddedGeneration !== expected.generation ||
-      value.embeddedFenceId !== expected.fenceId ||
-      value.embeddedFenceEpoch !== expected.fenceEpoch ||
-      value.embeddedCutId !== expected.cutId) {
+  if (
+    value.embeddedGeneration !== expected.generation ||
+    value.embeddedFenceId !== expected.fenceId ||
+    value.embeddedFenceEpoch !== expected.fenceEpoch ||
+    value.embeddedCutId !== expected.cutId
+  ) {
     fail(`${path} has mixed generation or fence`);
   }
 }
@@ -359,8 +362,11 @@ function validateWatermark(value: unknown, path: string): void {
   assertExactKeys(value, ['maxCommitted', 'maxProcessed', 'pendingCount', 'pendingSetDigest'], path);
   for (const key of ['maxCommitted', 'maxProcessed']) {
     const item = value[key];
-    if (item !== null && typeof item !== 'string' &&
-        (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 0)) {
+    if (
+      item !== null &&
+      typeof item !== 'string' &&
+      (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 0)
+    ) {
       fail(`${path}.${key} must be null, a non-negative integer, or a string`);
     }
   }
@@ -370,10 +376,23 @@ function validateWatermark(value: unknown, path: string): void {
 
 function validatePayload(value: unknown): asserts value is CommonGenerationManifest {
   assertRecord(value, 'payload');
-  assertExactKeys(value, [
-    'manifestId', 'manifestVersion', 'generation', 'scope', 'source', 'fence',
-    'd1', 'r2', 'fle', 'watermarks', 'restorePolicy',
-  ], 'payload');
+  assertExactKeys(
+    value,
+    [
+      'manifestId',
+      'manifestVersion',
+      'generation',
+      'scope',
+      'source',
+      'fence',
+      'd1',
+      'r2',
+      'fle',
+      'watermarks',
+      'restorePolicy',
+    ],
+    'payload',
+  );
   assertString(value.manifestId, 'payload.manifestId');
   if (value.manifestVersion !== MANIFEST_VERSION) fail('unsupported manifest version');
   assertString(value.generation, 'payload.generation');
@@ -391,7 +410,11 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   assertBoolean(value.source.production, 'payload.source.production');
 
   assertRecord(value.fence, 'payload.fence');
-  assertExactKeys(value.fence, ['id', 'epoch', 'cutId', 'startedAt', 'completedAt', 'activeJobDigest'], 'payload.fence');
+  assertExactKeys(
+    value.fence,
+    ['id', 'epoch', 'cutId', 'startedAt', 'completedAt', 'activeJobDigest'],
+    'payload.fence',
+  );
   assertString(value.fence.id, 'payload.fence.id');
   assertInteger(value.fence.epoch, 'payload.fence.epoch');
   assertString(value.fence.cutId, 'payload.fence.cutId');
@@ -405,10 +428,11 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   assertRecord(value.d1, 'payload.d1');
   assertExactKeys(value.d1, ['export', 'schema', 'orderedMigrations', 'logicalInventory'], 'payload.d1');
   assertRecord(value.d1.export, 'payload.d1.export');
-  assertExactKeys(value.d1.export, [
-    'byteLength', 'sha256', 'embeddedGeneration', 'embeddedFenceId', 'embeddedFenceEpoch',
-    'embeddedCutId',
-  ], 'payload.d1.export');
+  assertExactKeys(
+    value.d1.export,
+    ['byteLength', 'sha256', 'embeddedGeneration', 'embeddedFenceId', 'embeddedFenceEpoch', 'embeddedCutId'],
+    'payload.d1.export',
+  );
   assertInteger(value.d1.export.byteLength, 'payload.d1.export.byteLength');
   assertDigest(value.d1.export.sha256, 'payload.d1.export.sha256');
   assertMarker(value.d1.export, 'payload.d1.export', {
@@ -430,7 +454,8 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
     assertInteger(migration.order, `payload.d1.orderedMigrations[${index}].order`);
     assertString(migration.name, `payload.d1.orderedMigrations[${index}].name`);
     assertDigest(migration.checksum, `payload.d1.orderedMigrations[${index}].checksum`);
-    if (migration.order <= previousOrder || migrationNames.has(migration.name)) fail('D1 migrations are not ordered and unique');
+    if (migration.order <= previousOrder || migrationNames.has(migration.name))
+      fail('D1 migrations are not ordered and unique');
     previousOrder = migration.order;
     migrationNames.add(migration.name);
   }
@@ -452,10 +477,21 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   assertString(value.r2.namespace, 'payload.r2.namespace');
   assertString(value.r2.prefix, 'payload.r2.prefix');
   assertRecord(value.r2.inventory, 'payload.r2.inventory');
-  assertExactKeys(value.r2.inventory, [
-    'sha256', 'byteLength', 'objectCount', 'totalBytes', 'embeddedGeneration',
-    'embeddedFenceId', 'embeddedFenceEpoch', 'embeddedCutId', 'objects',
-  ], 'payload.r2.inventory');
+  assertExactKeys(
+    value.r2.inventory,
+    [
+      'sha256',
+      'byteLength',
+      'objectCount',
+      'totalBytes',
+      'embeddedGeneration',
+      'embeddedFenceId',
+      'embeddedFenceEpoch',
+      'embeddedCutId',
+      'objects',
+    ],
+    'payload.r2.inventory',
+  );
   assertDigest(value.r2.inventory.sha256, 'payload.r2.inventory.sha256');
   assertInteger(value.r2.inventory.byteLength, 'payload.r2.inventory.byteLength');
   assertInteger(value.r2.inventory.objectCount, 'payload.r2.inventory.objectCount');
@@ -470,10 +506,19 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   const objectKeys = new Set<string>();
   for (const [index, object] of value.r2.inventory.objects.entries()) {
     assertRecord(object, `payload.r2.inventory.objects[${index}]`);
-    assertExactKeys(object, [
-      'key', 'contentSha256', 'byteLength', 'embeddedGeneration', 'embeddedFenceId', 'embeddedFenceEpoch',
-      'embeddedCutId',
-    ], `payload.r2.inventory.objects[${index}]`);
+    assertExactKeys(
+      object,
+      [
+        'key',
+        'contentSha256',
+        'byteLength',
+        'embeddedGeneration',
+        'embeddedFenceId',
+        'embeddedFenceEpoch',
+        'embeddedCutId',
+      ],
+      `payload.r2.inventory.objects[${index}]`,
+    );
     assertString(object.key, `payload.r2.inventory.objects[${index}].key`);
     assertDigest(object.contentSha256, `payload.r2.inventory.objects[${index}].contentSha256`);
     assertInteger(object.byteLength, `payload.r2.inventory.objects[${index}].byteLength`);
@@ -488,7 +533,9 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
     if (!object.key.startsWith(value.r2.prefix)) fail('R2 object is outside the declared namespace prefix');
   }
   if (value.r2.inventory.objectCount !== value.r2.inventory.objects.length) fail('R2 object count mismatch');
-  if (value.r2.inventory.totalBytes !== value.r2.inventory.objects.reduce((sum, object) => sum + object.byteLength, 0)) {
+  if (
+    value.r2.inventory.totalBytes !== value.r2.inventory.objects.reduce((sum, object) => sum + object.byteLength, 0)
+  ) {
     fail('R2 total bytes mismatch');
   }
   const canonicalR2Inventory = canonicalizeCommonGeneration(
@@ -496,18 +543,28 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
       .sort((left, right) => left.key.localeCompare(right.key))
       .map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })),
   );
-  if (value.r2.inventory.sha256 !== hash(canonicalR2Inventory) ||
-      value.r2.inventory.byteLength !== Buffer.byteLength(canonicalR2Inventory)) {
+  if (
+    value.r2.inventory.sha256 !== hash(canonicalR2Inventory) ||
+    value.r2.inventory.byteLength !== Buffer.byteLength(canonicalR2Inventory)
+  ) {
     fail('R2 inventory SHA256 or byte length mismatch');
   }
 
   assertRecord(value.fle, 'payload.fle');
-  assertExactKeys(value.fle, ['fieldInventory', 'envelopeVersions', 'keyVersions', 'pinnedKeyFingerprint', 'referenceCounts'], 'payload.fle');
+  assertExactKeys(
+    value.fle,
+    ['fieldInventory', 'envelopeVersions', 'keyVersions', 'pinnedKeyFingerprint', 'referenceCounts'],
+    'payload.fle',
+  );
   if (!Array.isArray(value.fle.fieldInventory)) fail('payload.fle.fieldInventory must be an array');
   const fields = new Set<string>();
   for (const [index, field] of value.fle.fieldInventory.entries()) {
     assertRecord(field, `payload.fle.fieldInventory[${index}]`);
-    assertExactKeys(field, ['field', 'encrypted', 'envelopeVersion', 'keyVersion', 'referenceCount'], `payload.fle.fieldInventory[${index}]`);
+    assertExactKeys(
+      field,
+      ['field', 'encrypted', 'envelopeVersion', 'keyVersion', 'referenceCount'],
+      `payload.fle.fieldInventory[${index}]`,
+    );
     assertString(field.field, `payload.fle.fieldInventory[${index}].field`);
     if (field.encrypted !== true) fail('FLE field inventory contains plaintext fallback');
     assertInteger(field.envelopeVersion, `payload.fle.fieldInventory[${index}].envelopeVersion`);
@@ -518,17 +575,29 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   }
   const envelopeVersions = value.fle.envelopeVersions;
   const keyVersions = value.fle.keyVersions;
-  if (!Array.isArray(envelopeVersions) || envelopeVersions.length === 0 || envelopeVersions.some((item) => !Number.isSafeInteger(item) || item < 0)) {
+  if (
+    !Array.isArray(envelopeVersions) ||
+    envelopeVersions.length === 0 ||
+    envelopeVersions.some((item) => !Number.isSafeInteger(item) || item < 0)
+  ) {
     fail('payload.fle.envelopeVersions must contain versions');
   }
-  if (!Array.isArray(keyVersions) || keyVersions.length === 0 || keyVersions.some((item) => !Number.isSafeInteger(item) || item < 0)) {
+  if (
+    !Array.isArray(keyVersions) ||
+    keyVersions.length === 0 ||
+    keyVersions.some((item) => !Number.isSafeInteger(item) || item < 0)
+  ) {
     fail('payload.fle.keyVersions must contain versions');
   }
   assertDigest(value.fle.pinnedKeyFingerprint, 'payload.fle.pinnedKeyFingerprint');
   assertRecord(value.fle.referenceCounts, 'payload.fle.referenceCounts');
-  for (const [field, count] of Object.entries(value.fle.referenceCounts)) assertInteger(count, `payload.fle.referenceCounts.${field}`);
+  for (const [field, count] of Object.entries(value.fle.referenceCounts))
+    assertInteger(count, `payload.fle.referenceCounts.${field}`);
   for (const field of value.fle.fieldInventory) {
-    if (!(envelopeVersions as number[]).includes(field.envelopeVersion) || !(keyVersions as number[]).includes(field.keyVersion)) {
+    if (
+      !(envelopeVersions as number[]).includes(field.envelopeVersion) ||
+      !(keyVersions as number[]).includes(field.keyVersion)
+    ) {
       fail('FLE field references an unpinned envelope or key version');
     }
     if (value.fle.referenceCounts[field.field] !== field.referenceCount) {
@@ -538,8 +607,10 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
   for (const field of Object.keys(value.fle.referenceCounts)) {
     if (!fields.has(field)) fail('FLE reference count has no field inventory entry');
   }
-  if (fields.size !== COMMON_GENERATION_FLE_FIELDS.length ||
-      COMMON_GENERATION_FLE_FIELDS.some((field) => !fields.has(field))) {
+  if (
+    fields.size !== COMMON_GENERATION_FLE_FIELDS.length ||
+    COMMON_GENERATION_FLE_FIELDS.some((field) => !fields.has(field))
+  ) {
     fail('FLE field inventory does not cover the canonical encrypted fields');
   }
 
@@ -557,7 +628,11 @@ function validatePayload(value: unknown): asserts value is CommonGenerationManif
 
 function validateSignedEnvelope(value: unknown): asserts value is SignedCommonGenerationManifest {
   assertRecord(value, 'signed manifest');
-  assertExactKeys(value, ['schemaVersion', 'algorithm', 'signingKeyId', 'payloadSha256', 'signature', 'payload'], 'signed manifest');
+  assertExactKeys(
+    value,
+    ['schemaVersion', 'algorithm', 'signingKeyId', 'payloadSha256', 'signature', 'payload'],
+    'signed manifest',
+  );
   if (value.schemaVersion !== SCHEMA_VERSION) fail('unsupported signed manifest version');
   if (value.algorithm !== ALGORITHM) fail('unsupported signing algorithm');
   assertString(value.signingKeyId, 'signed manifest.signingKeyId');
@@ -668,9 +743,9 @@ export function canonicalizeCommonGeneration(value: unknown): string {
   }
   if (Array.isArray(value)) return `[${value.map((item) => canonicalizeCommonGeneration(item)).join(',')}]`;
   if (isRecord(value)) {
-    const entries = Object.keys(value).sort().map((key) =>
-      `${JSON.stringify(key)}:${canonicalizeCommonGeneration(value[key])}`,
-    );
+    const entries = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeCommonGeneration(value[key])}`);
     return `{${entries.join(',')}}`;
   }
   fail('canonical JSON contains an unsupported value');
@@ -713,10 +788,11 @@ export async function runIsolatedRestoreRehearsalFromFiles(
 ): Promise<IsolatedRehearsalReport> {
   // ponytail: local files are loaded in memory; move to a disposable isolated target when exports outgrow operator memory.
   assertRecord(input, 'restore files input');
-  assertExactKeys(input, [
-    'signedManifestPath', 'pinnedTrustStore', 'd1ExportPath', 'r2ObjectPaths',
-    'fleRootSecret', 'retainedGenerations',
-  ], 'restore files input');
+  assertExactKeys(
+    input,
+    ['signedManifestPath', 'pinnedTrustStore', 'd1ExportPath', 'r2ObjectPaths', 'fleRootSecret', 'retainedGenerations'],
+    'restore files input',
+  );
   assertString(input.signedManifestPath, 'restore files input.signedManifestPath');
   assertString(input.d1ExportPath, 'restore files input.d1ExportPath');
   assertRecord(input.r2ObjectPaths, 'restore files input.r2ObjectPaths');
@@ -813,7 +889,11 @@ export function verifyCommonGenerationManifest(
     if (payloadSha256 !== value.payloadSha256) fail('signed payload hash mismatch');
     const pinned = pinnedTrustStore[value.signingKeyId];
     if (typeof pinned !== 'string') fail('signing key is not pinned by caller');
-    const publicKey = createPublicKey({ key: decode(pinned, 'pinned trust key'), format: 'der', type: 'spki' });
+    const publicKey = createPublicKey({
+      key: decode(pinned, 'pinned trust key'),
+      format: 'der',
+      type: 'spki',
+    });
     const verified = verifyBytes(
       null,
       Buffer.from(value.payloadSha256, 'utf8'),
@@ -823,7 +903,10 @@ export function verifyCommonGenerationManifest(
     if (!verified) fail('signature verification failed');
     return { valid: true, payload: value.payload };
   } catch (error) {
-    return { valid: false, reason: error instanceof Error ? error.message : 'manifest verification failed' };
+    return {
+      valid: false,
+      reason: error instanceof Error ? error.message : 'manifest verification failed',
+    };
   }
 }
 
@@ -833,8 +916,12 @@ export function createCommonGenerationSigner(options: {
   publicKey: KeyObject;
 }): CommonGenerationSigner {
   assertString(options.signingKeyId, 'signingKeyId');
-  if (options.privateKey.type !== 'private' || options.privateKey.asymmetricKeyType !== 'ed25519' ||
-      options.publicKey.type !== 'public' || options.publicKey.asymmetricKeyType !== 'ed25519') {
+  if (
+    options.privateKey.type !== 'private' ||
+    options.privateKey.asymmetricKeyType !== 'ed25519' ||
+    options.publicKey.type !== 'public' ||
+    options.publicKey.asymmetricKeyType !== 'ed25519'
+  ) {
     fail('common generation signing keys must be an Ed25519 private/public pair');
   }
   const derivedPublicKey = publicKeyBytes(createPublicKey(options.privateKey));
@@ -855,14 +942,21 @@ function assertFenceSnapshot(actual: GenerationFence, expected: GenerationFence,
 }
 
 function assertCaptureMarker(
-  actual: { embeddedGeneration: string; embeddedFenceId: string; embeddedFenceEpoch: number; embeddedCutId: string },
+  actual: {
+    embeddedGeneration: string;
+    embeddedFenceId: string;
+    embeddedFenceEpoch: number;
+    embeddedCutId: string;
+  },
   expected: { generation: string; fence: GenerationFence },
   path: string,
 ): void {
-  if (actual.embeddedGeneration !== expected.generation ||
-      actual.embeddedFenceId !== expected.fence.id ||
-      actual.embeddedFenceEpoch !== expected.fence.epoch ||
-      actual.embeddedCutId !== expected.fence.cutId) {
+  if (
+    actual.embeddedGeneration !== expected.generation ||
+    actual.embeddedFenceId !== expected.fence.id ||
+    actual.embeddedFenceEpoch !== expected.fence.epoch ||
+    actual.embeddedCutId !== expected.fence.cutId
+  ) {
     fail(`${path} is not from the requested common generation fence`);
   }
 }
@@ -919,8 +1013,18 @@ export async function captureCommonGeneration(input: CaptureInput): Promise<Comm
       referenceCounts: Object.fromEntries(COMMON_GENERATION_FLE_FIELDS.map((field) => [field, 0])),
     },
     watermarks: {
-      outbox: { maxCommitted: null, maxProcessed: null, pendingCount: 0, pendingSetDigest: hash('outbox') },
-      webhook: { maxCommitted: null, maxProcessed: null, pendingCount: 0, pendingSetDigest: hash('webhook') },
+      outbox: {
+        maxCommitted: null,
+        maxProcessed: null,
+        pendingCount: 0,
+        pendingSetDigest: hash('outbox'),
+      },
+      webhook: {
+        maxCommitted: null,
+        maxProcessed: null,
+        pendingCount: 0,
+        pendingSetDigest: hash('webhook'),
+      },
     },
     restorePolicy: { mode: 'isolated-only', production_side_effects_allowed: false },
   });
@@ -940,16 +1044,20 @@ export async function captureCommonGeneration(input: CaptureInput): Promise<Comm
   for (const [index, object] of r2.objects.entries()) assertCaptureMarker(object, input, `R2 object ${index}`);
 
   const d1Bytes = new Uint8Array(d1.bytes);
-  const r2Objects = r2.objects.map((object) => ({
-    key: object.key,
-    contentSha256: hash(object.bytes),
-    byteLength: object.bytes.byteLength,
-    embeddedGeneration: object.embeddedGeneration,
-    embeddedFenceId: object.embeddedFenceId,
-    embeddedFenceEpoch: object.embeddedFenceEpoch,
-    embeddedCutId: object.embeddedCutId,
-  })).sort((left, right) => left.key.localeCompare(right.key));
-  const inventoryCanonical = canonicalizeCommonGeneration(r2Objects.map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })));
+  const r2Objects = r2.objects
+    .map((object) => ({
+      key: object.key,
+      contentSha256: hash(object.bytes),
+      byteLength: object.bytes.byteLength,
+      embeddedGeneration: object.embeddedGeneration,
+      embeddedFenceId: object.embeddedFenceId,
+      embeddedFenceEpoch: object.embeddedFenceEpoch,
+      embeddedCutId: object.embeddedCutId,
+    }))
+    .sort((left, right) => left.key.localeCompare(right.key));
+  const inventoryCanonical = canonicalizeCommonGeneration(
+    r2Objects.map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })),
+  );
   const payload: CommonGenerationManifest = {
     manifestId: input.manifestId,
     manifestVersion: MANIFEST_VERSION,
@@ -1016,23 +1124,33 @@ export function validateCapturedArtifacts(
   if (canonicalizeCommonGeneration(manifest.d1.schema) !== canonicalizeCommonGeneration(artifacts.d1.schema)) {
     fail('D1 schema inventory mismatch');
   }
-  if (canonicalizeCommonGeneration(manifest.d1.orderedMigrations) !== canonicalizeCommonGeneration(artifacts.d1.orderedMigrations)) {
+  if (
+    canonicalizeCommonGeneration(manifest.d1.orderedMigrations) !==
+    canonicalizeCommonGeneration(artifacts.d1.orderedMigrations)
+  ) {
     fail('D1 ordered migration inventory mismatch');
   }
-  if (canonicalizeCommonGeneration(manifest.d1.logicalInventory) !== canonicalizeCommonGeneration(artifacts.d1.logicalInventory)) {
+  if (
+    canonicalizeCommonGeneration(manifest.d1.logicalInventory) !==
+    canonicalizeCommonGeneration(artifacts.d1.logicalInventory)
+  ) {
     fail('D1 logical inventory mismatch');
   }
 
-  const r2Objects = artifacts.r2.objects.map((object) => ({
-    key: object.key,
-    contentSha256: hash(object.bytes),
-    byteLength: object.bytes.byteLength,
-    embeddedGeneration: object.embeddedGeneration,
-    embeddedFenceId: object.embeddedFenceId,
-    embeddedFenceEpoch: object.embeddedFenceEpoch,
-    embeddedCutId: object.embeddedCutId,
-  })).sort((left, right) => left.key.localeCompare(right.key));
-  const inventoryCanonical = canonicalizeCommonGeneration(r2Objects.map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })));
+  const r2Objects = artifacts.r2.objects
+    .map((object) => ({
+      key: object.key,
+      contentSha256: hash(object.bytes),
+      byteLength: object.bytes.byteLength,
+      embeddedGeneration: object.embeddedGeneration,
+      embeddedFenceId: object.embeddedFenceId,
+      embeddedFenceEpoch: object.embeddedFenceEpoch,
+      embeddedCutId: object.embeddedCutId,
+    }))
+    .sort((left, right) => left.key.localeCompare(right.key));
+  const inventoryCanonical = canonicalizeCommonGeneration(
+    r2Objects.map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })),
+  );
   const actualR2Inventory: R2Inventory = {
     sha256: hash(inventoryCanonical),
     byteLength: Buffer.byteLength(inventoryCanonical),
@@ -1061,17 +1179,17 @@ export function validateCapturedArtifacts(
   for (const field of manifest.fle.fieldInventory) {
     if (field.encrypted !== true) fail('FLE plaintext fallback is not allowed');
   }
-  if (manifest.r2.inventory.embeddedGeneration !== expectedMarker.generation ||
-      manifest.r2.inventory.embeddedFenceId !== expectedMarker.fenceId ||
-      manifest.r2.inventory.embeddedFenceEpoch !== expectedMarker.fenceEpoch ||
-      manifest.r2.inventory.embeddedCutId !== manifest.fence.cutId) {
+  if (
+    manifest.r2.inventory.embeddedGeneration !== expectedMarker.generation ||
+    manifest.r2.inventory.embeddedFenceId !== expectedMarker.fenceId ||
+    manifest.r2.inventory.embeddedFenceEpoch !== expectedMarker.fenceEpoch ||
+    manifest.r2.inventory.embeddedCutId !== manifest.fence.cutId
+  ) {
     fail('R2 inventory marker mismatch');
   }
 }
 
-export function hashSignedCommonGenerationManifest(
-  input: SignedCommonGenerationManifest | string,
-): Sha256 {
+export function hashSignedCommonGenerationManifest(input: SignedCommonGenerationManifest | string): Sha256 {
   const value = typeof input === 'string' ? parseRawCanonicalJson(input) : input;
   validateSignedEnvelope(value);
   return hash(canonicalizeCommonGeneration(value));
@@ -1171,8 +1289,10 @@ function scalarCount(db: DatabaseSync, sql: string, ...values: Array<string | nu
 }
 
 function d1SchemaFingerprint(db: DatabaseSync): Sha256 {
-  const rows = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
-    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`).all();
+  const rows = db
+    .prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
+    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`)
+    .all();
   return hash(canonicalizeCommonGeneration(rows));
 }
 
@@ -1210,57 +1330,70 @@ function validateD1Readback(db: DatabaseSync, manifest: CommonGenerationManifest
 }
 
 function validateWatermarkReadback(db: DatabaseSync, manifest: CommonGenerationManifest): void {
-  if (!tableExists(db, 'pharmacy_notification_events') ||
-      !tableExists(db, 'pharmacy_webhook_event_receipts')) {
+  if (!tableExists(db, 'pharmacy_notification_events') || !tableExists(db, 'pharmacy_webhook_event_receipts')) {
     fail('outbox or webhook watermark table is missing after restore');
   }
-  if (scalarCount(
-    db,
-    'SELECT COUNT(*) AS count FROM pharmacy_notification_events WHERE line_account_id IS NULL OR line_account_id <> ?',
-    manifest.scope.lineAccountId,
-  ) !== 0 || scalarCount(
-    db,
-    `SELECT COUNT(*) AS count FROM pharmacy_webhook_event_receipts
+  if (
+    scalarCount(
+      db,
+      'SELECT COUNT(*) AS count FROM pharmacy_notification_events WHERE line_account_id IS NULL OR line_account_id <> ?',
+      manifest.scope.lineAccountId,
+    ) !== 0 ||
+    scalarCount(
+      db,
+      `SELECT COUNT(*) AS count FROM pharmacy_webhook_event_receipts
       WHERE tenant_id IS NULL OR tenant_id <> ? OR line_account_id IS NULL OR line_account_id <> ?`,
-    manifest.scope.tenantId,
-    manifest.scope.lineAccountId,
-  ) !== 0) {
+      manifest.scope.tenantId,
+      manifest.scope.lineAccountId,
+    ) !== 0
+  ) {
     fail('outbox or webhook watermark crossed the signed tenant or LINE account scope');
   }
 
-  const outboxRange = db.prepare(`
+  const outboxRange = db
+    .prepare(`
     SELECT MAX(created_at) AS maxCommitted,
            MAX(CASE WHEN outcome <> 'attempted' THEN occurred_at END) AS maxProcessed
       FROM pharmacy_notification_events
      WHERE line_account_id = ?
-  `).get(manifest.scope.lineAccountId) as { maxCommitted: string | null; maxProcessed: string | null };
-  const outboxRows = db.prepare(`
+  `)
+    .get(manifest.scope.lineAccountId) as {
+    maxCommitted: string | null;
+    maxProcessed: string | null;
+  };
+  const outboxRows = db
+    .prepare(`
     SELECT id, idempotency_key AS idempotencyKey, occurred_at AS occurredAt, outcome
       FROM pharmacy_notification_events
      WHERE line_account_id = ? AND outcome = 'attempted'
      ORDER BY id
-  `).all(manifest.scope.lineAccountId) as unknown as Array<{
+  `)
+    .all(manifest.scope.lineAccountId) as unknown as Array<{
     id: string;
     idempotencyKey: string;
     occurredAt: string;
     outcome: string;
   }>;
-  const webhookRange = db.prepare(`
+  const webhookRange = db
+    .prepare(`
     SELECT MAX(received_at) AS maxCommitted,
            MAX(CASE WHEN status = 'completed' THEN received_at END) AS maxProcessed
       FROM pharmacy_webhook_event_receipts
      WHERE tenant_id = ? AND line_account_id = ?
-  `).get(manifest.scope.tenantId, manifest.scope.lineAccountId) as {
+  `)
+    .get(manifest.scope.tenantId, manifest.scope.lineAccountId) as {
     maxCommitted: string | null;
     maxProcessed: string | null;
   };
-  const webhookRows = db.prepare(`
+  const webhookRows = db
+    .prepare(`
     SELECT webhook_event_id AS webhookEventId, status, retry_count AS retryCount,
            dead_lettered_at AS deadLetteredAt
       FROM pharmacy_webhook_event_receipts
      WHERE tenant_id = ? AND line_account_id = ? AND status <> 'completed'
      ORDER BY webhook_event_id
-  `).all(manifest.scope.tenantId, manifest.scope.lineAccountId) as unknown as Array<{
+  `)
+    .all(manifest.scope.tenantId, manifest.scope.lineAccountId) as unknown as Array<{
     webhookEventId: string;
     status: string;
     retryCount: number;
@@ -1305,7 +1438,8 @@ async function validateFleReadback(
   rootSecret: string,
 ): Promise<void> {
   if (!tableExists(db, 'pharmacy_patient_intake_envelopes')) fail('FLE envelope table is missing');
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(`
     SELECT envelope.response_id, envelope.tenant_id, envelope.line_account_id,
            envelope.owner_friend_id, envelope.patient_id, envelope.field_name,
            envelope.schema_version, envelope.source_revision, envelope.envelope_version,
@@ -1323,7 +1457,8 @@ async function validateFleReadback(
        AND response.schema_version = envelope.schema_version
        AND response.revision = envelope.source_revision
      ORDER BY envelope.response_id, envelope.field_name
-  `).all() as unknown as FleReadbackRow[];
+  `)
+    .all() as unknown as FleReadbackRow[];
   const responseCount = scalarCount(
     db,
     'SELECT COUNT(*) AS count FROM pharmacy_patient_intake_responses WHERE line_account_id = ?',
@@ -1350,23 +1485,27 @@ async function validateFleReadback(
     nonceKeys.add(nonceKey);
     let plaintext: string;
     try {
-      plaintext = await openPatientIntakeField({
-        envelopeVersion: row.envelope_version,
-        keyVersion: row.key_version,
-        nonce: row.nonce,
-        ciphertext: row.ciphertext,
-      }, rootSecret, {
-        tenantId: row.tenant_id,
-        lineAccountId: row.line_account_id,
-        ownerFriendId: row.owner_friend_id,
-        patientId: row.patient_id,
-        responseId: row.response_id,
-        schemaVersion: row.schema_version,
-        sourceRevision: row.source_revision,
-        fieldName,
-        envelopeVersion: row.envelope_version,
-        keyVersion: row.key_version,
-      });
+      plaintext = await openPatientIntakeField(
+        {
+          envelopeVersion: row.envelope_version,
+          keyVersion: row.key_version,
+          nonce: row.nonce,
+          ciphertext: row.ciphertext,
+        },
+        rootSecret,
+        {
+          tenantId: row.tenant_id,
+          lineAccountId: row.line_account_id,
+          ownerFriendId: row.owner_friend_id,
+          patientId: row.patient_id,
+          responseId: row.response_id,
+          schemaVersion: row.schema_version,
+          sourceRevision: row.source_revision,
+          fieldName,
+          envelopeVersion: row.envelope_version,
+          keyVersion: row.key_version,
+        },
+      );
     } catch {
       fail('FLE envelope readback failed');
     }
@@ -1389,11 +1528,13 @@ function validateR2Readback(
   if (restored.size !== manifest.r2.inventory.objectCount) fail('R2 object count mismatch after restore');
   const ownedKeys = new Set<string>();
   if (tableExists(db, 'pharmacy_prescription_files')) {
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(`
       SELECT file.r2_key, submission.line_account_id
         FROM pharmacy_prescription_files AS file
         JOIN pharmacy_prescription_submissions AS submission ON submission.id = file.submission_id
-    `).all() as unknown as Array<{ r2_key: string; line_account_id: string }>;
+    `)
+      .all() as unknown as Array<{ r2_key: string; line_account_id: string }>;
     for (const row of rows) {
       if (row.line_account_id !== manifest.scope.lineAccountId || !restored.has(row.r2_key)) {
         fail('R2 prescription ownership readback failed');
@@ -1402,11 +1543,16 @@ function validateR2Readback(
     }
   }
   if (tableExists(db, 'pharmacy_incoming_image_objects')) {
-    const rows = db.prepare('SELECT r2_key, tenant_id, line_account_id FROM pharmacy_incoming_image_objects')
+    const rows = db
+      .prepare('SELECT r2_key, tenant_id, line_account_id FROM pharmacy_incoming_image_objects')
       .all() as unknown as Array<{ r2_key: string; tenant_id: string; line_account_id: string }>;
     for (const row of rows) {
-      if (row.tenant_id !== manifest.scope.tenantId || row.line_account_id !== manifest.scope.lineAccountId ||
-          !restored.has(row.r2_key)) fail('R2 incoming-image ownership readback failed');
+      if (
+        row.tenant_id !== manifest.scope.tenantId ||
+        row.line_account_id !== manifest.scope.lineAccountId ||
+        !restored.has(row.r2_key)
+      )
+        fail('R2 incoming-image ownership readback failed');
       ownedKeys.add(row.r2_key);
     }
   }
@@ -1415,14 +1561,13 @@ function validateR2Readback(
   }
 }
 
-export async function runIsolatedRestoreRehearsal(
-  input: IsolatedRestoreInput,
-): Promise<IsolatedRehearsalReport> {
+export async function runIsolatedRestoreRehearsal(input: IsolatedRestoreInput): Promise<IsolatedRehearsalReport> {
   assertRecord(input, 'restore input');
-  assertExactKeys(input, [
-    'signedManifest', 'pinnedTrustStore', 'target', 'artifacts', 'fleRootSecret',
-    'retainedGenerations',
-  ], 'restore input');
+  assertExactKeys(
+    input,
+    ['signedManifest', 'pinnedTrustStore', 'target', 'artifacts', 'fleRootSecret', 'retainedGenerations'],
+    'restore input',
+  );
   assertRecord(input.target, 'restore input.target');
   assertExactKeys(input.target, ['environmentId', 'bindingFingerprint', 'production'], 'restore input.target');
   assertString(input.target.environmentId, 'restore input.target.environmentId');
@@ -1433,11 +1578,17 @@ export async function runIsolatedRestoreRehearsal(
   if (targetState.status !== 'fresh') fail('isolated restore requires a fresh target');
   assertString(input.fleRootSecret, 'restore input.fleRootSecret');
   const verification = verifyCommonGenerationManifest(input.signedManifest, input.pinnedTrustStore);
-  if (!verification.valid || !verification.payload) fail(`manifest verification failed: ${verification.reason ?? 'invalid manifest'}`);
+  if (!verification.valid || !verification.payload)
+    fail(`manifest verification failed: ${verification.reason ?? 'invalid manifest'}`);
   const manifest = verification.payload;
-  if (manifest.source.environmentId === input.target.environmentId) fail('isolated restore target must differ from source environment');
-  if (manifest.source.bindingFingerprint === input.target.bindingFingerprint) fail('isolated restore target must differ from source binding');
-  if (manifest.restorePolicy.production_side_effects_allowed !== false || manifest.restorePolicy.mode !== 'isolated-only') {
+  if (manifest.source.environmentId === input.target.environmentId)
+    fail('isolated restore target must differ from source environment');
+  if (manifest.source.bindingFingerprint === input.target.bindingFingerprint)
+    fail('isolated restore target must differ from source binding');
+  if (
+    manifest.restorePolicy.production_side_effects_allowed !== false ||
+    manifest.restorePolicy.mode !== 'isolated-only'
+  ) {
     fail('manifest restore policy is not isolated-only');
   }
   validateCapturedArtifacts(manifest, input.artifacts);

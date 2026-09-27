@@ -41,7 +41,9 @@ vi.mock('../../middleware/tenant-boundary.js', () => boundaryMocks);
 vi.mock('../../services/outbound-line-delivery.js', () => deliveryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
+  LineClient: vi.fn().mockImplementation(function () {
+    return lineClientMocks;
+  }),
 }));
 
 vi.mock('../../services/auto-track.js', () => ({
@@ -50,7 +52,10 @@ vi.mock('../../services/auto-track.js', () => ({
 }));
 
 vi.mock('../../services/step-delivery.js', () => ({
-  buildMessage: vi.fn((messageType: string, content: string) => ({ type: messageType, text: content })),
+  buildMessage: vi.fn((messageType: string, content: string) => ({
+    type: messageType,
+    text: content,
+  })),
 }));
 
 vi.mock('../../services/event-bus.js', () => ({ fireEvent: vi.fn() }));
@@ -118,15 +123,19 @@ function setup(db: D1Database, tenantId = 'tenant-a') {
 }
 
 function request(app: Hono<Env>, env: Env['Bindings'], idempotencyKey = crypto.randomUUID()) {
-  return app.request('/api/friends/friend-a/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Line-Harness-Source': 'manual',
-      'Idempotency-Key': idempotencyKey,
+  return app.request(
+    '/api/friends/friend-a/messages',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Harness-Source': 'manual',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
     },
-    body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
-  }, env);
+    env,
+  );
 }
 
 beforeEach(() => {
@@ -159,19 +168,21 @@ describe('manual friend message credentials', () => {
       [{ type: 'text', text: 'hello from staff' }],
       'provider-retry-key',
     );
-    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      friendId: 'friend-a',
-      messageType: 'text',
-      content: 'hello from staff',
-      source: 'manual',
-      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
-      request: {
-        to: FRIEND.line_user_id,
-        messages: [{ type: 'text', text: 'hello from staff' }],
-      },
-    }));
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        messageType: 'text',
+        content: 'hello from staff',
+        source: 'manual',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        request: {
+          to: FRIEND.line_user_id,
+          messages: [{ type: 'text', text: 'hello from staff' }],
+        },
+      }),
+    );
   });
 
   it.each([
@@ -216,11 +227,7 @@ describe('manual friend message credentials', () => {
     const response = await request(setup(db), bindings(db, ROOT_SECRET));
 
     expect(response.status).toBe(403);
-    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'account-b',
-    );
+    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-b');
     expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
     expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
@@ -242,14 +249,18 @@ describe('manual friend message credentials', () => {
     const { db } = makeDb();
     credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
 
-    const response = await setup(db).request('/api/friends/friend-a/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': crypto.randomUUID(),
+    const response = await setup(db).request(
+      '/api/friends/friend-a/messages',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
       },
-      body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
-    }, bindings(db, ROOT_SECRET));
+      bindings(db, ROOT_SECRET),
+    );
 
     expect(response.status).toBe(400);
     expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();

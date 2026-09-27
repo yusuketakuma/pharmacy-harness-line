@@ -1,14 +1,14 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { getClient, getHarnessApiConfig, getHarnessApiHeaders } from "../client.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getClient, getHarnessApiConfig, getHarnessApiHeaders } from '../client.js';
 
 export function registerGetFriendDetail(server: McpServer): void {
   server.tool(
-    "get_friend_detail",
-    "Get detailed information about a specific friend including tags, metadata, profile, and message history.",
+    'get_friend_detail',
+    'Get detailed information about a specific friend including tags, metadata, profile, and message history.',
     {
       friendId: z.string().describe("The friend's ID"),
-      includeMessages: z.boolean().optional().describe("Include message history (default: false)"),
+      includeMessages: z.boolean().optional().describe('Include message history (default: false)'),
     },
     async ({ friendId, includeMessages }) => {
       try {
@@ -22,7 +22,7 @@ export function registerGetFriendDetail(server: McpServer): void {
             headers: getHarnessApiHeaders(),
           });
           if (res.ok) {
-            const data = await res.json() as { success: boolean; data: unknown[] };
+            const data = (await res.json()) as { success: boolean; data: unknown[] };
             messages = data.data;
           }
         }
@@ -30,7 +30,7 @@ export function registerGetFriendDetail(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify({ success: true, friend, ...(messages ? { messages } : {}) }, null, 2),
             },
           ],
@@ -39,12 +39,8 @@ export function registerGetFriendDetail(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: false, error: String(error) },
-                null,
-                2,
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: false, error: String(error) }, null, 2),
             },
           ],
           isError: true,

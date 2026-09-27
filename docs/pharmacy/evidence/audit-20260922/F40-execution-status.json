@@ -1,0 +1,36 @@
+{
+  "initialRed": {
+    "session": 17449,
+    "exit": 1,
+    "pass": 15,
+    "fail": 5
+  },
+  "near": {
+    "session": 8006,
+    "exit": 0,
+    "pass": 66
+  },
+  "native": {
+    "session": 66546,
+    "exit": 0
+  },
+  "isolatedOld": {
+    "session": 52575,
+    "runnerExit": 0,
+    "tests": [
+      {
+        "name": "unit",
+        "exitCode": 1
+      },
+      {
+        "name": "native",
+        "exitCode": 1
+      }
+    ]
+  },
+  "verifyCi": {
+    "session": 71989,
+    "exit": 0
+  },
+  "diffCheck": 0
+}

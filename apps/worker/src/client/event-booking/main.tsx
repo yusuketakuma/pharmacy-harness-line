@@ -73,7 +73,11 @@ function apiGet<T>(path: string, ctx: EventBookingContext): Promise<T> {
     if (!r.ok) {
       const text = await r.text();
       let parsed: unknown = null;
-      try { parsed = JSON.parse(text); } catch { /* ignore */ }
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* ignore */
+      }
       const err = new Error(`API ${r.status}`) as Error & { status: number; body: unknown };
       err.status = r.status;
       err.body = parsed ?? text;
@@ -99,7 +103,11 @@ async function apiPost<T>(
   if (!res.ok) {
     const text = await res.text();
     let parsed: unknown = null;
-    try { parsed = JSON.parse(text); } catch { /* ignore */ }
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* ignore */
+    }
     const err = new Error(`API ${res.status}`) as Error & { status: number; body: unknown };
     err.status = res.status;
     err.body = parsed ?? text;
@@ -110,14 +118,21 @@ async function apiPost<T>(
 
 function formatJp(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
   });
 }
 
 function formatJpDateOnly(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
   });
 }
 
@@ -176,9 +191,7 @@ function EventDetailScreen({
           ]);
           if (cancelled) return;
           const all = [...up.items, ...past.items];
-          setMyActive(
-            all.filter((b) => b.event_id === e.id && (b.status === 'requested' || b.status === 'confirmed')),
-          );
+          setMyActive(all.filter((b) => b.event_id === e.id && (b.status === 'requested' || b.status === 'confirmed')));
         } catch {
           /* best-effort */
         }
@@ -189,7 +202,9 @@ function EventDetailScreen({
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [ctx, eventId]);
 
   if (loading) return <Spinner />;
@@ -251,7 +266,8 @@ function EventDetailScreen({
           <h1 className="text-lg font-bold text-gray-900 leading-snug">{event.name}</h1>
           {event.venue_name && (
             <div className="mt-2 text-sm text-gray-700 flex items-start gap-1.5">
-              <span>📍</span><span>{event.venue_name}</span>
+              <span>📍</span>
+              <span>{event.venue_name}</span>
             </div>
           )}
           {event.venue_url && (
@@ -278,7 +294,9 @@ function EventDetailScreen({
 
         {event.description && (
           <div className="eb-card mt-3">
-            <div className={`text-sm whitespace-pre-wrap leading-relaxed text-gray-800 ${event.description_centered === 1 ? 'text-center' : ''}`}>
+            <div
+              className={`text-sm whitespace-pre-wrap leading-relaxed text-gray-800 ${event.description_centered === 1 ? 'text-center' : ''}`}
+            >
               {event.description}
             </div>
           </div>
@@ -287,9 +305,7 @@ function EventDetailScreen({
         <div className="mt-5">
           <h2 className="text-sm font-bold text-gray-900 mb-2 px-1">日時を選択</h2>
           {slots.length === 0 ? (
-            <div className="eb-card text-center text-sm text-gray-500">
-              現在予約可能な枠はありません。
-            </div>
+            <div className="eb-card text-center text-sm text-gray-500">現在予約可能な枠はありません。</div>
           ) : (
             <ul className="space-y-2">
               {slots.map((s) => {
@@ -297,14 +313,12 @@ function EventDetailScreen({
                 const disabled = full || overLimit;
                 return (
                   <li key={s.id}>
-                    <button
-                      disabled={disabled}
-                      onClick={() => onPickSlot(s, event)}
-                      className="eb-slot-btn"
-                    >
+                    <button disabled={disabled} onClick={() => onPickSlot(s, event)} className="eb-slot-btn">
                       <span className="flex flex-col items-start">
                         <span className="text-xs opacity-70">{formatJpDateOnly(s.starts_at)}</span>
-                        <span className="text-base">{formatJpTimeOnly(s.starts_at)} 〜 {formatJpTimeOnly(s.ends_at)}</span>
+                        <span className="text-base">
+                          {formatJpTimeOnly(s.starts_at)} 〜 {formatJpTimeOnly(s.ends_at)}
+                        </span>
                       </span>
                       <span className="text-xs font-medium">
                         {full ? '満員' : s.capacity == null ? '定員なし' : `残 ${s.remaining}`}
@@ -316,9 +330,7 @@ function EventDetailScreen({
             </ul>
           )}
           {overLimit && (
-            <p className="mt-3 text-xs text-red-600 px-1">
-              このイベントへの予約上限（{max}）に達しています。
-            </p>
+            <p className="mt-3 text-xs text-red-600 px-1">このイベントへの予約上限（{max}）に達しています。</p>
           )}
         </div>
 
@@ -370,21 +382,28 @@ function ConfirmScreen({
       const code = e.body?.error;
       const msg = (() => {
         switch (code) {
-          case 'slot_full': return 'すでに満員になりました。別の日時をお選びください。';
-          case 'over_friend_limit': return 'このイベントへの予約上限に達しています。';
-          case 'slot_started': return 'この枠は既に開始されています。';
-          case 'slot_inactive': return 'この枠は受付を締め切りました。';
-          case 'event_unpublished': return 'このイベントは現在受付を停止しています。';
+          case 'slot_full':
+            return 'すでに満員になりました。別の日時をお選びください。';
+          case 'over_friend_limit':
+            return 'このイベントへの予約上限に達しています。';
+          case 'slot_started':
+            return 'この枠は既に開始されています。';
+          case 'slot_inactive':
+            return 'この枠は受付を締め切りました。';
+          case 'event_unpublished':
+            return 'このイベントは現在受付を停止しています。';
           case 'unauthorized':
           case 'friend_not_found':
             return 'LINE 認証に失敗しました。一度トークルームに戻り、友だち追加が完了していることを確認してください。';
-          case 'idempotent_in_progress': return '前回のリクエストを処理中です。少しお待ちください。';
+          case 'idempotent_in_progress':
+            return '前回のリクエストを処理中です。少しお待ちください。';
           case 'duplicate_friend_booking': {
             const existing = (e.body as { existing?: { slot_starts_at?: string } } | undefined)?.existing;
             const when = existing?.slot_starts_at ? formatJp(existing.slot_starts_at) : '';
             return `このイベントは既に予約済みです${when ? `（${when}）` : ''}。予約履歴から確認できます。`;
           }
-          default: return err instanceof Error ? err.message : String(err);
+          default:
+            return err instanceof Error ? err.message : String(err);
         }
       })();
       setError(msg);
@@ -420,9 +439,7 @@ function ConfirmScreen({
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          備考（任意）
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">備考（任意）</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -434,11 +451,7 @@ function ConfirmScreen({
         <div className="text-xs text-gray-500 text-right mt-1">{note.length} / 5000</div>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">{error}</div>}
 
       <button onClick={submit} disabled={submitting} className="eb-primary-btn">
         {submitting ? '送信中...' : '予約をリクエスト'}
@@ -465,9 +478,7 @@ function DoneScreen({ status, onGoHistory }: { status: string; onGoHistory: () =
     <div className="px-4 py-10 text-center eb-slide-up">
       <div className="eb-card">
         <div className="text-5xl mb-3">{isPending ? '⏳' : '✅'}</div>
-        <h1 className="text-lg font-bold mb-2 text-gray-900">
-          {isPending ? '受付しました' : '予約が確定しました'}
-        </h1>
+        <h1 className="text-lg font-bold mb-2 text-gray-900">{isPending ? '受付しました' : '予約が確定しました'}</h1>
         <p className="text-sm text-gray-600 mb-6 leading-relaxed">
           {isPending
             ? '運営の承認をお待ちください。承認されると LINE でお知らせします。'
@@ -614,10 +625,7 @@ function BookingDetailScreen({
     let cancelled = false;
     (async () => {
       try {
-        const found = await apiGet<MyBooking>(
-          `/api/liff/events/me/${bookingId}`,
-          ctx,
-        );
+        const found = await apiGet<MyBooking>(`/api/liff/events/me/${bookingId}`, ctx);
         if (cancelled) return;
         setBooking(found);
       } catch (e) {
@@ -643,10 +651,14 @@ function BookingDetailScreen({
       const e = err as { body?: { error?: string } };
       const msg = (() => {
         switch (e.body?.error) {
-          case 'cancel_deadline_passed': return 'キャンセル期限を過ぎています。';
-          case 'cancel_not_allowed': return 'このイベントは LIFF からのキャンセル不可です。LINE で運営にご連絡ください。';
-          case 'invalid_state': return 'この予約はキャンセルできない状態です。';
-          default: return err instanceof Error ? err.message : String(err);
+          case 'cancel_deadline_passed':
+            return 'キャンセル期限を過ぎています。';
+          case 'cancel_not_allowed':
+            return 'このイベントは LIFF からのキャンセル不可です。LINE で運営にご連絡ください。';
+          case 'invalid_state':
+            return 'この予約はキャンセルできない状態です。';
+          default:
+            return err instanceof Error ? err.message : String(err);
         }
       })();
       setError(msg);
@@ -658,7 +670,9 @@ function BookingDetailScreen({
   if (loading) {
     return (
       <div className="pb-24 eb-fade-in">
-        <div className="px-4 py-6"><Spinner /></div>
+        <div className="px-4 py-6">
+          <Spinner />
+        </div>
       </div>
     );
   }
@@ -667,15 +681,18 @@ function BookingDetailScreen({
       <div className="pb-24 eb-fade-in">
         <div className="px-4 py-6 space-y-3">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">{error}</div>}
-          <button onClick={onBack} className="eb-primary-btn">予約履歴へ戻る</button>
+          <button onClick={onBack} className="eb-primary-btn">
+            予約履歴へ戻る
+          </button>
         </div>
       </div>
     );
   }
 
-  const showExtra = booking.status === 'confirmed'
-    && booking.confirmation_message_extra != null
-    && booking.confirmation_message_extra.trim().length > 0;
+  const showExtra =
+    booking.status === 'confirmed' &&
+    booking.confirmation_message_extra != null &&
+    booking.confirmation_message_extra.trim().length > 0;
   const cancellable = canCancel(booking);
 
   return (
@@ -689,9 +706,7 @@ function BookingDetailScreen({
         <div className="eb-card space-y-2">
           <h1 className="text-lg font-bold text-gray-900 leading-snug">{booking.event_name}</h1>
           <div className="text-sm text-gray-700">📅 {formatJp(booking.slot_starts_at)}</div>
-          {booking.venue_name && (
-            <div className="text-sm text-gray-700">📍 {booking.venue_name}</div>
-          )}
+          {booking.venue_name && <div className="text-sm text-gray-700">📍 {booking.venue_name}</div>}
           {booking.venue_url && (
             <a
               href={booking.venue_url}
@@ -703,9 +718,7 @@ function BookingDetailScreen({
             </a>
           )}
           {booking.event_description && (
-            <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
-              {booking.event_description}
-            </div>
+            <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{booking.event_description}</div>
           )}
         </div>
 
@@ -718,9 +731,7 @@ function BookingDetailScreen({
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">{error}</div>
-        )}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">{error}</div>}
 
         {cancellable && (
           <button
@@ -754,11 +765,16 @@ function App({ ctx, initial }: { ctx: EventBookingContext; initial: Screen }) {
 
   const headerLabel = (() => {
     switch (screen.kind) {
-      case 'detail': return 'イベント予約';
-      case 'confirm': return 'ご予約内容の確認';
-      case 'done': return '完了';
-      case 'history': return '予約履歴';
-      case 'booking-detail': return '予約詳細';
+      case 'detail':
+        return 'イベント予約';
+      case 'confirm':
+        return 'ご予約内容の確認';
+      case 'done':
+        return '完了';
+      case 'history':
+        return '予約履歴';
+      case 'booking-detail':
+        return '予約詳細';
     }
   })();
 
@@ -795,9 +811,7 @@ function App({ ctx, initial }: { ctx: EventBookingContext; initial: Screen }) {
           <HistoryScreen
             ctx={ctx}
             initialTab={screen.tab}
-            onOpenDetail={(bookingId, tab) =>
-              setScreen({ kind: 'booking-detail', bookingId, fromTab: tab })
-            }
+            onOpenDetail={(bookingId, tab) => setScreen({ kind: 'booking-detail', bookingId, fromTab: tab })}
           />
         )}
         {screen.kind === 'booking-detail' && (

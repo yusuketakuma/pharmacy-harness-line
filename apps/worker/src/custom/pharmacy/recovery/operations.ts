@@ -9,7 +9,7 @@ export const RECOVERY_OPERATIONS = [
 /** The D1/R2 bindings are the environment authority; request JSON is not. */
 export const RECOVERY_ENVIRONMENT = 'current-worker-binding';
 
-export type RecoveryOperation = typeof RECOVERY_OPERATIONS[number];
+export type RecoveryOperation = (typeof RECOVERY_OPERATIONS)[number];
 
 export type RecoveryPrincipal = {
   issuer: 'platform-admin';
@@ -186,8 +186,12 @@ function validIdentifier(value: unknown): value is string {
 }
 
 function validScope(scope: RecoveryScope): boolean {
-  return validIdentifier(scope.tenantId) && validIdentifier(scope.lineAccountId) &&
-    typeof scope.environment === 'string' && ENVIRONMENT.test(scope.environment);
+  return (
+    validIdentifier(scope.tenantId) &&
+    validIdentifier(scope.lineAccountId) &&
+    typeof scope.environment === 'string' &&
+    ENVIRONMENT.test(scope.environment)
+  );
 }
 
 function validPrincipal(principal: RecoveryPrincipal): boolean {
@@ -203,19 +207,30 @@ function validDigest(value: unknown): value is string {
 }
 
 function validatePreflight(preflight: RecoveryPreflight): void {
-  if (!validDigest(preflight.schemaDigest) || !validDigest(preflight.fieldInventoryDigest) ||
-      !validIdentifier(preflight.backupGenerationId) || !validDigest(preflight.evidenceDigest) ||
-      !validDigest(preflight.rowDigest) || !Array.isArray(preflight.keyVersions) ||
-      preflight.keyVersions.length === 0 || preflight.keyVersions.some((item) => !validIdentifier(item)) ||
-      !Number.isSafeInteger(preflight.expectedRowCount) || preflight.expectedRowCount < 0 ||
-      !Number.isSafeInteger(preflight.expectedObjectCount) || preflight.expectedObjectCount < 0 ||
-      !Number.isSafeInteger(preflight.coverageTotal) || preflight.coverageTotal < 0 ||
-      typeof preflight.coverageVerified !== 'boolean' ||
-      typeof preflight.keyRecoveryAcknowledged !== 'boolean' ||
-      typeof preflight.stopPolicy !== 'string' || preflight.stopPolicy.trim().length === 0 ||
-      preflight.stopPolicy.length > 240 ||
-      typeof preflight.rollbackPolicy !== 'string' || preflight.rollbackPolicy.trim().length === 0 ||
-      preflight.rollbackPolicy.length > 240) {
+  if (
+    !validDigest(preflight.schemaDigest) ||
+    !validDigest(preflight.fieldInventoryDigest) ||
+    !validIdentifier(preflight.backupGenerationId) ||
+    !validDigest(preflight.evidenceDigest) ||
+    !validDigest(preflight.rowDigest) ||
+    !Array.isArray(preflight.keyVersions) ||
+    preflight.keyVersions.length === 0 ||
+    preflight.keyVersions.some((item) => !validIdentifier(item)) ||
+    !Number.isSafeInteger(preflight.expectedRowCount) ||
+    preflight.expectedRowCount < 0 ||
+    !Number.isSafeInteger(preflight.expectedObjectCount) ||
+    preflight.expectedObjectCount < 0 ||
+    !Number.isSafeInteger(preflight.coverageTotal) ||
+    preflight.coverageTotal < 0 ||
+    typeof preflight.coverageVerified !== 'boolean' ||
+    typeof preflight.keyRecoveryAcknowledged !== 'boolean' ||
+    typeof preflight.stopPolicy !== 'string' ||
+    preflight.stopPolicy.trim().length === 0 ||
+    preflight.stopPolicy.length > 240 ||
+    typeof preflight.rollbackPolicy !== 'string' ||
+    preflight.rollbackPolicy.trim().length === 0 ||
+    preflight.rollbackPolicy.length > 240
+  ) {
     throw new RecoveryOperationError('INVALID_INPUT');
   }
 }
@@ -251,27 +266,36 @@ function rowToOperation(row: OperationRow): RecoveryOperationRecord {
       keyVersions = null;
     }
   }
-  const preflight = row.schema_digest && row.field_inventory_digest && keyVersions &&
-      row.backup_generation_id && row.expected_row_count !== null &&
-      row.expected_object_count !== null && row.stop_policy && row.rollback_policy &&
-      row.evidence_digest && row.row_digest && row.coverage_total !== null &&
-      row.coverage_verified !== null && row.key_recovery_acknowledged !== null
-    ? {
-      schemaDigest: row.schema_digest,
-      fieldInventoryDigest: row.field_inventory_digest,
-      keyVersions,
-      backupGenerationId: row.backup_generation_id,
-      expectedRowCount: row.expected_row_count,
-      expectedObjectCount: row.expected_object_count,
-      stopPolicy: row.stop_policy,
-      rollbackPolicy: row.rollback_policy,
-      evidenceDigest: row.evidence_digest,
-      rowDigest: row.row_digest,
-      coverageTotal: row.coverage_total,
-      coverageVerified: row.coverage_verified === 1,
-      keyRecoveryAcknowledged: row.key_recovery_acknowledged === 1,
-    } satisfies RecoveryPreflight
-    : null;
+  const preflight =
+    row.schema_digest &&
+    row.field_inventory_digest &&
+    keyVersions &&
+    row.backup_generation_id &&
+    row.expected_row_count !== null &&
+    row.expected_object_count !== null &&
+    row.stop_policy &&
+    row.rollback_policy &&
+    row.evidence_digest &&
+    row.row_digest &&
+    row.coverage_total !== null &&
+    row.coverage_verified !== null &&
+    row.key_recovery_acknowledged !== null
+      ? ({
+          schemaDigest: row.schema_digest,
+          fieldInventoryDigest: row.field_inventory_digest,
+          keyVersions,
+          backupGenerationId: row.backup_generation_id,
+          expectedRowCount: row.expected_row_count,
+          expectedObjectCount: row.expected_object_count,
+          stopPolicy: row.stop_policy,
+          rollbackPolicy: row.rollback_policy,
+          evidenceDigest: row.evidence_digest,
+          rowDigest: row.row_digest,
+          coverageTotal: row.coverage_total,
+          coverageVerified: row.coverage_verified === 1,
+          keyRecoveryAcknowledged: row.key_recovery_acknowledged === 1,
+        } satisfies RecoveryPreflight)
+      : null;
   return {
     id: row.id,
     scope: {
@@ -324,7 +348,8 @@ function rowToFence(row: FenceRow): RecoveryFenceRecord {
 }
 
 async function operationById(db: D1Database, operationId: string): Promise<RecoveryOperationRecord | null> {
-  const row = await db.prepare(`SELECT id, tenant_id, line_account_id, environment, operation, status,
+  const row = await db
+    .prepare(`SELECT id, tenant_id, line_account_id, environment, operation, status,
       requested_by_subject, approver_subject, executor_subject, approval_expires_at,
       job_id, idempotency_key, schema_digest, field_inventory_digest, key_versions_json,
       backup_generation_id, expected_row_count, expected_object_count, stop_policy,
@@ -332,7 +357,8 @@ async function operationById(db: D1Database, operationId: string): Promise<Recov
       key_recovery_acknowledged, execution_id, fence_id, fence_token, cursor,
       processed_row_count, processed_object_count, last_batch_id, error_code,
       created_at, approved_at, claimed_at, completed_at, updated_at
-    FROM pharmacy_recovery_operations WHERE id = ? LIMIT 1`).bind(operationId)
+    FROM pharmacy_recovery_operations WHERE id = ? LIMIT 1`)
+    .bind(operationId)
     .first<OperationRow>();
   return row ? rowToOperation(row) : null;
 }
@@ -355,19 +381,24 @@ async function requireOperation(
   if (!validIdentifier(operationId)) throw new RecoveryOperationError('INVALID_INPUT');
   const current = await operationById(db, operationId);
   if (!current) throw new RecoveryOperationError('NOT_FOUND');
-  if (current.operation !== operation || current.scope.tenantId !== scope.tenantId ||
-      current.scope.lineAccountId !== scope.lineAccountId || current.scope.environment !== scope.environment) {
+  if (
+    current.operation !== operation ||
+    current.scope.tenantId !== scope.tenantId ||
+    current.scope.lineAccountId !== scope.lineAccountId ||
+    current.scope.environment !== scope.environment
+  ) {
     throw new RecoveryOperationError('NOT_FOUND');
   }
   return current;
 }
 
 async function scopeExists(db: D1Database, scope: RecoveryScope): Promise<boolean> {
-  const row = await db.prepare(`SELECT 1 AS found FROM tenant_line_accounts mapping
+  const row = await db
+    .prepare(`SELECT 1 AS found FROM tenant_line_accounts mapping
     INNER JOIN tenants tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
-    WHERE mapping.tenant_id = ? AND mapping.line_account_id = ? LIMIT 1`).bind(
-    scope.tenantId, scope.lineAccountId,
-  ).first<{ found: number }>();
+    WHERE mapping.tenant_id = ? AND mapping.line_account_id = ? LIMIT 1`)
+    .bind(scope.tenantId, scope.lineAccountId)
+    .first<{ found: number }>();
   return row?.found === 1;
 }
 
@@ -377,40 +408,48 @@ async function backupMatches(
   preflight: RecoveryPreflight,
   operation: RecoveryOperation,
 ): Promise<boolean> {
-  const row = await db.prepare(`SELECT generation_id, manifest_digest,
+  const row = await db
+    .prepare(`SELECT generation_id, manifest_digest,
       expected_row_count, expected_object_count
     FROM pharmacy_recovery_backup_generations
     WHERE generation_id = ? AND tenant_id = ? AND line_account_id = ?
       AND environment = ? AND status = 'verified'
-    LIMIT 1`).bind(
-    preflight.backupGenerationId, scope.tenantId, scope.lineAccountId, scope.environment,
-  ).first<{
-    generation_id: string;
-    manifest_digest: string;
-    expected_row_count: number;
-    expected_object_count: number;
-  }>();
+    LIMIT 1`)
+    .bind(preflight.backupGenerationId, scope.tenantId, scope.lineAccountId, scope.environment)
+    .first<{
+      generation_id: string;
+      manifest_digest: string;
+      expected_row_count: number;
+      expected_object_count: number;
+    }>();
   if (!row) return false;
   // Retention target counts come from its server-built live inventory.
   if (operation === 'retention_delete') {
     return row.manifest_digest === preflight.evidenceDigest;
   }
-  return row.expected_row_count === preflight.expectedRowCount &&
+  return (
+    row.expected_row_count === preflight.expectedRowCount &&
     row.expected_object_count === preflight.expectedObjectCount &&
-    row.manifest_digest === preflight.evidenceDigest;
+    row.manifest_digest === preflight.evidenceDigest
+  );
 }
 
 function preflightEqual(a: RecoveryPreflight, b: RecoveryPreflight): boolean {
-  return a.schemaDigest === b.schemaDigest &&
+  return (
+    a.schemaDigest === b.schemaDigest &&
     a.fieldInventoryDigest === b.fieldInventoryDigest &&
     JSON.stringify(a.keyVersions) === JSON.stringify(b.keyVersions) &&
     a.backupGenerationId === b.backupGenerationId &&
     a.expectedRowCount === b.expectedRowCount &&
     a.expectedObjectCount === b.expectedObjectCount &&
-    a.stopPolicy === b.stopPolicy && a.rollbackPolicy === b.rollbackPolicy &&
-    a.evidenceDigest === b.evidenceDigest && a.rowDigest === b.rowDigest &&
-    a.coverageTotal === b.coverageTotal && a.coverageVerified === b.coverageVerified &&
-    a.keyRecoveryAcknowledged === b.keyRecoveryAcknowledged;
+    a.stopPolicy === b.stopPolicy &&
+    a.rollbackPolicy === b.rollbackPolicy &&
+    a.evidenceDigest === b.evidenceDigest &&
+    a.rowDigest === b.rowDigest &&
+    a.coverageTotal === b.coverageTotal &&
+    a.coverageVerified === b.coverageVerified &&
+    a.keyRecoveryAcknowledged === b.keyRecoveryAcknowledged
+  );
 }
 
 function requiresFullCoverage(operation: RecoveryOperation): boolean {
@@ -425,11 +464,13 @@ async function staleRunningOperation(
   if (current.status !== 'running') return;
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`UPDATE pharmacy_recovery_operations
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations
       SET status = 'stale', error_code = ?, updated_at = ?
       WHERE id = ? AND status = 'running' AND execution_id = ?`)
       .bind(code, now, current.id, current.executionId),
-    db.prepare(`UPDATE pharmacy_recovery_execution_fences
+    db
+      .prepare(`UPDATE pharmacy_recovery_execution_fences
       SET status = 'released', released_at = ?
       WHERE fence_id = ? AND status = 'active'`)
       .bind(now, current.fenceId),
@@ -448,20 +489,29 @@ export async function createRecoveryApproval(
   },
 ): Promise<RecoveryOperationRecord> {
   validateScopeAndOperation(input.scope, input.operation);
-  if (!validPrincipal(input.requestedBy) || !validIdentifier(input.idempotencyKey) ||
-      input.idempotencyKey.length > 240) throw new RecoveryOperationError('INVALID_INPUT');
+  if (!validPrincipal(input.requestedBy) || !validIdentifier(input.idempotencyKey) || input.idempotencyKey.length > 240)
+    throw new RecoveryOperationError('INVALID_INPUT');
   validateApprovalExpiry(input.approvalExpiresAt);
-  if (!await scopeExists(db, input.scope)) throw new RecoveryOperationError('SCOPE_NOT_FOUND');
-  const existing = await db.prepare(`SELECT id FROM pharmacy_recovery_operations
+  if (!(await scopeExists(db, input.scope))) throw new RecoveryOperationError('SCOPE_NOT_FOUND');
+  const existing = await db
+    .prepare(`SELECT id FROM pharmacy_recovery_operations
     WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
-      AND operation = ? AND idempotency_key = ? LIMIT 1`).bind(
-    input.scope.tenantId, input.scope.lineAccountId, input.scope.environment,
-    input.operation, input.idempotencyKey,
-  ).first<{ id: string }>();
+      AND operation = ? AND idempotency_key = ? LIMIT 1`)
+    .bind(
+      input.scope.tenantId,
+      input.scope.lineAccountId,
+      input.scope.environment,
+      input.operation,
+      input.idempotencyKey,
+    )
+    .first<{ id: string }>();
   if (existing) {
     const replay = await operationById(db, existing.id);
-    if (!replay || replay.requestedBySubject !== input.requestedBy.subject ||
-        replay.approvalExpiresAt !== input.approvalExpiresAt) {
+    if (
+      !replay ||
+      replay.requestedBySubject !== input.requestedBy.subject ||
+      replay.approvalExpiresAt !== input.approvalExpiresAt
+    ) {
       throw new RecoveryOperationError('IDEMPOTENCY_CONFLICT');
     }
     return replay;
@@ -471,7 +521,8 @@ export async function createRecoveryApproval(
   const jobId = input.jobId ?? `job-${crypto.randomUUID()}`;
   if (!validIdentifier(jobId)) throw new RecoveryOperationError('INVALID_INPUT');
   try {
-    const result = await db.prepare(`INSERT INTO pharmacy_recovery_operations
+    const result = await db
+      .prepare(`INSERT INTO pharmacy_recovery_operations
       (id, tenant_id, line_account_id, environment, operation, status,
        requested_by_issuer, requested_by_subject, approval_expires_at, job_id,
       idempotency_key, created_at, updated_at)
@@ -480,23 +531,43 @@ export async function createRecoveryApproval(
         INNER JOIN tenants tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
         WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?)`)
       .bind(
-        id, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment,
-        input.operation, input.requestedBy.subject, input.approvalExpiresAt, jobId,
-        input.idempotencyKey, now, now, input.scope.tenantId, input.scope.lineAccountId,
-      ).run();
+        id,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
+        input.operation,
+        input.requestedBy.subject,
+        input.approvalExpiresAt,
+        jobId,
+        input.idempotencyKey,
+        now,
+        now,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+      )
+      .run();
     if (result.meta?.changes !== 1) throw new RecoveryOperationError('SCOPE_NOT_FOUND');
   } catch (error) {
     if (error instanceof RecoveryOperationError) throw error;
-    const replay = await db.prepare(`SELECT id FROM pharmacy_recovery_operations
+    const replay = await db
+      .prepare(`SELECT id FROM pharmacy_recovery_operations
       WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
-        AND operation = ? AND idempotency_key = ? LIMIT 1`).bind(
-      input.scope.tenantId, input.scope.lineAccountId, input.scope.environment,
-      input.operation, input.idempotencyKey,
-    ).first<{ id: string }>();
+        AND operation = ? AND idempotency_key = ? LIMIT 1`)
+      .bind(
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
+        input.operation,
+        input.idempotencyKey,
+      )
+      .first<{ id: string }>();
     if (replay) {
       const replayed = await operationById(db, replay.id);
-      if (!replayed || replayed.requestedBySubject !== input.requestedBy.subject ||
-          replayed.approvalExpiresAt !== input.approvalExpiresAt) {
+      if (
+        !replayed ||
+        replayed.requestedBySubject !== input.requestedBy.subject ||
+        replayed.approvalExpiresAt !== input.approvalExpiresAt
+      ) {
         throw new RecoveryOperationError('IDEMPOTENCY_CONFLICT');
       }
       return replayed;
@@ -519,27 +590,35 @@ export async function preflightRecoveryOperation(
 ): Promise<RecoveryOperationRecord> {
   validatePreflight(input.preflight);
   const current = await requireOperation(db, input.operationId, input.scope, input.operation);
-  if (requiresFullCoverage(input.operation) &&
-      (!input.preflight.coverageVerified || input.preflight.coverageTotal !== input.preflight.expectedRowCount ||
-       !input.preflight.keyRecoveryAcknowledged)) {
+  if (
+    requiresFullCoverage(input.operation) &&
+    (!input.preflight.coverageVerified ||
+      input.preflight.coverageTotal !== input.preflight.expectedRowCount ||
+      !input.preflight.keyRecoveryAcknowledged)
+  ) {
     await staleRunningOperation(db, current, 'PREFLIGHT_BLOCKED');
     throw new RecoveryOperationError('PREFLIGHT_BLOCKED');
   }
-  if (!await backupMatches(db, input.scope, input.preflight, input.operation)) {
+  if (!(await backupMatches(db, input.scope, input.preflight, input.operation))) {
     await staleRunningOperation(db, current, 'STALE');
     throw new RecoveryOperationError('PREFLIGHT_BLOCKED');
   }
   if (current.status === 'running') {
-    if (!input.executionId || !input.fenceToken || current.executionId !== input.executionId ||
-        current.fenceToken !== input.fenceToken) {
+    if (
+      !input.executionId ||
+      !input.fenceToken ||
+      current.executionId !== input.executionId ||
+      current.fenceToken !== input.fenceToken
+    ) {
       await staleRunningOperation(db, current, 'STALE');
       throw new RecoveryOperationError('STALE');
     }
-    const fence = await db.prepare(`SELECT fence_id FROM pharmacy_recovery_execution_fences
+    const fence = await db
+      .prepare(`SELECT fence_id FROM pharmacy_recovery_execution_fences
       WHERE fence_id = ? AND operation_id = ? AND execution_id = ? AND fence_token = ?
-        AND status = 'active' AND expires_at > ? LIMIT 1`).bind(
-      current.fenceId, current.id, input.executionId, input.fenceToken, new Date().toISOString(),
-    ).first<{ fence_id: string }>();
+        AND status = 'active' AND expires_at > ? LIMIT 1`)
+      .bind(current.fenceId, current.id, input.executionId, input.fenceToken, new Date().toISOString())
+      .first<{ fence_id: string }>();
     if (!fence || !current.preflight || !preflightEqual(current.preflight, input.preflight)) {
       await staleRunningOperation(db, current, 'STALE');
       throw new RecoveryOperationError('STALE');
@@ -550,7 +629,8 @@ export async function preflightRecoveryOperation(
     throw new RecoveryOperationError('STATE_CONFLICT');
   }
   const now = new Date().toISOString();
-  const result = await db.prepare(`UPDATE pharmacy_recovery_operations SET
+  const result = await db
+    .prepare(`UPDATE pharmacy_recovery_operations SET
       status = 'preflighted', schema_digest = ?, field_inventory_digest = ?,
       key_versions_json = ?, backup_generation_id = ?, expected_row_count = ?,
       expected_object_count = ?, stop_policy = ?, rollback_policy = ?,
@@ -559,15 +639,27 @@ export async function preflightRecoveryOperation(
     WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
       AND operation = ? AND status IN ('created', 'preflighted')`)
     .bind(
-      input.preflight.schemaDigest, input.preflight.fieldInventoryDigest,
-      JSON.stringify(input.preflight.keyVersions), input.preflight.backupGenerationId,
-      input.preflight.expectedRowCount, input.preflight.expectedObjectCount,
-      input.preflight.stopPolicy, input.preflight.rollbackPolicy, input.preflight.evidenceDigest,
-      input.preflight.rowDigest, input.preflight.coverageTotal,
-      input.preflight.coverageVerified ? 1 : 0, input.preflight.keyRecoveryAcknowledged ? 1 : 0,
-      now, input.operationId, input.scope.tenantId, input.scope.lineAccountId,
-      input.scope.environment, input.operation,
-    ).run();
+      input.preflight.schemaDigest,
+      input.preflight.fieldInventoryDigest,
+      JSON.stringify(input.preflight.keyVersions),
+      input.preflight.backupGenerationId,
+      input.preflight.expectedRowCount,
+      input.preflight.expectedObjectCount,
+      input.preflight.stopPolicy,
+      input.preflight.rollbackPolicy,
+      input.preflight.evidenceDigest,
+      input.preflight.rowDigest,
+      input.preflight.coverageTotal,
+      input.preflight.coverageVerified ? 1 : 0,
+      input.preflight.keyRecoveryAcknowledged ? 1 : 0,
+      now,
+      input.operationId,
+      input.scope.tenantId,
+      input.scope.lineAccountId,
+      input.scope.environment,
+      input.operation,
+    )
+    .run();
   if (result.meta?.changes !== 1) throw new RecoveryOperationError('STATE_CONFLICT');
   return (await operationById(db, input.operationId))!;
 }
@@ -589,16 +681,23 @@ export async function approveRecoveryOperation(
   if (Date.parse(current.approvalExpiresAt) <= Date.now()) {
     throw new RecoveryOperationError('APPROVAL_EXPIRED');
   }
-  const result = await db.prepare(`UPDATE pharmacy_recovery_operations SET
+  const result = await db
+    .prepare(`UPDATE pharmacy_recovery_operations SET
       status = 'approved', approver_issuer = 'platform-admin', approver_subject = ?,
       approved_at = ?, updated_at = ?
     WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
       AND operation = ? AND status = 'preflighted' AND approver_subject IS NULL`)
     .bind(
-      input.principal.subject, new Date().toISOString(), new Date().toISOString(),
-      input.operationId, input.scope.tenantId, input.scope.lineAccountId,
-      input.scope.environment, input.operation,
-    ).run();
+      input.principal.subject,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      input.operationId,
+      input.scope.tenantId,
+      input.scope.lineAccountId,
+      input.scope.environment,
+      input.operation,
+    )
+    .run();
   if (result.meta?.changes !== 1) throw new RecoveryOperationError('APPROVAL_CONFLICT');
   return (await operationById(db, input.operationId))!;
 }
@@ -628,22 +727,23 @@ export async function claimRecoveryOperation(
   const fenceToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
   const now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(`UPDATE pharmacy_recovery_operations SET
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations SET
         status = 'stale', error_code = 'FENCE_EXPIRED', updated_at = ?
       WHERE status = 'running' AND id IN (
         SELECT operation_id FROM pharmacy_recovery_execution_fences
         WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
           AND status = 'active' AND expires_at <= ?
-      )`).bind(
-      now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now,
-    ),
-    db.prepare(`UPDATE pharmacy_recovery_execution_fences
+      )`)
+      .bind(now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now),
+    db
+      .prepare(`UPDATE pharmacy_recovery_execution_fences
       SET status = 'released', released_at = ?
       WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
-        AND status = 'active' AND expires_at <= ?`).bind(
-      now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now,
-    ),
-    db.prepare(`INSERT INTO pharmacy_recovery_execution_fences
+        AND status = 'active' AND expires_at <= ?`)
+      .bind(now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now),
+    db
+      .prepare(`INSERT INTO pharmacy_recovery_execution_fences
       (fence_id, operation_id, tenant_id, line_account_id, environment,
        execution_id, fence_token, owner_issuer, owner_subject, status,
        expires_at, created_at)
@@ -654,13 +754,28 @@ export async function claimRecoveryOperation(
         AND NOT EXISTS (SELECT 1 FROM pharmacy_recovery_execution_fences
           WHERE tenant_id = ? AND line_account_id = ? AND environment = ? AND status = 'active')`)
       .bind(
-        fenceId, input.operationId, input.scope.tenantId, input.scope.lineAccountId,
-        input.scope.environment, executionId, fenceToken, input.executor.subject,
-        current.approvalExpiresAt, now, input.operationId, input.scope.tenantId,
-        input.scope.lineAccountId, input.scope.environment, input.operation, now,
-        input.scope.tenantId, input.scope.lineAccountId, input.scope.environment,
+        fenceId,
+        input.operationId,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
+        executionId,
+        fenceToken,
+        input.executor.subject,
+        current.approvalExpiresAt,
+        now,
+        input.operationId,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
+        input.operation,
+        now,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
       ),
-    db.prepare(`UPDATE pharmacy_recovery_operations SET
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations SET
         status = 'running', executor_issuer = 'platform-admin', executor_subject = ?,
         execution_id = ?, fence_id = ?, fence_token = ?, claimed_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
@@ -671,10 +786,23 @@ export async function claimRecoveryOperation(
             AND fence.execution_id = ? AND fence.fence_token = ?
             AND fence.status = 'active' AND fence.expires_at > ?)`)
       .bind(
-        input.executor.subject, executionId, fenceId, fenceToken, now, now,
-        input.operationId, input.scope.tenantId, input.scope.lineAccountId,
-        input.scope.environment, input.operation, now, input.executor.subject,
-        fenceId, executionId, fenceToken, now,
+        input.executor.subject,
+        executionId,
+        fenceId,
+        fenceToken,
+        now,
+        now,
+        input.operationId,
+        input.scope.tenantId,
+        input.scope.lineAccountId,
+        input.scope.environment,
+        input.operation,
+        now,
+        input.executor.subject,
+        fenceId,
+        executionId,
+        fenceToken,
+        now,
       ),
   ]);
   if (results.length !== 4 || results[2]?.meta?.changes !== 1 || results[3]?.meta?.changes !== 1) {
@@ -688,12 +816,17 @@ export async function assertRecoveryExecution(
   input: RecoveryExecution,
 ): Promise<{ operation: RecoveryOperationRecord; fence: RecoveryFenceRecord }> {
   validateScopeAndOperation(input, input.operation);
-  if (!validIdentifier(input.operationId) || !validIdentifier(input.executionId) ||
-      typeof input.fenceToken !== 'string' || input.fenceToken.length < 32 ||
-      !validIdentifier(input.executorSubject)) {
+  if (
+    !validIdentifier(input.operationId) ||
+    !validIdentifier(input.executionId) ||
+    typeof input.fenceToken !== 'string' ||
+    input.fenceToken.length < 32 ||
+    !validIdentifier(input.executorSubject)
+  ) {
     throw new RecoveryOperationError('INVALID_INPUT');
   }
-  const row = await db.prepare(`SELECT
+  const row = await db
+    .prepare(`SELECT
       operation.id, operation.tenant_id, operation.line_account_id, operation.environment,
       operation.operation, operation.status, operation.requested_by_subject,
       operation.approver_subject, operation.executor_subject, operation.approval_expires_at,
@@ -726,24 +859,35 @@ export async function assertRecoveryExecution(
       AND fence.line_account_id = operation.line_account_id
       AND fence.environment = operation.environment
       AND fence.status = 'active' AND fence.expires_at > ?
-    LIMIT 1`).bind(
-    input.operationId, input.tenantId, input.lineAccountId, input.environment,
-    input.operation, input.executionId, input.fenceToken, input.executorSubject,
-    input.executorSubject, new Date().toISOString(),
-  ).first<OperationRow & {
-    live_fence_id: string;
-    live_operation_id: string;
-    live_tenant_id: string;
-    live_line_account_id: string;
-    live_environment: string;
-    live_execution_id: string;
-    live_fence_token: string;
-    live_owner_subject: string;
-    live_status: RecoveryFenceRecord['status'];
-    live_expires_at: string;
-    live_created_at: string;
-    live_released_at: string | null;
-  }>();
+    LIMIT 1`)
+    .bind(
+      input.operationId,
+      input.tenantId,
+      input.lineAccountId,
+      input.environment,
+      input.operation,
+      input.executionId,
+      input.fenceToken,
+      input.executorSubject,
+      input.executorSubject,
+      new Date().toISOString(),
+    )
+    .first<
+      OperationRow & {
+        live_fence_id: string;
+        live_operation_id: string;
+        live_tenant_id: string;
+        live_line_account_id: string;
+        live_environment: string;
+        live_execution_id: string;
+        live_fence_token: string;
+        live_owner_subject: string;
+        live_status: RecoveryFenceRecord['status'];
+        live_expires_at: string;
+        live_created_at: string;
+        live_released_at: string | null;
+      }
+    >();
   if (!row) throw new RecoveryOperationError('EXECUTION_NOT_FOUND');
   const operationRow = rowToOperation(row);
   const fence = rowToFence({
@@ -764,19 +908,17 @@ export async function assertRecoveryExecution(
   return { operation: operationRow, fence };
 }
 
-export async function assertRecoveryFence(
-  db: D1Database,
-  scope: RecoveryScope,
-): Promise<RecoveryFenceRecord | null> {
+export async function assertRecoveryFence(db: D1Database, scope: RecoveryScope): Promise<RecoveryFenceRecord | null> {
   if (!validScope(scope)) throw new RecoveryOperationError('INVALID_INPUT');
-  const row = await db.prepare(`SELECT fence_id, operation_id, tenant_id, line_account_id,
+  const row = await db
+    .prepare(`SELECT fence_id, operation_id, tenant_id, line_account_id,
       environment, execution_id, fence_token, owner_subject, status, expires_at,
       created_at, released_at
     FROM pharmacy_recovery_execution_fences
     WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
-      AND status = 'active' AND expires_at > ? LIMIT 1`).bind(
-    scope.tenantId, scope.lineAccountId, scope.environment, new Date().toISOString(),
-  ).first<FenceRow>();
+      AND status = 'active' AND expires_at > ? LIMIT 1`)
+    .bind(scope.tenantId, scope.lineAccountId, scope.environment, new Date().toISOString())
+    .first<FenceRow>();
   return row ? rowToFence(row) : null;
 }
 
@@ -799,27 +941,40 @@ export async function markRecoveryProgress(
   input: RecoveryProgressInput,
 ): Promise<RecoveryOperationRecord> {
   const current = (await assertRecoveryExecution(db, input)).operation;
-  if (input.expectedLastBatchId !== undefined &&
-      current.lastBatchId !== input.expectedLastBatchId && current.lastBatchId !== input.batchId) {
+  if (
+    input.expectedLastBatchId !== undefined &&
+    current.lastBatchId !== input.expectedLastBatchId &&
+    current.lastBatchId !== input.batchId
+  ) {
     throw new RecoveryOperationError('PROGRESS_CONFLICT');
   }
-  if (!validIdentifier(input.batchId) || input.batchId.length > 240 ||
-      (input.cursor !== null && !validIdentifier(input.cursor)) ||
-      !Number.isSafeInteger(input.processedRowCount) || input.processedRowCount < current.processedRowCount ||
-      !Number.isSafeInteger(input.processedObjectCount) || input.processedObjectCount < current.processedObjectCount ||
-      !current.preflight || input.processedRowCount > current.preflight.expectedRowCount ||
-      input.processedObjectCount > current.preflight.expectedObjectCount) {
+  if (
+    !validIdentifier(input.batchId) ||
+    input.batchId.length > 240 ||
+    (input.cursor !== null && !validIdentifier(input.cursor)) ||
+    !Number.isSafeInteger(input.processedRowCount) ||
+    input.processedRowCount < current.processedRowCount ||
+    !Number.isSafeInteger(input.processedObjectCount) ||
+    input.processedObjectCount < current.processedObjectCount ||
+    !current.preflight ||
+    input.processedRowCount > current.preflight.expectedRowCount ||
+    input.processedObjectCount > current.preflight.expectedObjectCount
+  ) {
     throw new RecoveryOperationError('INVALID_INPUT');
   }
   if (current.lastBatchId === input.batchId) {
-    if (current.cursor !== input.cursor || current.processedRowCount !== input.processedRowCount ||
-        current.processedObjectCount !== input.processedObjectCount) {
+    if (
+      current.cursor !== input.cursor ||
+      current.processedRowCount !== input.processedRowCount ||
+      current.processedObjectCount !== input.processedObjectCount
+    ) {
       throw new RecoveryOperationError('PROGRESS_CONFLICT');
     }
     return current;
   }
   const now = new Date().toISOString();
-  const result = await db.prepare(`UPDATE pharmacy_recovery_operations SET
+  const result = await db
+    .prepare(`UPDATE pharmacy_recovery_operations SET
       cursor = ?, processed_row_count = ?, processed_object_count = ?,
       last_batch_id = ?, updated_at = ?
     WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
@@ -829,20 +984,35 @@ export async function markRecoveryProgress(
       AND processed_row_count = ? AND processed_object_count = ?
       AND ${ACTIVE_OPERATION_FENCE}`)
     .bind(
-      input.cursor, input.processedRowCount, input.processedObjectCount, input.batchId,
-      now, input.operationId, input.tenantId, input.lineAccountId,
-      input.environment, input.operation, input.executionId, input.fenceToken,
-      input.executorSubject, current.lastBatchId, current.cursor,
-      current.processedRowCount, current.processedObjectCount,
-    ).run();
+      input.cursor,
+      input.processedRowCount,
+      input.processedObjectCount,
+      input.batchId,
+      now,
+      input.operationId,
+      input.tenantId,
+      input.lineAccountId,
+      input.environment,
+      input.operation,
+      input.executionId,
+      input.fenceToken,
+      input.executorSubject,
+      current.lastBatchId,
+      current.cursor,
+      current.processedRowCount,
+      current.processedObjectCount,
+    )
+    .run();
   if (result.meta?.changes !== 1) throw new RecoveryOperationError('PROGRESS_CONFLICT');
   return (await operationById(db, input.operationId))!;
 }
 
 function releaseFenceStatement(db: D1Database, fenceId: string, now: string): D1PreparedStatement {
-  return db.prepare(`UPDATE pharmacy_recovery_execution_fences
+  return db
+    .prepare(`UPDATE pharmacy_recovery_execution_fences
     SET status = 'released', released_at = ?
-    WHERE fence_id = ? AND status = 'active'`).bind(now, fenceId);
+    WHERE fence_id = ? AND status = 'active'`)
+    .bind(now, fenceId);
 }
 
 export async function completeRecoveryOperation(
@@ -850,13 +1020,17 @@ export async function completeRecoveryOperation(
   input: RecoveryExecution,
 ): Promise<RecoveryOperationRecord> {
   const current = (await assertRecoveryExecution(db, input)).operation;
-  if (!current.preflight || current.processedRowCount !== current.preflight.expectedRowCount ||
-      current.processedObjectCount !== current.preflight.expectedObjectCount) {
+  if (
+    !current.preflight ||
+    current.processedRowCount !== current.preflight.expectedRowCount ||
+    current.processedObjectCount !== current.preflight.expectedObjectCount
+  ) {
     throw new RecoveryOperationError('COMPLETE_CONFLICT');
   }
   const now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(`UPDATE pharmacy_recovery_operations SET
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations SET
         status = 'completed', completed_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
         AND operation = ? AND status = 'running' AND execution_id = ?
@@ -866,12 +1040,23 @@ export async function completeRecoveryOperation(
         AND last_batch_id IS ? AND cursor IS ?
         AND ${ACTIVE_OPERATION_FENCE}`)
       .bind(
-        now, now, current.id, input.tenantId, input.lineAccountId, input.environment,
-        input.operation, input.executionId, input.fenceToken, input.executorSubject,
-        current.preflight.expectedRowCount, current.preflight.expectedObjectCount,
-        current.lastBatchId, current.cursor,
+        now,
+        now,
+        current.id,
+        input.tenantId,
+        input.lineAccountId,
+        input.environment,
+        input.operation,
+        input.executionId,
+        input.fenceToken,
+        input.executorSubject,
+        current.preflight.expectedRowCount,
+        current.preflight.expectedObjectCount,
+        current.lastBatchId,
+        current.cursor,
       ),
-    db.prepare(`UPDATE pharmacy_recovery_execution_fences SET status = 'released', released_at = ?
+    db
+      .prepare(`UPDATE pharmacy_recovery_execution_fences SET status = 'released', released_at = ?
       WHERE fence_id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
         AND status = 'active' AND execution_id = ? AND fence_token = ? AND owner_subject = ?
         AND EXISTS (SELECT 1 FROM pharmacy_recovery_operations operation
@@ -879,8 +1064,17 @@ export async function completeRecoveryOperation(
             AND operation.fence_id = pharmacy_recovery_execution_fences.fence_id
             AND operation.execution_id = pharmacy_recovery_execution_fences.execution_id
             AND operation.status = 'completed' AND operation.completed_at = ?)`)
-      .bind(now, current.fenceId, input.tenantId, input.lineAccountId, input.environment,
-        input.executionId, input.fenceToken, input.executorSubject, now),
+      .bind(
+        now,
+        current.fenceId,
+        input.tenantId,
+        input.lineAccountId,
+        input.environment,
+        input.executionId,
+        input.fenceToken,
+        input.executorSubject,
+        now,
+      ),
   ]);
   if (results.length !== 2 || results[0]?.meta?.changes !== 1 || results[1]?.meta?.changes !== 1) {
     throw new RecoveryOperationError('COMPLETE_CONFLICT');
@@ -903,12 +1097,11 @@ export async function markRecoveryStale(
   if (!validIdentifier(errorCode)) throw new RecoveryOperationError('INVALID_INPUT');
   const now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(`UPDATE pharmacy_recovery_operations SET status = 'stale', error_code = ?, updated_at = ?
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations SET status = 'stale', error_code = ?, updated_at = ?
       WHERE id = ? AND status IN ('created', 'preflighted', 'approved', 'running')`)
       .bind(errorCode, now, current.id),
-    current.fenceId
-      ? releaseFenceStatement(db, current.fenceId, now)
-      : db.prepare(`SELECT 1 WHERE 0`),
+    current.fenceId ? releaseFenceStatement(db, current.fenceId, now) : db.prepare(`SELECT 1 WHERE 0`),
   ]);
   if (results[0]?.meta?.changes !== 1) throw new RecoveryOperationError('STATE_CONFLICT');
   return (await operationById(db, current.id))!;
@@ -929,12 +1122,11 @@ export async function markRecoveryFailed(
   if (!validIdentifier(errorCode)) throw new RecoveryOperationError('INVALID_INPUT');
   const now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(`UPDATE pharmacy_recovery_operations SET status = 'failed', error_code = ?, updated_at = ?
+    db
+      .prepare(`UPDATE pharmacy_recovery_operations SET status = 'failed', error_code = ?, updated_at = ?
       WHERE id = ? AND status IN ('created', 'preflighted', 'approved', 'running')`)
       .bind(errorCode, now, current.id),
-    current.fenceId
-      ? releaseFenceStatement(db, current.fenceId, now)
-      : db.prepare(`SELECT 1 WHERE 0`),
+    current.fenceId ? releaseFenceStatement(db, current.fenceId, now) : db.prepare(`SELECT 1 WHERE 0`),
   ]);
   if (results[0]?.meta?.changes !== 1) throw new RecoveryOperationError('STATE_CONFLICT');
   return (await operationById(db, current.id))!;

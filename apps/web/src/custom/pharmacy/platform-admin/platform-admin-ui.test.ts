@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const read = (...segments: string[]) =>
-  readFileSync(join(process.cwd(), 'src', ...segments), 'utf8');
+const read = (...segments: string[]) => readFileSync(join(process.cwd(), 'src', ...segments), 'utf8');
 
 describe('platform admin UI contract', () => {
   const api = read('lib', 'platform-admin-api.ts');
@@ -18,7 +17,7 @@ describe('platform admin UI contract', () => {
     expect(login).toContain("router.push('/platform-admin/tenants')");
     expect(login).not.toContain('pharmacyCode');
     expect(login).not.toContain('pharmacy-code');
-    expect(api).toContain("JSON.stringify({ loginId, password })");
+    expect(api).toContain('JSON.stringify({ loginId, password })');
   });
 
   it('requires a new password before opening the platform admin section', () => {
@@ -82,7 +81,7 @@ describe('platform admin UI contract', () => {
     const audit = read('app', 'platform-admin', 'audit', 'page.tsx');
     expect(audit).toContain('detail_json');
     expect(audit).toContain('JSON.parse(raw)');
-    expect(audit).toContain("platformAdminApi.audit({ all, limit: 200 })");
+    expect(audit).toMatch(/platformAdminApi\s*\.\s*audit\(\{\s*all,\s*limit: 200,?\s*\}\)/);
   });
 
   it('provides a platform-admin-only guided tenant and LINE setup flow', () => {
@@ -92,28 +91,35 @@ describe('platform admin UI contract', () => {
     expect(tenantNew).toContain('Messaging API');
     expect(tenantNew).toContain('LINE Login / LIFF');
     expect(tenantNew).toContain('入力内容の確認');
-    expect(tenantNew).toContain('platformAdminApi.provisionTenant')
-    expect(tenantNew).toContain("setChannelAccessToken('')")
-    expect(tenantNew).toContain("setChannelSecret('')")
-    expect(tenantNew).toContain("setLoginChannelSecret('')")
-    expect(api).toContain("'/tenants',")
-    expect(api).toContain("'Idempotency-Key': idempotencyKey")
-    expect(tenantNew).not.toContain('contexts/account-context')
+    expect(tenantNew).toContain('platformAdminApi.provisionTenant');
+    expect(tenantNew).toContain("setChannelAccessToken('')");
+    expect(tenantNew).toContain("setChannelSecret('')");
+    expect(tenantNew).toContain("setLoginChannelSecret('')");
+    expect(api).toContain("'/tenants',");
+    expect(api).toContain("'Idempotency-Key': idempotencyKey");
+    expect(tenantNew).not.toContain('contexts/account-context');
   });
 
   it('keeps V032 fleet, tenant-list, audit, and safe-error projections PHI-free', () => {
-    const dashboard = read('app', 'platform-admin', 'page.tsx')
-    const tenants = read('app', 'platform-admin', 'tenants', 'page.tsx')
-    const audit = read('app', 'platform-admin', 'audit', 'page.tsx')
-    expect(api).toContain('PlatformAdminReasonCode')
-    expect(api).toContain('platformAdminErrorMessage')
-    expect(api).not.toContain('patientCount')
-    expect(tenants).not.toContain('patientCount')
-    expect(audit).not.toContain('event.resource_id ?')
-    expect(audit).not.toContain('event.platform_admin_id.slice')
-    expect(dashboard).toContain('Platform fleet 6領域')
-    for (const label of ['全体状況', '要対応テナント・アカウント', '初期設定', '運用', 'セキュリティ・監査', 'データ保護']) {
-      expect(dashboard).toContain(label)
+    const dashboard = read('app', 'platform-admin', 'page.tsx');
+    const tenants = read('app', 'platform-admin', 'tenants', 'page.tsx');
+    const audit = read('app', 'platform-admin', 'audit', 'page.tsx');
+    expect(api).toContain('PlatformAdminReasonCode');
+    expect(api).toContain('platformAdminErrorMessage');
+    expect(api).not.toContain('patientCount');
+    expect(tenants).not.toContain('patientCount');
+    expect(audit).not.toContain('event.resource_id ?');
+    expect(audit).not.toContain('event.platform_admin_id.slice');
+    expect(dashboard).toContain('Platform fleet 6領域');
+    for (const label of [
+      '全体状況',
+      '要対応テナント・アカウント',
+      '初期設定',
+      '運用',
+      'セキュリティ・監査',
+      'データ保護',
+    ]) {
+      expect(dashboard).toContain(label);
     }
   });
 });
@@ -133,14 +139,12 @@ describe('platform admin control center UI contract', () => {
   const patientDetail = read('app', 'platform-admin', 'tenants', 'patients', 'detail', 'page.tsx');
   const logs = read('app', 'platform-admin', 'logs', 'page.tsx');
 
-  const uiSources = [
-    supportMode, layout, dashboard, tenantDetail, patientList, patientDetail, logs,
-  ];
+  const uiSources = [supportMode, layout, dashboard, tenantDetail, patientList, patientDetail, logs];
 
   it('steps up with the current password and keeps it out of storage', () => {
     // The password is a request field and nothing else.
     expect(supportMode).toContain('currentPassword,');
-    expect(supportMode).toContain("type=\"password\"");
+    expect(supportMode).toContain('type="password"');
     expect(supportMode).toContain("setCurrentPassword('')");
     expect(api).toContain('currentPassword: string');
     expect(api).toContain('/support-grants`');
@@ -168,12 +172,12 @@ describe('platform admin control center UI contract', () => {
 
   it('shows a live countdown banner for every active grant on every page', () => {
     expect(layout).toContain('<SupportModeBanner />');
-    expect(layout).toContain("@/components/platform-admin/support-mode");
+    expect(layout).toContain('@/components/platform-admin/support-mode');
     // The existing cross-tenant banner stays: the countdown is additional.
     expect(layout).toContain('全体管理者モード');
 
     expect(supportMode).toContain('export function SupportModeBanner');
-    expect(supportMode).toContain('platformAdminApi.activeSupportGrants()');
+    expect(supportMode).toMatch(/platformAdminApi\s*\.\s*activeSupportGrants\(\)/);
     expect(supportMode).toContain('サポートモード:');
     expect(supportMode).toContain('残り');
     expect(supportMode).toContain('grant.expires_at');
@@ -228,47 +232,75 @@ describe('platform admin control center UI contract', () => {
     expect(dashboard).toContain('platformAdminApi.dashboard()');
     expect(dashboard).toContain('platformAdminApi.integrity()');
     for (const key of [
-      'totalTenants', 'activeTenants', 'suspendedTenants', 'webhookFailures24h',
-      'webhookPending', 'activeSupportGrants', 'tenantsWithStaleActivity',
+      'totalTenants',
+      'activeTenants',
+      'suspendedTenants',
+      'webhookFailures24h',
+      'webhookPending',
+      'activeSupportGrants',
+      'tenantsWithStaleActivity',
     ]) {
       expect(dashboard).toContain(key);
     }
     for (const check of [
-      'orphaned_tenant_line_accounts', 'missing_capability_row',
-      'patients_without_active_account_mapping', 'stale_pending_webhook_events',
+      'orphaned_tenant_line_accounts',
+      'missing_capability_row',
+      'patients_without_active_account_mapping',
+      'stale_pending_webhook_events',
       'dangling_source_handoff',
     ]) {
       expect(dashboard).toContain(check);
     }
     expect(layout).toContain("{ href: '/platform-admin', label: 'ダッシュボード' }");
-    for (const label of ['薬局readiness', 'READY', 'BLOCKED', 'UNVERIFIED', 'seller release', 'LIFF package', 'Web runtime', 'Worker runtime']) {
+    for (const label of [
+      '薬局readiness',
+      'READY',
+      'BLOCKED',
+      'UNVERIFIED',
+      'seller release',
+      'LIFF package',
+      'Web runtime',
+      'Worker runtime',
+    ]) {
       expect(dashboard).toContain(label);
     }
-    expect(dashboard).toContain('dashboard.pharmacyReadiness.tenants')
-    expect(dashboard).toContain('dashboard.versions.liffPackageVersion')
+    expect(dashboard).toContain('dashboard.pharmacyReadiness.tenants');
+    expect(dashboard).toContain('dashboard.versions.liffPackageVersion');
   });
 
   it('wires health, LINE diagnostics and the outbound pause into the tenant page', () => {
-    expect(tenantDetail).toContain('platformAdminApi.tenantHealth(tenantId)');
-    expect(tenantDetail).toContain('platformAdminApi.lineStatus(tenantId)');
-    expect(tenantDetail).toContain('platformAdminApi.staff(tenantId)');
+    expect(tenantDetail).toMatch(/platformAdminApi\s*\.\s*tenantHealth\(tenantId\)/);
+    expect(tenantDetail).toMatch(/platformAdminApi\s*\.\s*lineStatus\(tenantId\)/);
+    expect(tenantDetail).toMatch(/platformAdminApi\s*\.\s*staff\(tenantId\)/);
     expect(tenantDetail).toContain('platformAdminApi.testLineConnection(tenantId, lineAccountId)');
     expect(tenantDetail).toContain('platformAdminApi.setOutboundMessaging(tenantId, paused)');
     // A failed probe is a 200 with ok:false, so it must render inline, not as an error.
     expect(tenantDetail).toContain('probe.ok ?');
     // No secret-bearing field is ever displayed; the API only exposes presence booleans.
     expect(api).toContain('hasEncryptedCredential: boolean');
-    const lineStatusType = api.slice(
-      api.indexOf('export type PlatformLineStatus'),
-      api.indexOf('/** A failed probe'),
-    );
+    const lineStatusType = api.slice(api.indexOf('export type PlatformLineStatus'), api.indexOf('/** A failed probe'));
     expect(lineStatusType).not.toMatch(/\bchannelSecret\s*:|\baccessToken\s*:/);
-    for (const label of ['LIFF endpoint', 'リッチメニュー', '設定診断', 'configurationDoctor', 'check.impact', 'check.fixHref', 'reasonCodes', 'layoutConfigured', 'savedVersionAvailable', 'syncStatus', 'capabilityRevisionCurrent', 'uploadVerified', 'currentDefaultRecorded', 'defaultReadbackVerified']) {
+    for (const label of [
+      'LIFF endpoint',
+      'リッチメニュー',
+      '設定診断',
+      'configurationDoctor',
+      'check.impact',
+      'check.fixHref',
+      'reasonCodes',
+      'layoutConfigured',
+      'savedVersionAvailable',
+      'syncStatus',
+      'capabilityRevisionCurrent',
+      'uploadVerified',
+      'currentDefaultRecorded',
+      'defaultReadbackVerified',
+    ]) {
       expect(tenantDetail).toContain(label);
     }
-    expect(api).toContain('liffReasonCodes: PlatformReadinessReasonCode[]')
-    expect(api).toContain('configurationDoctor: PlatformConfigurationDoctor')
-    expect(api).toContain('sellerRelease: string | null')
+    expect(api).toContain('liffReasonCodes: PlatformReadinessReasonCode[]');
+    expect(api).toContain('configurationDoctor: PlatformConfigurationDoctor');
+    expect(api).toContain('sellerRelease: string | null');
   });
 
   it('shows the current outbound pause state and serializes confirmed changes', () => {
@@ -288,7 +320,7 @@ describe('platform admin control center UI contract', () => {
   });
 
   it('confirms webhook redelivery and allows only one retry at a time', () => {
-    expect(logs).toContain('if (retrying || !window.confirm(');
+    expect(logs).toMatch(/if \(\s*retrying \|\|\s*!window\.confirm\(/);
     expect(logs).toContain('患者へのLINE送信が再実行される可能性があります');
     expect(logs).toContain('disabled={Boolean(retrying)}');
   });
@@ -305,9 +337,19 @@ describe('platform admin control center UI contract', () => {
 
     // Every new endpoint is a typed wrapper, and every id is escaped.
     for (const method of [
-      'startSupportGrant', 'endSupportGrant', 'activeSupportGrants', 'dashboard',
-      'tenantHealth', 'integrity', 'staff', 'disableStaff', 'revokeTenantSessions',
-      'lineStatus', 'testLineConnection', 'setOutboundMessaging', 'retryWebhookEvent',
+      'startSupportGrant',
+      'endSupportGrant',
+      'activeSupportGrants',
+      'dashboard',
+      'tenantHealth',
+      'integrity',
+      'staff',
+      'disableStaff',
+      'revokeTenantSessions',
+      'lineStatus',
+      'testLineConnection',
+      'setOutboundMessaging',
+      'retryWebhookEvent',
     ]) {
       expect(api).toContain(`${method}:`);
     }

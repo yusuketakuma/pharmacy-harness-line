@@ -15,11 +15,20 @@ describe('custom_042 pharmacy public profile details', () => {
   });
 
   it('adds bounded patient-facing detail fields', () => {
-    const columns = db.prepare('PRAGMA table_info(pharmacy_public_profiles)').all()
+    const columns = db
+      .prepare('PRAGMA table_info(pharmacy_public_profiles)')
+      .all()
       .map((column) => (column as { name: string }).name);
-    expect(columns).toEqual(expect.arrayContaining([
-      'prescription_reception_hours', 'after_hours_note', 'services_note',
-      'accessibility_note', 'supported_languages', 'payment_methods', 'website_url',
-    ]));
+    expect(columns).toEqual(
+      expect.arrayContaining([
+        'prescription_reception_hours',
+        'after_hours_note',
+        'services_note',
+        'accessibility_note',
+        'supported_languages',
+        'payment_methods',
+        'website_url',
+      ]),
+    );
   });
 });

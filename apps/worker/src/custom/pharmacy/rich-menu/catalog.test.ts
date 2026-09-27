@@ -9,13 +9,13 @@ import {
 } from './catalog.js';
 import { getPharmacyRichMenuPresentation, listPharmacyRichMenuVariantOrders } from './layout.js';
 
-const image = new Uint8Array(readFileSync(resolve(
-  process.cwd(), 'public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg',
-)));
+const image = new Uint8Array(
+  readFileSync(resolve(process.cwd(), 'public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg')),
+);
 const imageHash = createHash('sha256').update(image).digest('hex');
-const compactImage = new Uint8Array(readFileSync(resolve(
-  process.cwd(), 'public/custom/pharmacy/rich-menu/initial-single-action-v1.jpg',
-)));
+const compactImage = new Uint8Array(
+  readFileSync(resolve(process.cwd(), 'public/custom/pharmacy/rich-menu/initial-single-action-v1.jpg')),
+);
 const compactImageHash = createHash('sha256').update(compactImage).digest('hex');
 
 function variantKey(order: Parameters<typeof getPharmacyRichMenuPresentation>[0]) {
@@ -45,12 +45,14 @@ function manifest() {
 }
 
 function bucket(value = manifest(), bytes = image) {
-  const get = vi.fn(async (key: string) => key === PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY
-    ? { text: async () => JSON.stringify(value) }
-    : {
-        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-        httpMetadata: { contentType: 'image/jpeg' },
-      });
+  const get = vi.fn(async (key: string) =>
+    key === PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY
+      ? { text: async () => JSON.stringify(value) }
+      : {
+          arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          httpMetadata: { contentType: 'image/jpeg' },
+        },
+  );
   return { bucket: { get } as unknown as R2Bucket, get };
 }
 
@@ -63,7 +65,9 @@ describe('pharmacy rich-menu static catalog', () => {
   it('loads only the exact server-derived variant and verifies its bytes', async () => {
     const { bucket: images, get } = bucket();
     const result = await loadPharmacyRichMenuCatalogImage(images, [
-      'prescription-send', 'prescription-history', 'manual-chat',
+      'prescription-send',
+      'prescription-history',
+      'manual-chat',
     ]);
 
     expect(result).toMatchObject({
@@ -81,10 +85,9 @@ describe('pharmacy rich-menu static catalog', () => {
 
   it('loads the compact catalog image when three cells fit in one row', async () => {
     const { bucket: images } = bucket(manifest(), compactImage);
-    await expect(loadPharmacyRichMenuCatalogImage(images, [
-      'manual-chat', 'pharmacy-info',
-    ])).resolves.toMatchObject({
-      size: 'compact', height: 843,
+    await expect(loadPharmacyRichMenuCatalogImage(images, ['manual-chat', 'pharmacy-info'])).resolves.toMatchObject({
+      size: 'compact',
+      height: 843,
       variantKey: 'v4-compact-manual-chat.pharmacy-info',
       imageHash: compactImageHash,
     });
@@ -104,8 +107,8 @@ describe('pharmacy rich-menu static catalog', () => {
     changed[changed.length - 1] ^= 1;
     const { bucket: images } = bucket(manifest(), changed);
 
-    await expect(loadPharmacyRichMenuCatalogImage(images, [
-      'prescription-send', 'prescription-history', 'manual-chat',
-    ])).rejects.toThrow(/hash/i);
+    await expect(
+      loadPharmacyRichMenuCatalogImage(images, ['prescription-send', 'prescription-history', 'manual-chat']),
+    ).rejects.toThrow(/hash/i);
   });
 });

@@ -94,12 +94,16 @@ async function transition(c: Context<Env>, action: 'suspend' | 'resume' | 'revok
   if (account instanceof Response) return account;
   const body = await readJsonObject(c.req);
   const membershipId = c.req.param('id');
-  const expectedVersion = typeof body?.expectedVersion === 'number'
-    ? body.expectedVersion
-    : null;
+  const expectedVersion = typeof body?.expectedVersion === 'number' ? body.expectedVersion : null;
   const reasonCode = typeof body?.reasonCode === 'string' ? body.reasonCode : null;
-  if (!membershipId || !body || expectedVersion === null || !Number.isSafeInteger(expectedVersion) ||
-      expectedVersion < 1 || (action === 'revoke' && !reasonCode)) {
+  if (
+    !membershipId ||
+    !body ||
+    expectedVersion === null ||
+    !Number.isSafeInteger(expectedVersion) ||
+    expectedVersion < 1 ||
+    (action === 'revoke' && !reasonCode)
+  ) {
     return c.json({ success: false, error: 'expectedVersion and transition data are required' }, 400);
   }
   try {

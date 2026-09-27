@@ -102,11 +102,16 @@ trafficPools.put('/api/traffic-pools/:id', async (c) => {
       isActive?: boolean;
     }>();
 
-    const updated = await updateTrafficPool(c.env.DB, id, {
-      name: body.name,
-      activeAccountId: body.activeAccountId,
-      isActive: body.isActive,
-    }, c.get('tenantId') ?? null);
+    const updated = await updateTrafficPool(
+      c.env.DB,
+      id,
+      {
+        name: body.name,
+        activeAccountId: body.activeAccountId,
+        isActive: body.isActive,
+      },
+      c.get('tenantId') ?? null,
+    );
 
     if (!updated) {
       return c.json({ success: false, error: 'Traffic pool not found' }, 404);
@@ -155,11 +160,7 @@ function serializePoolAccount(pa: PoolAccountWithDetails) {
 // GET /api/traffic-pools/:id/accounts — list pool accounts
 trafficPools.get('/api/traffic-pools/:id/accounts', async (c) => {
   try {
-    const accounts = await getPoolAccounts(
-      c.env.DB,
-      c.req.param('id'),
-      c.get('tenantId') ?? null,
-    );
+    const accounts = await getPoolAccounts(c.env.DB, c.req.param('id'), c.get('tenantId') ?? null);
     return c.json({ success: true, data: accounts.map(serializePoolAccount) });
   } catch (err) {
     console.error('GET /api/traffic-pools/:id/accounts error:', err);
@@ -174,12 +175,7 @@ trafficPools.post('/api/traffic-pools/:id/accounts', async (c) => {
     if (!body.lineAccountId) {
       return c.json({ success: false, error: 'lineAccountId is required' }, 400);
     }
-    const account = await addPoolAccount(
-      c.env.DB,
-      c.req.param('id'),
-      body.lineAccountId,
-      c.get('tenantId') ?? null,
-    );
+    const account = await addPoolAccount(c.env.DB, c.req.param('id'), body.lineAccountId, c.get('tenantId') ?? null);
     if (!account) return c.json({ success: false, error: 'Traffic pool not found' }, 404);
     return c.json({ success: true, data: account }, 201);
   } catch (err: any) {

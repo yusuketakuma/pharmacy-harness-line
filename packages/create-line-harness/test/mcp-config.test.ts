@@ -33,8 +33,7 @@ describe('generateMcpConfig', () => {
     vi.unstubAllGlobals();
   });
 
-  const readConfig = () =>
-    JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf-8'));
+  const readConfig = () => JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf-8'));
 
   it('sets LINE_HARNESS_ACCOUNT_ID for single-account installs', async () => {
     mockAccounts([{ id: 'acc-1', name: 'Main' }]);
@@ -70,7 +69,12 @@ describe('generateMcpConfig', () => {
   });
 
   it('still writes config when the accounts API fails', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }),
+    );
     await generateMcpConfig({ workerUrl: WORKER, apiKey: API_KEY });
     const env = readConfig().mcpServers['line-harness'].env;
     expect(env.LINE_HARNESS_ACCOUNT_ID).toBeUndefined();
@@ -83,8 +87,6 @@ describe('generateMcpConfig', () => {
     await generateMcpConfig({ workerUrl: WORKER, apiKey: 'second-key-87654321' });
     const servers = readConfig().mcpServers;
     expect(servers['line-harness'].env.LINE_HARNESS_API_KEY).toBe(API_KEY);
-    expect(servers['line-harness-second-k'].env.LINE_HARNESS_API_KEY).toBe(
-      'second-key-87654321',
-    );
+    expect(servers['line-harness-second-k'].env.LINE_HARNESS_API_KEY).toBe('second-key-87654321');
   });
 });

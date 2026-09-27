@@ -222,12 +222,14 @@ describe('affiliate offer program move', () => {
     // Re-syncing the same approval must not post a second grant under program-b.
     await syncAffiliateConversionMileage(db, 'ce-1', 'approved');
     expect(
-      (sqlite
-        .prepare(
-          `SELECT COUNT(*) AS c FROM mileage_ledger
+      (
+        sqlite
+          .prepare(
+            `SELECT COUNT(*) AS c FROM mileage_ledger
             WHERE source = 'affiliate_conversion' AND source_event_id = 'ce-1' AND entry_type = 'grant'`,
-        )
-        .get() as { c: number }).c,
+          )
+          .get() as { c: number }
+      ).c,
     ).toBe(1);
 
     // Rejection still finds and reverses the original program's grant.
@@ -243,9 +245,7 @@ describe('affiliate offer program move', () => {
       lifetimeEarned: 750,
     });
     const reversalPrograms = sqlite
-      .prepare(
-        `SELECT DISTINCT program_id AS p FROM mileage_ledger WHERE entry_type = 'reversal'`,
-      )
+      .prepare(`SELECT DISTINCT program_id AS p FROM mileage_ledger WHERE entry_type = 'reversal'`)
       .all() as { p: string }[];
     expect(reversalPrograms).toEqual([{ p: 'default' }]);
   });

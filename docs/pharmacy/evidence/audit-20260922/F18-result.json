@@ -1,0 +1,12 @@
+{
+  "commit": "412c6c958c96b29c179ec64f14b3337d3cdb499f",
+  "redExit": 1,
+  "initialNearExit": 1,
+  "finalNearExit": 0,
+  "browserExit": 0,
+  "verifyExit": 0,
+  "buildExit": 0,
+  "artifactExit": 0,
+  "patchReplay": "PASS",
+  "independentReview": "NOT_RUN"
+}

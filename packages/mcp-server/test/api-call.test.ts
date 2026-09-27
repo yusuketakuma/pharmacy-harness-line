@@ -13,10 +13,13 @@ describe('MCP API calls', () => {
   });
 
   it('keeps the configured tenant header and distinguishes a missing route from a missing resource', async () => {
-    const fetchMock = vi.fn(async () => new Response(
-      JSON.stringify({ success: false, error: 'Not found' }),
-      { status: 404, headers: { 'X-Line-Harness-Error': 'route_not_found' } },
-    ));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ success: false, error: 'Not found' }), {
+          status: 404,
+          headers: { 'X-Line-Harness-Error': 'route_not_found' },
+        }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await apiCall('/api/entry-routes');
@@ -33,10 +36,10 @@ describe('MCP API calls', () => {
   });
 
   it('does not label a missing resource as a missing bundle route', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ success: false, error: 'Not found' }),
-      { status: 404 },
-    )));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ success: false, error: 'Not found' }), { status: 404 })),
+    );
 
     const result = await apiCall('/api/entry-routes/missing');
 
@@ -44,10 +47,10 @@ describe('MCP API calls', () => {
   });
 
   it('redacts a non-JSON upstream error body', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      'sensitive-upstream-detail',
-      { status: 502 },
-    )));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('sensitive-upstream-detail', { status: 502 })),
+    );
 
     const result = await apiCall('/api/entry-routes');
 
@@ -56,15 +59,21 @@ describe('MCP API calls', () => {
   });
 
   it('redacts fields from a JSON upstream error body', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({
-        success: false,
-        error: 'sensitive-upstream-detail',
-        detail: 'credential-like-detail',
-        stack: 'private-stack',
-      }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
-    )));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: false,
+              error: 'sensitive-upstream-detail',
+              detail: 'credential-like-detail',
+              stack: 'private-stack',
+            }),
+            { status: 502, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    );
 
     const result = await apiCall('/api/message-templates');
 

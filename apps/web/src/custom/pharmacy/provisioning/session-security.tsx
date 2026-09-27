@@ -1,34 +1,34 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import Header from '@/components/layout/header'
-import { ApiError, fetchApi } from '@/lib/api'
-import type { ApiResponse } from '@line-crm/shared'
+import { useCallback, useEffect, useState } from 'react';
+import Header from '@/components/layout/header';
+import { ApiError, fetchApi } from '@/lib/api';
+import type { ApiResponse } from '@line-crm/shared';
 
 export type ActiveSession = {
-  current: boolean
-  sessionKind: 'bootstrap' | 'standard'
-  createdAt: string
-  expiresAt: string
-}
+  current: boolean;
+  sessionKind: 'bootstrap' | 'standard';
+  createdAt: string;
+  expiresAt: string;
+};
 
-export type SessionListResponse = ApiResponse<{ sessions: ActiveSession[] }>
+export type SessionListResponse = ApiResponse<{ sessions: ActiveSession[] }>;
 
 type SessionSecurityViewProps = {
-  sessions: ActiveSession[]
-  loading: boolean
-  error: string
-  message: string
-  currentPassword: string
-  busy: boolean
-  onPasswordChange: (value: string) => void
-  onRevoke: () => void
-}
+  sessions: ActiveSession[];
+  loading: boolean;
+  error: string;
+  message: string;
+  currentPassword: string;
+  busy: boolean;
+  onPasswordChange: (value: string) => void;
+  onRevoke: () => void;
+};
 
 const dateTime = new Intl.DateTimeFormat('ja-JP', {
   dateStyle: 'medium',
   timeStyle: 'short',
-})
+});
 
 export function SessionSecurityView({
   sessions,
@@ -40,7 +40,7 @@ export function SessionSecurityView({
   onPasswordChange,
   onRevoke,
 }: SessionSecurityViewProps) {
-  const otherSessionCount = sessions.filter((session) => !session.current).length
+  const otherSessionCount = sessions.filter((session) => !session.current).length;
 
   return (
     <div className="space-y-6">
@@ -53,20 +53,25 @@ export function SessionSecurityView({
         </div>
 
         {loading ? (
-          <p role="status" className="py-6 text-center text-sm text-gray-500">読み込み中...</p>
+          <p role="status" className="py-6 text-center text-sm text-gray-500">
+            読み込み中...
+          </p>
         ) : sessions.length === 0 ? (
           <p className="py-6 text-center text-sm text-gray-500">有効なセッションはありません</p>
         ) : (
           <ul className="divide-y divide-gray-100">
             {sessions.map((session, index) => (
-              <li key={index} className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+              <li
+                key={index}
+                className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                      session.current
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-700'
-                    }`}>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                        session.current ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
                       {session.current ? 'この端末' : '他の端末'}
                     </span>
                     <span className="text-xs text-gray-500">
@@ -91,8 +96,8 @@ export function SessionSecurityView({
         <form
           className="mt-5 max-w-md"
           onSubmit={(event) => {
-            event.preventDefault()
-            onRevoke()
+            event.preventDefault();
+            onRevoke();
           }}
         >
           <label htmlFor="current-password" className="mb-1 block text-sm font-medium text-gray-700">
@@ -117,68 +122,73 @@ export function SessionSecurityView({
           </button>
         </form>
 
-        {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-        {message && <p role="status" className="mt-3 text-sm text-green-700">{message}</p>}
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p role="status" className="mt-3 text-sm text-green-700">
+            {message}
+          </p>
+        )}
       </section>
     </div>
-  )
+  );
 }
 
 export default function SessionSecurityPage() {
-  const [sessions, setSessions] = useState<ActiveSession[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const loadSessions = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const response = await fetchApi<SessionListResponse>('/api/auth/sessions')
-      if (!response.success) throw new Error(response.error)
-      setSessions(response.data.sessions)
+      const response = await fetchApi<SessionListResponse>('/api/auth/sessions');
+      if (!response.success) throw new Error(response.error);
+      setSessions(response.data.sessions);
     } catch {
-      setError('ログイン中の端末を取得できませんでした')
+      setError('ログイン中の端末を取得できませんでした');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void loadSessions()
-  }, [loadSessions])
+    void loadSessions();
+  }, [loadSessions]);
 
   const revokeOtherSessions = async () => {
-    if (busy || !currentPassword) return
-    if (!window.confirm('この端末以外をすべてログアウトします。よろしいですか？')) return
+    if (busy || !currentPassword) return;
+    if (!window.confirm('この端末以外をすべてログアウトします。よろしいですか？')) return;
 
-    setBusy(true)
-    setError('')
-    setMessage('')
+    setBusy(true);
+    setError('');
+    setMessage('');
     try {
-      const response = await fetchApi<ApiResponse<{ revoked: number }>>(
-        '/api/auth/sessions/revoke-others',
-        {
-          method: 'POST',
-          body: JSON.stringify({ currentPassword }),
-        },
-      )
-      if (!response.success) throw new Error(response.error)
-      setCurrentPassword('')
-      setMessage(`${response.data.revoked} 件のセッションをログアウトしました`)
-      await loadSessions()
+      const response = await fetchApi<ApiResponse<{ revoked: number }>>('/api/auth/sessions/revoke-others', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword }),
+      });
+      if (!response.success) throw new Error(response.error);
+      setCurrentPassword('');
+      setMessage(`${response.data.revoked} 件のセッションをログアウトしました`);
+      await loadSessions();
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.status === 403
           ? '現在のパスワードを確認してください'
           : '他の端末をログアウトできませんでした',
-      )
+      );
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div>
@@ -197,5 +207,5 @@ export default function SessionSecurityPage() {
         onRevoke={revokeOtherSessions}
       />
     </div>
-  )
+  );
 }

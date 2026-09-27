@@ -202,7 +202,7 @@ async function computeAllRows(db: D1Database, tenantId: string): Promise<Unified
             // 英: email/mail / 日: メール
             if (k.includes('email') || k.includes('mail') || k.includes('メール')) {
               emails.add(val);
-            // 英: phone/tel / 日: 電話
+              // 英: phone/tel / 日: 電話
             } else if (k.includes('phone') || k.includes('tel') || k.includes('電話')) {
               phones.add(val);
             }

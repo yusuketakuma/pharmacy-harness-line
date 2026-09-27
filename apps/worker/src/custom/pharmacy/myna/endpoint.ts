@@ -1,9 +1,4 @@
-import {
-  decodeBase64UrlLenient,
-  deriveAesGcmKey,
-  deriveHmacKey,
-  toBase64Url,
-} from '../crypto-utils.js';
+import { decodeBase64UrlLenient, deriveAesGcmKey, deriveHmacKey, toBase64Url } from '../crypto-utils.js';
 
 const textEncoder = new TextEncoder();
 
@@ -30,9 +25,13 @@ export interface EndpointCryptoScope {
 }
 
 function aad(scope: EndpointCryptoScope): Uint8Array {
-  return textEncoder.encode(JSON.stringify({
-    lineAccountId: scope.lineAccountId, purpose: 'myna-endpoint', keyVersion: KEY_VERSION,
-  }));
+  return textEncoder.encode(
+    JSON.stringify({
+      lineAccountId: scope.lineAccountId,
+      purpose: 'myna-endpoint',
+      keyVersion: KEY_VERSION,
+    }),
+  );
 }
 
 /** v2 key: HMAC(secret, label:keyVersion), same derivation shape as the LINE credential store. */
@@ -56,9 +55,15 @@ export function normalizeEndpointUrl(value: string, allowedHosts: string[]): str
     const url = new URL(value.trim());
     const hosts = new Set(allowedHosts.map((host) => host.trim().toLowerCase()).filter(Boolean));
     if (
-      url.protocol !== 'https:' || url.username || url.password || url.hash || url.port ||
-      !url.hostname || !hosts.has(url.hostname.toLowerCase())
-    ) throw new Error('invalid Myna endpoint URL');
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.port ||
+      !url.hostname ||
+      !hosts.has(url.hostname.toLowerCase())
+    )
+      throw new Error('invalid Myna endpoint URL');
     return url.toString();
   } catch {
     throw new Error('invalid Myna endpoint URL');
@@ -72,11 +77,7 @@ export async function sha256Hex(value: string): Promise<string> {
 
 // ponytail: scope is optional only until endpoint-repository.ts passes its
 // lineAccountId; without a scope the legacy v1 format (no AAD) is written.
-export async function encryptEndpointUrl(
-  value: string,
-  secret: string,
-  scope?: EndpointCryptoScope,
-): Promise<string> {
+export async function encryptEndpointUrl(value: string, secret: string, scope?: EndpointCryptoScope): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = await crypto.subtle.encrypt(
     scope ? { name: 'AES-GCM', iv, additionalData: aad(scope) } : { name: 'AES-GCM', iv },
@@ -86,11 +87,7 @@ export async function encryptEndpointUrl(
   return `${scope ? 'v2' : 'v1'}.${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(cipher))}`;
 }
 
-export async function decryptEndpointUrl(
-  value: string,
-  secret: string,
-  scope?: EndpointCryptoScope,
-): Promise<string> {
+export async function decryptEndpointUrl(value: string, secret: string, scope?: EndpointCryptoScope): Promise<string> {
   const parts = value.split('.');
   const version = parts[0];
   if (parts.length !== 3 || (version !== 'v1' && version !== 'v2')) {

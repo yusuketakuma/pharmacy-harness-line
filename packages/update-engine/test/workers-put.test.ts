@@ -9,9 +9,7 @@ const BINDINGS: WorkerBinding[] = [
 ];
 
 /** Capture the metadata part of the multipart PUT body as parsed JSON. */
-async function capturedMetadata(
-  fetchMock: ReturnType<typeof vi.fn>,
-): Promise<Record<string, unknown>> {
+async function capturedMetadata(fetchMock: ReturnType<typeof vi.fn>): Promise<Record<string, unknown>> {
   const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
   const fd = init.body as FormData;
   const blob = fd.get('metadata') as Blob;

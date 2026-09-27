@@ -20,9 +20,8 @@ function app(ownedAccountIds: string[]) {
   const db = {
     prepare: (sql: string) => ({
       bind: (_tenantId: string, accountId: string) => ({
-        first: async () => sql.includes('sqlite_master')
-          ? null
-          : ownedAccountIds.includes(accountId) ? { ok: 1 } : null,
+        first: async () =>
+          sql.includes('sqlite_master') ? null : ownedAccountIds.includes(accountId) ? { ok: 1 } : null,
       }),
     }),
   } as unknown as D1Database;
@@ -38,21 +37,29 @@ describe('tenant account selector guard', () => {
 
   it('rejects a body-selected LINE account outside the authenticated tenant', async () => {
     const { root, env } = app(['account-a']);
-    const response = await root.request('/api/example', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountIds: ['account-a', 'account-b'] }),
-    }, env);
+    const response = await root.request(
+      '/api/example',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountIds: ['account-a', 'account-b'] }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
   });
 
   it('rejects a JSON body even when a client lies about Content-Type', async () => {
     const { root, env } = app(['account-a']);
-    const response = await root.request('/api/example', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ accountId: 'account-b' }),
-    }, env);
+    const response = await root.request(
+      '/api/example',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ accountId: 'account-b' }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
   });
 
@@ -75,7 +82,7 @@ describe('tenant account selector guard', () => {
     const db = {
       prepare: () => ({
         bind: (tenantId: string, accountId: string) => ({
-          first: async () => tenantId === 'tenant-a' && accountId === 'account-a' ? { ok: 1 } : null,
+          first: async () => (tenantId === 'tenant-a' && accountId === 'account-a' ? { ok: 1 } : null),
         }),
       }),
     } as unknown as D1Database;
@@ -105,7 +112,9 @@ describe('tenant account selector guard', () => {
         }),
       }),
     } as unknown as D1Database;
-    const response = await root.request('/api/chats?lineAccountId=account-a', {}, { DB: db } as Env['Bindings']);
+    const response = await root.request('/api/chats?lineAccountId=account-a', {}, {
+      DB: db,
+    } as Env['Bindings']);
     expect(response.status).toBe(403);
   });
 
@@ -130,7 +139,9 @@ describe('tenant account selector guard', () => {
         }),
       }),
     } as unknown as D1Database;
-    const response = await root.request('/api/chats?lineAccountId=account-a', {}, { DB: db } as Env['Bindings']);
+    const response = await root.request('/api/chats?lineAccountId=account-a', {}, {
+      DB: db,
+    } as Env['Bindings']);
     expect(response.status).toBe(403);
   });
 });
@@ -145,15 +156,15 @@ function resourceApp(ownedFriendIds: string[], ownedChatIds: string[] = []) {
   root.all('*', (c) => c.json({ ok: true }));
   const db = {
     prepare: (sql: string) => ({
-        bind: (_tenantId: string, resourceId: string) => ({
-          first: async () => {
+      bind: (_tenantId: string, resourceId: string) => ({
+        first: async () => {
           if (sql.includes('SELECT friend.line_account_id')) {
             return ownedFriendIds.includes(resourceId) || ownedChatIds.includes(resourceId)
               ? { line_account_id: 'account-a' }
               : null;
           }
-            if (sql.includes('pharmacy_account_capabilities')) return null;
-            if (sql.includes('sqlite_master')) return null;
+          if (sql.includes('pharmacy_account_capabilities')) return null;
+          if (sql.includes('sqlite_master')) return null;
           if (sql.includes('FROM tenant_line_accounts AS mapping') && sql.includes('line_accounts AS account')) {
             return { ok: 1 };
           }
@@ -187,31 +198,43 @@ describe('tenant friend resource guard', () => {
 
   it('checks a newly created chat friend from the JSON body', async () => {
     const { root, env } = resourceApp(['friend-a']);
-    const response = await root.request('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendId: 'friend-b' }),
-    }, env);
+    const response = await root.request(
+      '/api/chats',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: 'friend-b' }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
   });
 
   it('rejects a friend body even when a client lies about Content-Type', async () => {
     const { root, env } = resourceApp(['friend-a']);
-    const response = await root.request('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ friendId: 'friend-b' }),
-    }, env);
+    const response = await root.request(
+      '/api/chats',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ friendId: 'friend-b' }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
   });
 
   it('rejects any foreign friend in a JSON friend-id collection', async () => {
     const { root, env } = resourceApp(['friend-a']);
-    const response = await root.request('/api/account-settings/test-recipients', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendIds: ['friend-a', 'friend-b'] }),
-    }, env);
+    const response = await root.request(
+      '/api/account-settings/test-recipients',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendIds: ['friend-a', 'friend-b'] }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
   });
 

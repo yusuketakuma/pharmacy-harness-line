@@ -29,20 +29,23 @@ function memDB(state: {
       state.queries?.push(sql);
       let bound: unknown[] = [];
       const stmt = {
-        bind(...args: unknown[]) { bound = args; return stmt; },
-        async first<T>() { return null as T | null; },
+        bind(...args: unknown[]) {
+          bound = args;
+          return stmt;
+        },
+        async first<T>() {
+          return null as T | null;
+        },
         async all<T>() {
           if (sql.includes('FROM event_bookings') && sql.includes("status = 'requested'")) {
             const [cutoff] = bound as [string];
-            const items = state.bookings.filter(
-              (b) => b.status === 'requested' && b.requested_at < cutoff,
-            );
+            const items = state.bookings.filter((b) => b.status === 'requested' && b.requested_at < cutoff);
             return { results: items as unknown as T[] };
           }
           return { results: [] };
         },
         async run() {
-          if (sql.includes('UPDATE event_bookings\n            SET status = \'expired\'')) {
+          if (sql.includes("UPDATE event_bookings\n            SET status = 'expired'")) {
             const [decided_at, _updated_at, id] = bound as [string, string, string];
             const b = state.bookings.find((x) => x.id === id && x.status === 'requested');
             if (!b) return { success: true, meta: { changes: 0 } };
@@ -87,9 +90,7 @@ describe('runEventBookingExpirer', () => {
       now: new Date('2026-05-09T12:00:00Z'),
     });
 
-    expect(queries.find((sql) => sql.includes('FROM event_bookings'))).toContain(
-      'FROM pharmacy_account_capabilities',
-    );
+    expect(queries.find((sql) => sql.includes('FROM event_bookings'))).toContain('FROM pharmacy_account_capabilities');
     const staleQuery = queries.find((sql) => sql.includes('FROM event_bookings'))!;
     expect(staleQuery).toContain('la.is_active = 1');
     expect(staleQuery).toContain('tenant_line_accounts');
@@ -127,7 +128,15 @@ describe('runEventBookingExpirer', () => {
   test('cancels related pending reminders', async () => {
     const now = new Date('2026-05-09T12:00:00Z');
     const state = {
-      bookings: [{ id: 'b1', status: 'requested', requested_at: '2026-05-08T00:00:00Z', decided_at: null, updated_at: null }],
+      bookings: [
+        {
+          id: 'b1',
+          status: 'requested',
+          requested_at: '2026-05-08T00:00:00Z',
+          decided_at: null,
+          updated_at: null,
+        },
+      ],
       reminders: [
         { id: 'r1', booking_id: 'b1', status: 'pending' },
         { id: 'r2', booking_id: 'b1', status: 'sent' },
@@ -160,7 +169,13 @@ describe('runEventBookingExpirer', () => {
     const now = new Date('2026-05-09T12:00:00Z');
     const state = {
       bookings: [
-        { id: 'b1', status: 'confirmed', requested_at: '2026-01-01T00:00:00Z', decided_at: null, updated_at: null },
+        {
+          id: 'b1',
+          status: 'confirmed',
+          requested_at: '2026-01-01T00:00:00Z',
+          decided_at: null,
+          updated_at: null,
+        },
       ],
       reminders: [],
       idem: [],

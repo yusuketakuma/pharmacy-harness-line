@@ -26,9 +26,8 @@ fulfillmentRoutes.use('/api/custom/pharmacy/fulfillment-quotes/*', async (c, nex
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'fulfillment_quote'))) {
     return c.json({ error: 'Fulfillment quote is not enabled' }, 403);
   }
@@ -37,23 +36,32 @@ fulfillmentRoutes.use('/api/custom/pharmacy/fulfillment-quotes/*', async (c, nex
 
 function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | null {
   if (
-    (body.expectedRevision !== undefined && (typeof body.expectedRevision !== 'number' ||
-      !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0)) ||
-    typeof body.decision !== 'string' || !Array.isArray(body.reasonCodes) ||
+    (body.expectedRevision !== undefined &&
+      (typeof body.expectedRevision !== 'number' ||
+        !Number.isSafeInteger(body.expectedRevision) ||
+        body.expectedRevision < 0)) ||
+    typeof body.decision !== 'string' ||
+    !Array.isArray(body.reasonCodes) ||
     !Array.isArray(body.requirements) ||
     !(
       body.estimatedReadyAt === null ||
       (typeof body.estimatedReadyAt === 'string' && Number.isFinite(Date.parse(body.estimatedReadyAt)))
     ) ||
-    !(body.validUntil === null ||
-      (typeof body.validUntil === 'string' && Number.isFinite(Date.parse(body.validUntil)))) ||
+    !(
+      body.validUntil === null ||
+      (typeof body.validUntil === 'string' && Number.isFinite(Date.parse(body.validUntil)))
+    ) ||
     (body.status !== undefined && typeof body.status !== 'string') ||
-    (body.fulfillmentMethod !== undefined && body.fulfillmentMethod !== null && typeof body.fulfillmentMethod !== 'string') ||
-    (body.constraints !== undefined && (!Array.isArray(body.constraints) ||
-      body.constraints.some((constraint) => typeof constraint !== 'string'))) ||
-    (body.reservationExpiresAt !== undefined && body.reservationExpiresAt !== null &&
+    (body.fulfillmentMethod !== undefined &&
+      body.fulfillmentMethod !== null &&
+      typeof body.fulfillmentMethod !== 'string') ||
+    (body.constraints !== undefined &&
+      (!Array.isArray(body.constraints) || body.constraints.some((constraint) => typeof constraint !== 'string'))) ||
+    (body.reservationExpiresAt !== undefined &&
+      body.reservationExpiresAt !== null &&
       (typeof body.reservationExpiresAt !== 'string' || !Number.isFinite(Date.parse(body.reservationExpiresAt))))
-  ) return null;
+  )
+    return null;
   return {
     ...(typeof body.expectedRevision === 'number' ? { expectedRevision: body.expectedRevision } : {}),
     decision: body.decision as FulfillmentQuoteInput['decision'],
@@ -89,9 +97,9 @@ fulfillmentRoutes.get('/api/custom/pharmacy/fulfillment-quotes/:submissionId', a
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
-  return c.json({ quote: await getLatestFulfillmentQuote(
-    c.env.DB, lineAccountId, c.req.param('submissionId'),
-  ) });
+  return c.json({
+    quote: await getLatestFulfillmentQuote(c.env.DB, lineAccountId, c.req.param('submissionId')),
+  });
 });
 
 fulfillmentRoutes.post('/api/custom/pharmacy/fulfillment-quotes/:submissionId', async (c) => {
@@ -103,12 +111,12 @@ fulfillmentRoutes.post('/api/custom/pharmacy/fulfillment-quotes/:submissionId', 
   const input = body ? toQuoteInput(body) : null;
   if (!input) return c.json({ error: 'Invalid fulfillment quote' }, 400);
   try {
-    const quote = await createFulfillmentQuote(
-      c.env.DB, lineAccountId, c.req.param('submissionId'), staff.id, input,
-    );
+    const quote = await createFulfillmentQuote(c.env.DB, lineAccountId, c.req.param('submissionId'), staff.id, input);
     try {
       await enqueueActivityForAccount(
-        c.env.DB, lineAccountId, 'fulfillment_quote_created',
+        c.env.DB,
+        lineAccountId,
+        'fulfillment_quote_created',
         `fulfillment-quote:${quote.submission_id}:${quote.revision}`,
       );
     } catch {

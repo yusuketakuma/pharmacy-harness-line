@@ -32,10 +32,7 @@ import { notifyAffiliateFriendAdd } from '../../services/affiliate-notifier.js';
 import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../../services/liff-auth.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { createFormLinkRetryKey } from '../../services/broadcast-retry-key.js';
-import {
-  getActiveMappedAccountTenantId,
-  messageToLogPayload,
-} from '../../services/step-delivery.js';
+import { getActiveMappedAccountTenantId, messageToLogPayload } from '../../services/step-delivery.js';
 import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 import { redirectOriginAllowlist, safeRedirectTarget } from '../../lib/safe-redirect.js';
 import { loginUnconfiguredPage } from '../../lib/login-unconfigured.js';
@@ -52,7 +49,6 @@ import {
 import { resolvePrescriptionPatient } from '../../custom/pharmacy/prescriptions/patient.js';
 import { listExistingPatientFeatures } from '../../custom/pharmacy/growth-loop/patient-feature-access.js';
 import { canUsePharmacyBetaParticipant } from '../../custom/pharmacy/beta-membership/repository.js';
-
 
 // OAuth state base64 helpers. btoa() only accepts Latin-1, so a single
 // multibyte query param (e.g. utm_campaign=夏キャンペーン) used to throw
@@ -75,12 +71,9 @@ liffRoutes.use('/auth/*', async (c, next) => {
   await next();
 });
 
-const legacyLiffApiPaths = new Set([
-  '/api/liff/link',
-  '/api/liff/send-form-link',
-]);
+const legacyLiffApiPaths = new Set(['/api/liff/link', '/api/liff/send-form-link']);
 liffRoutes.use('/api/liff/*', async (c, next) => {
-  if (legacyLiffApiPaths.has(c.req.path) && await hasPharmacyModeAccount(c.env.DB)) {
+  if (legacyLiffApiPaths.has(c.req.path) && (await hasPharmacyModeAccount(c.env.DB))) {
     return c.notFound();
   }
   await next();
@@ -94,11 +87,7 @@ liffRoutes.use('/api/liff/*', async (c, next) => {
 // the verdict to gate IG-account metadata writes so metadata can't claim an
 // account that contradicts the stored ig_igsid. An empty igParam returns
 // true: no IGSID means no conflict evidence.
-async function linkIgIgsid(
-  c: Context<Env>,
-  friendId: string,
-  igParam: string,
-): Promise<boolean> {
+async function linkIgIgsid(c: Context<Env>, friendId: string, igParam: string): Promise<boolean> {
   if (!igParam) return true;
 
   // Only notify IG Harness if this friend is actually linked to this IGSID
@@ -108,15 +97,15 @@ async function linkIgIgsid(
   // notifying would then point IG Harness at the wrong LINE UUID).
   let linked = false;
   try {
-    const result = await c.env.DB
-      .prepare('UPDATE friends SET ig_igsid = ? WHERE id = ? AND (ig_igsid IS NULL OR ig_igsid = ?)')
+    const result = await c.env.DB.prepare(
+      'UPDATE friends SET ig_igsid = ? WHERE id = ? AND (ig_igsid IS NULL OR ig_igsid = ?)',
+    )
       .bind(igParam, friendId, igParam)
       .run();
     if (result.meta?.changes && result.meta.changes > 0) {
       linked = true;
     } else {
-      const row = await c.env.DB
-        .prepare('SELECT ig_igsid FROM friends WHERE id = ?')
+      const row = await c.env.DB.prepare('SELECT ig_igsid FROM friends WHERE id = ?')
         .bind(friendId)
         .first<{ ig_igsid: string | null }>();
       linked = row?.ig_igsid === igParam;
@@ -263,13 +252,7 @@ async function applyRefAttribution(
               const linkOffer = await getAffiliateOfferById(db, affiliateLink.offer_id);
               offerName = linkOffer?.name ?? null;
             }
-            await notifyAffiliateFriendAdd(
-              db,
-              c.env,
-              affiliate.id,
-              offerName,
-              `${affiliateLink.id}:${friend.id}`,
-            );
+            await notifyAffiliateFriendAdd(db, c.env, affiliate.id, offerName, `${affiliateLink.id}:${friend.id}`);
           }
         } catch (err) {
           console.error('Affiliate friend-add notify failed (non-blocking):', err);
@@ -290,8 +273,7 @@ async function applyRefAttribution(
   }
 
   const effectiveTagId = route?.tag_id ?? trackedLink?.tag_id ?? offer?.tag_id ?? null;
-  const effectiveScenarioId =
-    route?.scenario_id ?? trackedLink?.scenario_id ?? offer?.scenario_id ?? null;
+  const effectiveScenarioId = route?.scenario_id ?? trackedLink?.scenario_id ?? offer?.scenario_id ?? null;
 
   if (effectiveTagId) {
     // Guarded attach: fires tag_added scenario enrollment (and tag_change
@@ -451,9 +433,7 @@ liffRoutes.get('/auth/line', async (c) => {
   if (twclid) liffParams.set('twclid', twclid);
   if (ttclid) liffParams.set('ttclid', ttclid);
   if (utmSource) liffParams.set('utm_source', utmSource);
-  const liffTarget = liffParams.toString()
-    ? `${liffUrl}?${liffParams.toString()}`
-    : liffUrl;
+  const liffTarget = liffParams.toString() ? `${liffUrl}?${liffParams.toString()}` : liffUrl;
 
   // Build OAuth URL (for desktop fallback)
   // Pack all tracking params into state so they survive the OAuth redirect.
@@ -463,7 +443,25 @@ liffRoutes.get('/auth/line', async (c) => {
   // can verify against the correct gate via the correct X Harness instance.
   // Without these, the form falls back to the gateId baked into the form's
   // onSubmitWebhookUrl (which is stale when a form is reused across campaigns).
-  const state = JSON.stringify({ ref, redirect, form: formId, gate: gateParam, xh: xhParam2, gclid, fbclid, twclid, ttclid, utmSource, utmMedium, utmCampaign, account: accountParam || poolAccount, uid: uidParam, ig: igParam, iga: igaParam, igan: iganParam });
+  const state = JSON.stringify({
+    ref,
+    redirect,
+    form: formId,
+    gate: gateParam,
+    xh: xhParam2,
+    gclid,
+    fbclid,
+    twclid,
+    ttclid,
+    utmSource,
+    utmMedium,
+    utmCampaign,
+    account: accountParam || poolAccount,
+    uid: uidParam,
+    ig: igParam,
+    iga: igaParam,
+    igan: iganParam,
+  });
   const encodedState = encodeState(state);
   const loginUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
   loginUrl.searchParams.set('response_type', 'code');
@@ -630,11 +628,23 @@ liffRoutes.get('/auth/oauth', async (c) => {
   // Build OAuth URL with full state
   const callbackUrl = `${baseUrl}/auth/callback`;
   const state = JSON.stringify({
-    ref, redirect, form: formId, gate: gateParam, xh: xhParam,
-    gclid, fbclid, twclid, ttclid,
-    utmSource, utmMedium, utmCampaign,
-    account: accountParam || poolAccount, uid: uidParam, ig: igParam,
-    iga: igaParam, igan: iganParam,
+    ref,
+    redirect,
+    form: formId,
+    gate: gateParam,
+    xh: xhParam,
+    gclid,
+    fbclid,
+    twclid,
+    ttclid,
+    utmSource,
+    utmMedium,
+    utmCampaign,
+    account: accountParam || poolAccount,
+    uid: uidParam,
+    ig: igParam,
+    iga: igaParam,
+    igan: iganParam,
   });
   const encodedState = encodeState(state);
   const loginUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
@@ -843,10 +853,7 @@ liffRoutes.get('/auth/callback', async (c) => {
     // xh: refs are X Harness one-time tokens (the token IS the secret) — never persist as ref_code
     if (ref && !ref.startsWith('xh:')) {
       // Save ref_code on the friend record (first touch wins — only set if not already set)
-      await db
-        .prepare(`UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL`)
-        .bind(ref, friend.id)
-        .run();
+      await db.prepare(`UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL`).bind(ref, friend.id).run();
 
       // Look up entry route config
       const route = await getEntryRouteByRefCode(db, ref);
@@ -926,20 +933,15 @@ liffRoutes.get('/auth/callback', async (c) => {
     // Auto-enroll in friend_add scenarios + immediate delivery.
     // Skip entirely when the referral link explicitly overrides account-level
     // friend_add scenarios (entry_routes.run_account_friend_add_scenarios = 0).
-    const referralRouteForOverride =
-      ref && !ref.startsWith('xh:') ? await getEntryRouteByRefCode(db, ref) : null;
+    const referralRouteForOverride = ref && !ref.startsWith('xh:') ? await getEntryRouteByRefCode(db, ref) : null;
     const runAccountScenariosLiff =
       !referralRouteForOverride || referralRouteForOverride.run_account_friend_add_scenarios !== 0;
 
     try {
       // Resolve which account this friend belongs to
-      const matchedAccountId = accountParam
-        ? (await getLineAccountByChannelId(db, accountParam))?.id ?? null
-        : null;
+      const matchedAccountId = accountParam ? ((await getLineAccountByChannelId(db, accountParam))?.id ?? null) : null;
 
-      const scenarios = runAccountScenariosLiff
-        ? await getScenariosForAccount(db, matchedAccountId)
-        : [];
+      const scenarios = runAccountScenariosLiff ? await getScenariosForAccount(db, matchedAccountId) : [];
       for (const scenario of scenarios) {
         const scenarioAccountMatch = !scenario.line_account_id || scenario.line_account_id === matchedAccountId;
         if (scenario.trigger_type !== 'friend_add' || !scenario.is_active || !scenarioAccountMatch) {
@@ -993,13 +995,15 @@ liffRoutes.get('/auth/callback', async (c) => {
     // protocol-relative targets are not).
     // Pharmacy-mode accounts get an allowlist (configured worker/LIFF/admin
     // origins) instead of the denylist: no third-party LP funnels there.
-    const pharmacyRedirectScope = Boolean(redirect) && (
-      await isPharmacyModeAccount(db, friend?.line_account_id)
-      || (!friend?.line_account_id && await hasPharmacyModeAccount(db))
-    );
+    const pharmacyRedirectScope =
+      Boolean(redirect) &&
+      ((await isPharmacyModeAccount(db, friend?.line_account_id)) ||
+        (!friend?.line_account_id && (await hasPharmacyModeAccount(db))));
     const safeRedirect = safeRedirectTarget(
       redirect,
-      pharmacyRedirectScope ? redirectOriginAllowlist(c.env as unknown as Record<string, string | undefined>) : undefined,
+      pharmacyRedirectScope
+        ? redirectOriginAllowlist(c.env as unknown as Record<string, string | undefined>)
+        : undefined,
     );
     if (safeRedirect) {
       return c.redirect(safeRedirect);
@@ -1015,10 +1019,7 @@ liffRoutes.get('/auth/callback', async (c) => {
       try {
         if (accountParam) {
           formAccount = await getLineAccountByChannelId(db, accountParam);
-          if (
-            !formAccount
-            || friendAccountIdForForm !== formAccount.id
-          ) {
+          if (!formAccount || friendAccountIdForForm !== formAccount.id) {
             canSendGenericForm = false;
           }
         } else if (friendAccountIdForForm) {
@@ -1027,14 +1028,10 @@ liffRoutes.get('/auth/callback', async (c) => {
 
         if (!formAccount) canSendGenericForm = false;
         const formAccountId = formAccount?.id ?? friendAccountIdForForm;
-        const pharmacyBlocked = (formAccountId
-          ? await isPharmacyModeAccount(db, formAccountId)
-          : false)
-          || (!friendAccountIdForForm && await hasPharmacyModeAccount(db));
-        if (
-          canSendGenericForm
-          && pharmacyBlocked
-        ) {
+        const pharmacyBlocked =
+          (formAccountId ? await isPharmacyModeAccount(db, formAccountId) : false) ||
+          (!friendAccountIdForForm && (await hasPharmacyModeAccount(db)));
+        if (canSendGenericForm && pharmacyBlocked) {
           canSendGenericForm = false;
         }
       } catch (err) {
@@ -1043,13 +1040,7 @@ liffRoutes.get('/auth/callback', async (c) => {
       }
     }
 
-    if (
-      canSendGenericForm
-      && formId
-      && friend?.line_user_id
-      && friendAccountIdForForm
-      && formAccount
-    ) {
+    if (canSendGenericForm && formId && friend?.line_user_id && friendAccountIdForForm && formAccount) {
       try {
         // Build form LIFF URL using the friend's account liff_id (multi-account aware)
         // Append gate/xh so the form can verify against the correct campaign gate
@@ -1139,7 +1130,7 @@ liffRoutes.get('/auth/callback', async (c) => {
     // Find the LINE account by: account param, friend's account, or login channel ID
     let redirectAccount: Record<string, string> | null = null;
     if (accountParam) {
-      redirectAccount = await getLineAccountByChannelId(db, accountParam) as Record<string, string> | null;
+      redirectAccount = (await getLineAccountByChannelId(db, accountParam)) as Record<string, string> | null;
     }
     if (!redirectAccount) {
       // Find account by login_channel_id used in this OAuth flow
@@ -1160,7 +1151,7 @@ liffRoutes.get('/auth/callback', async (c) => {
           headers: { Authorization: `Bearer ${redirectAccount.channel_access_token}` },
         });
         if (botInfo.ok) {
-          const bot = await botInfo.json() as { basicId?: string };
+          const bot = (await botInfo.json()) as { basicId?: string };
           if (bot.basicId) {
             return c.redirect(`https://line.me/R/ti/p/${bot.basicId}`);
           }
@@ -1171,7 +1162,6 @@ liffRoutes.get('/auth/callback', async (c) => {
     }
 
     return c.html(completionPage(displayName, pictureUrl, ref));
-
   } catch {
     log('line_oauth_callback_failed', {}, 'error');
     return c.html(errorPage('Internal error'));
@@ -1189,9 +1179,8 @@ liffRoutes.get('/api/liff/config', async (c) => {
       return c.json({ success: false, error: 'liffId is required' }, 400);
     }
 
-    const accounts = await c.env.DB
-      .prepare(
-        `SELECT account.id, account.name, capability.mode, capability.capabilities_json,
+    const accounts = await c.env.DB.prepare(
+      `SELECT account.id, account.name, capability.mode, capability.capabilities_json,
                 revision.revision AS capability_revision
            FROM line_accounts AS account
            INNER JOIN tenant_line_accounts AS mapping
@@ -1204,7 +1193,7 @@ liffRoutes.get('/api/liff/config', async (c) => {
                   ON revision.line_account_id = capability.line_account_id
           WHERE account.liff_id = ? AND account.is_active = 1
           LIMIT 2`,
-      )
+    )
       .bind(liffId)
       .all<{
         id: string;
@@ -1222,11 +1211,8 @@ liffRoutes.get('/api/liff/config', async (c) => {
       return c.json({ success: false, error: 'LIFF account resolution is ambiguous' }, 409);
     }
     const account = rows[0];
-    const capabilities = account.mode === 'pharmacy'
-      ? parsePharmacyCapabilities(account.capabilities_json)
-      : [];
-    const enabledFeatures = PATIENT_PHARMACY_CAPABILITIES.filter((capability) =>
-      capabilities.includes(capability));
+    const capabilities = account.mode === 'pharmacy' ? parsePharmacyCapabilities(account.capabilities_json) : [];
+    const enabledFeatures = PATIENT_PHARMACY_CAPABILITIES.filter((capability) => capabilities.includes(capability));
 
     return c.json({
       success: true,
@@ -1250,9 +1236,8 @@ liffRoutes.get('/api/liff/pharmacy/feature-access', async (c) => {
   if (!identity) return c.json({ success: false, error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ success: false, error: 'Pharmacy account not found' }, 404);
-  if (!(await canUsePharmacyBetaParticipant(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  ))) return c.json({ success: true, data: { existingFeatures: [] } });
+  if (!(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ success: true, data: { existingFeatures: [] } });
   const existingFeatures = await listExistingPatientFeatures(c.env.DB, patient);
   return c.json({ success: true, data: { existingFeatures } });
 });
@@ -1267,11 +1252,7 @@ liffRoutes.post('/api/liff/profile', async (c) => {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
 
-    const friend = await getFriendByLineUserIdForAccount(
-      c.env.DB,
-      identity.lineUserId,
-      identity.lineAccountId,
-    );
+    const friend = await getFriendByLineUserIdForAccount(c.env.DB, identity.lineUserId, identity.lineAccountId);
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
@@ -1345,21 +1326,16 @@ liffRoutes.post('/api/liff/link', async (c) => {
     // friend 行とプッシュ先をそのアカウントに揃える (同一プロバイダーの兄弟アカウント
     // では line_user_id が同一で、無指定の先頭一致だと別アカウントに吸われるため)。
     const matchedAccount = matchedLoginChannelId
-      ? dbAccounts.find((a) => a.login_channel_id === matchedLoginChannelId) ?? null
+      ? (dbAccounts.find((a) => a.login_channel_id === matchedLoginChannelId) ?? null)
       : null;
-    const friend = await getFriendByLineUserIdForAccount(
-      db, lineUserId, matchedAccount?.id ?? null,
-    );
+    const friend = await getFriendByLineUserIdForAccount(db, lineUserId, matchedAccount?.id ?? null);
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
     let linkedUserId = (friend as unknown as Record<string, unknown>).user_id as string | null;
     if (body.crossAccountToken) {
-      const crossAccount = await verifyCrossAccountToken(
-        c.env.CROSS_ACCOUNT_TOKEN_KEY,
-        body.crossAccountToken,
-      );
+      const crossAccount = await verifyCrossAccountToken(c.env.CROSS_ACCOUNT_TOKEN_KEY, body.crossAccountToken);
       if (!crossAccount || !matchedAccount || crossAccount.targetAccountId !== matchedAccount.id) {
         return c.json({ success: false, error: 'Invalid cross-account token' }, 400);
       }
@@ -1383,8 +1359,10 @@ liffRoutes.post('/api/liff/link', async (c) => {
     if (linkedUserId) {
       // Still save ref even if already linked (but never persist xh: tokens as ref_code)
       if (body.ref && !body.ref.startsWith('xh:')) {
-        await db.prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
-          .bind(body.ref, friend.id).run();
+        await db
+          .prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
+          .bind(body.ref, friend.id)
+          .run();
       }
       // Apply ref attribution (tag + scenario push) for already-linked friends.
       // /auth/callback only fires for new OAuth flows, so existing friends
@@ -1400,7 +1378,9 @@ liffRoutes.post('/api/liff/link', async (c) => {
             entryRouteId: route?.id ?? null,
             sourceUrl: null,
           });
-        } catch { /* silent */ }
+        } catch {
+          /* silent */
+        }
       }
       if (body.ref) {
         await applyRefAttribution(c, body.ref, friend, lineUserId, {
@@ -1457,8 +1437,10 @@ liffRoutes.post('/api/liff/link', async (c) => {
     // Save ref_code from LIFF (first touch wins)
     // xh: refs are X Harness one-time tokens — never persist as ref_code
     if (body.ref && !body.ref.startsWith('xh:')) {
-      await db.prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
-        .bind(body.ref, friend.id).run();
+      await db
+        .prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
+        .bind(body.ref, friend.id)
+        .run();
 
       // Record ref tracking
       try {
@@ -1469,7 +1451,9 @@ liffRoutes.post('/api/liff/link', async (c) => {
           entryRouteId: route?.id ?? null,
           sourceUrl: null,
         });
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
 
       // Apply ref attribution (tag + scenario push) for newly-linked friends
       await applyRefAttribution(c, body.ref, friend, lineUserId, {
@@ -1489,10 +1473,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
             .first<{ metadata: string }>();
           const meta = JSON.parse(existingMeta?.metadata || '{}');
           meta.x_username = xhResult.xUsername;
-          await db
-            .prepare('UPDATE friends SET metadata = ? WHERE id = ?')
-            .bind(JSON.stringify(meta), friend.id)
-            .run();
+          await db.prepare('UPDATE friends SET metadata = ? WHERE id = ?').bind(JSON.stringify(meta), friend.id).run();
           console.log('X Harness: linked x account');
         }
         if (xhResult) {
@@ -1524,12 +1505,13 @@ liffRoutes.get('/api/analytics/ref-summary', async (c) => {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const lineAccountId = c.req.query('lineAccountId');
-    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (lineAccountId && !(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
     const accountFilter = lineAccountId ? 'AND f.line_account_id = ?' : '';
     const accountBinds = lineAccountId ? [tenantId, lineAccountId] : [tenantId];
-    const tenantJoin = 'INNER JOIN tenant_line_accounts tm ON tm.line_account_id = f.line_account_id AND tm.tenant_id = ?';
+    const tenantJoin =
+      'INNER JOIN tenant_line_accounts tm ON tm.line_account_id = f.line_account_id AND tm.tenant_id = ?';
 
     // friends 起点で集計することで、entry_routes に登録されていない ref
     // (例えば X Harness が発行する UUID ref) も summary に拾えるようにする。
@@ -1567,7 +1549,9 @@ liffRoutes.get('/api/analytics/ref-summary', async (c) => {
       .first<{ count: number }>();
 
     const friendsWithRefRes = await db
-      .prepare(`SELECT COUNT(*) as count FROM friends f ${tenantJoin} WHERE f.ref_code IS NOT NULL AND f.ref_code != '' ${accountFilter}`)
+      .prepare(
+        `SELECT COUNT(*) as count FROM friends f ${tenantJoin} WHERE f.ref_code IS NOT NULL AND f.ref_code != '' ${accountFilter}`,
+      )
       .bind(...accountBinds)
       .first<{ count: number }>();
 
@@ -1626,7 +1610,7 @@ liffRoutes.get('/api/analytics/ref/:refCode', async (c) => {
       .bind(refCode, tenantId)
       .first<{ ref_code: string; name: string }>();
     const lineAccountId = c.req.query('lineAccountId');
-    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (lineAccountId && !(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
     const accountFilter = lineAccountId ? 'AND f.line_account_id = ?' : '';
@@ -1843,19 +1827,12 @@ function escapeHtml(str: string): string {
  * Apply X Harness gate actions (tag + scenario) to a LINE friend.
  * Non-blocking — failures are logged but don't interrupt the flow.
  */
-async function applyXHarnessActions(
-  db: D1Database,
-  friendId: string,
-  result: XHarnessTokenResult,
-): Promise<void> {
+async function applyXHarnessActions(db: D1Database, friendId: string, result: XHarnessTokenResult): Promise<void> {
   // Add tag if specified
   if (result.tag) {
     try {
       // Find or create the tag by name
-      let tagRow = await db
-        .prepare('SELECT id FROM tags WHERE name = ?')
-        .bind(result.tag)
-        .first<{ id: string }>();
+      let tagRow = await db.prepare('SELECT id FROM tags WHERE name = ?').bind(result.tag).first<{ id: string }>();
       if (!tagRow) {
         const tagId = crypto.randomUUID();
         const { jstNow } = await import('@line-crm/db');
@@ -1912,9 +1889,13 @@ export async function resolveXHarnessToken(
         signal: controller.signal,
       });
       if (!res.ok) return null;
-      const body = await res.json() as { success: boolean; data?: XHarnessTokenResult };
+      const body = (await res.json()) as { success: boolean; data?: XHarnessTokenResult };
       if (!body.success || !body.data) return null;
-      return { xUsername: body.data.xUsername, tag: body.data.tag ?? null, scenarioId: body.data.scenarioId ?? null };
+      return {
+        xUsername: body.data.xUsername,
+        tag: body.data.tag ?? null,
+        scenarioId: body.data.scenarioId ?? null,
+      };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -1966,13 +1947,11 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
           body: new URLSearchParams({ id_token: idToken, client_id: channelId }),
         });
         if (verifyRes.ok) {
-          const data = await verifyRes.json() as { sub: string };
+          const data = (await verifyRes.json()) as { sub: string };
           if (data.sub !== lineUserId) {
             return c.json({ success: false, error: 'Token mismatch' }, 403);
           }
-          verifiedAccountId = dbAccounts.find(
-            (account) => account.login_channel_id === channelId,
-          )?.id ?? null;
+          verifiedAccountId = dbAccounts.find((account) => account.login_channel_id === channelId)?.id ?? null;
           verified = true;
           break;
         }

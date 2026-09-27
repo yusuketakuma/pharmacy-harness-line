@@ -19,66 +19,94 @@ const NOW = new Date('2026-08-20T00:00:00.000Z');
 
 it('evaluates every retention source on native D1 while preserving scope and unknown sources', async () => {
   let outbound = 0;
-  const mf = new Miniflare(convertV4MiniflareOptions({
-    cf: false,
-    modules: true,
-    script: 'export default { fetch() { return new Response("synthetic"); } };',
-    compatibilityDate: '2024-12-01',
-    d1Databases: ['DB'],
-    outboundService: () => { outbound++; return new Response('blocked', { status: 503 }); },
-  }));
+  const mf = new Miniflare(
+    convertV4MiniflareOptions({
+      cf: false,
+      modules: true,
+      script: 'export default { fetch() { return new Response("synthetic"); } };',
+      compatibilityDate: '2024-12-01',
+      d1Databases: ['DB'],
+      outboundService: () => {
+        outbound++;
+        return new Response('blocked', { status: 503 });
+      },
+    }),
+  );
   try {
-    const db = await mf.getD1Database('DB') as D1Database;
+    const db = (await mf.getD1Database('DB')) as D1Database;
     const schema = splitSqlStatements(readFileSync(new URL('../bootstrap.sql', import.meta.url), 'utf8'));
     for (let i = 0; i < schema.length; i += 50) {
       await db.batch(schema.slice(i, i + 50).map((sql: string) => db.prepare(sql)));
     }
     for (const suffix of ['a', 'b']) {
       await db.batch([
-        db.prepare(`INSERT INTO tenants(id, tenant_code, display_name)
-          VALUES (?, ?, 'Synthetic')`).bind(`tenant-${suffix}`, `tenant-${suffix}`),
-        db.prepare(`INSERT INTO line_accounts(id, channel_id, name, channel_access_token, channel_secret)
-          VALUES (?, ?, 'Synthetic', 'synthetic-token', 'synthetic-secret')`).bind(`account-${suffix}`, `channel-${suffix}`),
-        db.prepare(`INSERT INTO tenant_line_accounts(tenant_id, line_account_id)
-          VALUES (?, ?)`).bind(`tenant-${suffix}`, `account-${suffix}`),
-        db.prepare(`INSERT INTO friends(id, line_user_id, line_account_id, is_following, created_at, updated_at)
-          VALUES (?, ?, ?, 1, ?, ?)`).bind(`friend-${suffix}`, `synthetic-user-${suffix}`, `account-${suffix}`, OLD, OLD),
-        db.prepare(`INSERT INTO pharmacy_patients(id, line_account_id, owner_friend_id,
+        db
+          .prepare(`INSERT INTO tenants(id, tenant_code, display_name)
+          VALUES (?, ?, 'Synthetic')`)
+          .bind(`tenant-${suffix}`, `tenant-${suffix}`),
+        db
+          .prepare(`INSERT INTO line_accounts(id, channel_id, name, channel_access_token, channel_secret)
+          VALUES (?, ?, 'Synthetic', 'synthetic-token', 'synthetic-secret')`)
+          .bind(`account-${suffix}`, `channel-${suffix}`),
+        db
+          .prepare(`INSERT INTO tenant_line_accounts(tenant_id, line_account_id)
+          VALUES (?, ?)`)
+          .bind(`tenant-${suffix}`, `account-${suffix}`),
+        db
+          .prepare(`INSERT INTO friends(id, line_user_id, line_account_id, is_following, created_at, updated_at)
+          VALUES (?, ?, ?, 1, ?, ?)`)
+          .bind(`friend-${suffix}`, `synthetic-user-${suffix}`, `account-${suffix}`, OLD, OLD),
+        db
+          .prepare(`INSERT INTO pharmacy_patients(id, line_account_id, owner_friend_id,
           relationship, name, name_kana, birth_date, created_at, updated_at)
           VALUES (?, ?, ?, 'self', 'Synthetic', 'Synthetic', '1990-01-01', ?, ?)`)
           .bind(`patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, OLD, OLD),
       ]);
     }
-    const scope = { tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a', patientId: 'patient-a' };
+    const scope = {
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      ownerFriendId: 'friend-a',
+      patientId: 'patient-a',
+    };
     const latest = () => latestPhiRecordedAt(db, 'account-a', 'patient-a', 'friend-a');
     const assess = () => assessPatientRetention(db, scope, NOW);
     expect(await latest()).toBe(OLD);
     expect(await assess()).toEqual({ status: 'released', releaseAt: '2022-01-01T00:00:00.000Z' });
 
     // A more recent owner record from a different account must not enter scope.
-    await db.prepare(`INSERT INTO messages_log(id, friend_id, line_account_id,
+    await db
+      .prepare(`INSERT INTO messages_log(id, friend_id, line_account_id,
       direction, message_type, content, created_at)
       VALUES ('foreign', 'friend-b', 'account-b', 'incoming', 'text', 'synthetic', ?)`)
-      .bind('2026-08-19T00:00:00.000Z').run();
+      .bind('2026-08-19T00:00:00.000Z')
+      .run();
     expect(await latest()).toBe(OLD);
-    expect(await assessPatientRetention(db, { ...scope, ownerFriendId: 'friend-b' }, NOW))
-      .toEqual({ status: 'unknown', releaseAt: null });
+    expect(await assessPatientRetention(db, { ...scope, ownerFriendId: 'friend-b' }, NOW)).toEqual({
+      status: 'unknown',
+      releaseAt: null,
+    });
 
     // Owner-only LINE records still extend the patient's retention period.
-    await db.prepare(`INSERT INTO messages_log(id, friend_id, line_account_id,
+    await db
+      .prepare(`INSERT INTO messages_log(id, friend_id, line_account_id,
       direction, message_type, content, created_at)
       VALUES ('own', 'friend-a', 'account-a', 'incoming', 'text', 'synthetic', ?)`)
-      .bind('2024-01-01T00:00:00.000Z').run();
+      .bind('2024-01-01T00:00:00.000Z')
+      .run();
     expect(await latest()).toBe('2024-01-01T00:00:00.000Z');
     expect(await assess()).toEqual({ status: 'held', releaseAt: '2027-01-01T00:00:00.000Z' });
 
     // Patient-specific PHI and then an invalid owner timestamp must both be read.
-    await db.prepare(`INSERT INTO pharmacy_patient_intake_responses
+    await db
+      .prepare(`INSERT INTO pharmacy_patient_intake_responses
       (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
        patient_snapshot_json, answers_json, idempotency_key,
        representative_consent_at, privacy_consent_at, created_at)
       VALUES ('intake', 'account-a', 'friend-a', 'patient-a', 1, 1,
-       '{}', '{}', 'synthetic-key', ?, ?, ?)`).bind(NOW.toISOString(), NOW.toISOString(), NOW.toISOString()).run();
+       '{}', '{}', 'synthetic-key', ?, ?, ?)`)
+      .bind(NOW.toISOString(), NOW.toISOString(), NOW.toISOString())
+      .run();
     expect(await latest()).toBe(NOW.toISOString());
     expect(await assess()).toEqual({ status: 'held', releaseAt: '2029-08-20T00:00:00.000Z' });
     await db.prepare("UPDATE messages_log SET created_at = '2020-02-30T00:00:00.000Z' WHERE id = 'own'").run();
@@ -93,16 +121,18 @@ it('evaluates every retention source on native D1 while preserving scope and unk
   }
 }, 30_000);
 
-
 it('evaluates active DSR dates on D1 without accepting invalid calendar dates', async () => {
-  const mf = new Miniflare(convertV4MiniflareOptions({
-    cf: false, modules: true,
-    script: 'export default { fetch() { return new Response("synthetic"); } };',
-    d1Databases: ['DB'],
-    outboundService: () => new Response('blocked', { status: 503 }),
-  }));
+  const mf = new Miniflare(
+    convertV4MiniflareOptions({
+      cf: false,
+      modules: true,
+      script: 'export default { fetch() { return new Response("synthetic"); } };',
+      d1Databases: ['DB'],
+      outboundService: () => new Response('blocked', { status: 503 }),
+    }),
+  );
   try {
-    const db = await mf.getD1Database('DB') as D1Database;
+    const db = (await mf.getD1Database('DB')) as D1Database;
     const cases = [
       { date: '2020-02-29T00:00:00.000Z', blocked: 0 },
       { date: NOW.toISOString(), blocked: 0 },
@@ -116,15 +146,19 @@ it('evaluates active DSR dates on D1 without accepting invalid calendar dates', 
       { date: null, blocked: 1 },
     ];
     for (const { date, blocked } of cases) {
-      const row = await db.prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
+      const row = await db
+        .prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
         FROM (SELECT 'legal_hold_assessed' AS status, 1 AS legal_hold, ? AS legal_hold_release_at) AS request`)
-        .bind(NOW.toISOString(), date).first<{ blocked: number }>();
+        .bind(NOW.toISOString(), date)
+        .first<{ blocked: number }>();
       expect(row, String(date)).toEqual({ blocked });
     }
     for (const status of ['received', 'identity_verified', 'legal_hold_assessed']) {
-      const row = await db.prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
+      const row = await db
+        .prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
         FROM (SELECT ? AS status, 0 AS legal_hold, NULL AS legal_hold_release_at) AS request`)
-        .bind(NOW.toISOString(), status).first<{ blocked: number }>();
+        .bind(NOW.toISOString(), status)
+        .first<{ blocked: number }>();
       expect(row).toEqual({ blocked: status === 'legal_hold_assessed' ? 0 : 1 });
     }
   } finally {
@@ -132,61 +166,89 @@ it('evaluates active DSR dates on D1 without accepting invalid calendar dates', 
   }
 }, 30_000);
 
-
 it('builds retention preflight on native D1 with legacy timestamp shapes and account scope', async () => {
   let outbound = 0;
-  const mf = new Miniflare(convertV4MiniflareOptions({
-    cf: false, modules: true,
-    script: 'export default { fetch() { return new Response("synthetic"); } };',
-    d1Databases: ['DB'],
-    outboundService: () => { outbound++; return new Response('blocked', { status: 503 }); },
-  }));
+  const mf = new Miniflare(
+    convertV4MiniflareOptions({
+      cf: false,
+      modules: true,
+      script: 'export default { fetch() { return new Response("synthetic"); } };',
+      d1Databases: ['DB'],
+      outboundService: () => {
+        outbound++;
+        return new Response('blocked', { status: 503 });
+      },
+    }),
+  );
   try {
-    const db = await mf.getD1Database('DB') as D1Database;
+    const db = (await mf.getD1Database('DB')) as D1Database;
     const schema = splitSqlStatements(readFileSync(new URL('../bootstrap.sql', import.meta.url), 'utf8'));
     for (let i = 0; i < schema.length; i += 50) {
       await db.batch(schema.slice(i, i + 50).map((sql: string) => db.prepare(sql)));
     }
     for (const suffix of ['a', 'b']) {
       await db.batch([
-        db.prepare("INSERT INTO tenants(id, tenant_code, display_name) VALUES (?, ?, 'Synthetic')")
+        db
+          .prepare("INSERT INTO tenants(id, tenant_code, display_name) VALUES (?, ?, 'Synthetic')")
           .bind(`tenant-${suffix}`, `tenant-${suffix}`),
-        db.prepare(`INSERT INTO line_accounts(id, channel_id, name, channel_access_token, channel_secret)
-          VALUES (?, ?, 'Synthetic', 'synthetic', 'synthetic')`).bind(`account-${suffix}`, `channel-${suffix}`),
-        db.prepare('INSERT INTO tenant_line_accounts(tenant_id, line_account_id) VALUES (?, ?)')
+        db
+          .prepare(`INSERT INTO line_accounts(id, channel_id, name, channel_access_token, channel_secret)
+          VALUES (?, ?, 'Synthetic', 'synthetic', 'synthetic')`)
+          .bind(`account-${suffix}`, `channel-${suffix}`),
+        db
+          .prepare('INSERT INTO tenant_line_accounts(tenant_id, line_account_id) VALUES (?, ?)')
           .bind(`tenant-${suffix}`, `account-${suffix}`),
-        db.prepare(`INSERT INTO friends(id, line_user_id, line_account_id, is_following)
-          VALUES (?, ?, ?, 1)`).bind(`friend-${suffix}`, `user-${suffix}`, `account-${suffix}`),
-        db.prepare(`INSERT INTO pharmacy_prescription_submissions
+        db
+          .prepare(`INSERT INTO friends(id, line_user_id, line_account_id, is_following)
+          VALUES (?, ?, ?, 1)`)
+          .bind(`friend-${suffix}`, `user-${suffix}`, `account-${suffix}`),
+        db
+          .prepare(`INSERT INTO pharmacy_prescription_submissions
           (id, line_account_id, friend_id, idempotency_key, status, active_revision, upload_revision, created_at, updated_at)
           VALUES (?, ?, ?, ?, 'closed', 1, 1, ?, ?)`)
           .bind(`submission-${suffix}`, `account-${suffix}`, `friend-${suffix}`, `idem-${suffix}`, OLD, OLD),
       ]);
     }
-    await db.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+    await db
+      .prepare(`INSERT INTO pharmacy_recovery_backup_generations
       (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
        expected_row_count, expected_object_count, verified_at, created_at)
       VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 0, 0, ?, ?)`)
-      .bind('a'.repeat(64), NOW.toISOString(), NOW.toISOString()).run();
-    const dates = [OLD, '2019-01-01T00:00:00Z', '2019-01-01T00:00:00+09:00',
-      NOW.toISOString()];
+      .bind('a'.repeat(64), NOW.toISOString(), NOW.toISOString())
+      .run();
+    const dates = [OLD, '2019-01-01T00:00:00Z', '2019-01-01T00:00:00+09:00', NOW.toISOString()];
     for (const suffix of ['a', 'b']) {
       for (const [index, date] of dates.entries()) {
-        await db.prepare(`INSERT INTO pharmacy_prescription_files
+        await db
+          .prepare(`INSERT INTO pharmacy_prescription_files
           (id, submission_id, revision, position, r2_key, content_type, byte_size, sha256, state, created_at, updated_at)
           VALUES (?, ?, 1, ?, ?, 'image/jpeg', 1, ?, 'ready', ?, ?)`)
-          .bind(`file-${suffix}-${index}`, `submission-${suffix}`, index + 1,
-            `custom/pharmacy/prescriptions/synthetic/${suffix}/${index}`, 'b'.repeat(64), date, date).run();
+          .bind(
+            `file-${suffix}-${index}`,
+            `submission-${suffix}`,
+            index + 1,
+            `custom/pharmacy/prescriptions/synthetic/${suffix}/${index}`,
+            'b'.repeat(64),
+            date,
+            date,
+          )
+          .run();
       }
     }
     const input = {
       scope: { tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'test' },
-      backupGenerationId: 'backup-a', operationCreatedAt: NOW.toISOString(),
+      backupGenerationId: 'backup-a',
+      operationCreatedAt: NOW.toISOString(),
     };
     const first = await buildRetentionPreflight(db, input);
     // Legacy shape includes second-only UTC; offsets, invalid shapes, recent and foreign rows stay out.
-    expect(first).toMatchObject({ expectedRowCount: 2, expectedObjectCount: 0, coverageTotal: 2,
-      stopPolicy: 'stop-on-drift', rollbackPolicy: 'reconcile-only-no-blind-retry' });
+    expect(first).toMatchObject({
+      expectedRowCount: 2,
+      expectedObjectCount: 0,
+      coverageTotal: 2,
+      stopPolicy: 'stop-on-drift',
+      rollbackPolicy: 'reconcile-only-no-blind-retry',
+    });
     await db.prepare("UPDATE pharmacy_prescription_files SET revision = 2 WHERE id = 'file-b-0'").run();
     expect((await buildRetentionPreflight(db, input)).rowDigest).toBe(first.rowDigest);
     await db.prepare("UPDATE pharmacy_prescription_files SET revision = 2 WHERE id = 'file-a-0'").run();

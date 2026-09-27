@@ -89,9 +89,7 @@ const SENSITIVE_PATHS = new Set([
 const SENSITIVE_PATH_PREFIXES = ['/api/platform/pharmacy/tenants'];
 
 function isUnauthenticatedPath(path: string): boolean {
-  return UNAUTHENTICATED_PATTERNS.some((p) =>
-    typeof p === 'string' ? path === p : p.test(path),
-  );
+  return UNAUTHENTICATED_PATTERNS.some((p) => (typeof p === 'string' ? path === p : p.test(path)));
 }
 
 function isSensitivePath(path: string): boolean {
@@ -173,8 +171,7 @@ export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<
   // NOT skipped: it's an unauthenticated redirect endpoint and needs the
   // same IP-keyed limiting as other unauthenticated paths (see
   // UNAUTHENTICATED_PATTERNS below) to bound token-guessing attempts.
-  if (path === '/docs' || path === '/openapi.json' ||
-      (path.startsWith('/r/') && !path.startsWith('/r/myna/'))) {
+  if (path === '/docs' || path === '/openapi.json' || (path.startsWith('/r/') && !path.startsWith('/r/myna/'))) {
     return next();
   }
 

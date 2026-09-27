@@ -1,0 +1,14 @@
+{
+  "artifact": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.image-privacy-bhIpY9/route.mjs",
+  "status": 500,
+  "body": {
+    "success": false,
+    "error": "Internal server error"
+  },
+  "logs": [
+    "POST /api/images failed"
+  ],
+  "loggedInput": false,
+  "r2Calls": 0,
+  "limitation": "Actual bundled route with synthetic identity/database classification, not full authentication/middleware or production traffic."
+}

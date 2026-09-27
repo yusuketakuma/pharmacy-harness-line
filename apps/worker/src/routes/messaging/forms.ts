@@ -31,8 +31,7 @@ import { isPharmacyModeAccount } from '../../custom/pharmacy/growth-loop/access.
 import { validateHttpsUrl } from '../../lib/validate-https-url.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 
-const WEBHOOK_HEADER_ALLOWED = (name: string) =>
-  /^(authorization|content-type|x-[a-z0-9-]+)$/i.test(name);
+const WEBHOOK_HEADER_ALLOWED = (name: string) => /^(authorization|content-type|x-[a-z0-9-]+)$/i.test(name);
 
 // Returns a Japanese error message when the webhook settings are unsafe, else null.
 function validateWebhookSettings(url: unknown, headers: unknown): string | null {
@@ -72,21 +71,14 @@ function optionalExecutionCtx(c: Context<Env>): ExecutionContext | undefined {
   }
 }
 
-async function resolveFriendAccessToken(
-  db: D1Database,
-  friend: DbFriend,
-  defaultAccessToken: string,
-): Promise<string> {
+async function resolveFriendAccessToken(db: D1Database, friend: DbFriend, defaultAccessToken: string): Promise<string> {
   const accountId = friend.line_account_id ?? null;
   if (!accountId) return defaultAccessToken;
   const account = await getLineAccountById(db, accountId);
   return account?.channel_access_token ?? defaultAccessToken;
 }
 
-function serializeForm(
-  row: DbForm,
-  extra?: { lastSubmittedAt?: string | null; usedByAccounts?: FormUsedByAccount[] },
-) {
+function serializeForm(row: DbForm, extra?: { lastSubmittedAt?: string | null; usedByAccounts?: FormUsedByAccount[] }) {
   return {
     id: row.id,
     name: row.name,
@@ -136,10 +128,7 @@ function publicWebhookConfig(row: DbForm): {
   }
 }
 
-function serializePublicForm(
-  row: DbForm,
-  consultationWebinarSlug: string | null = null,
-) {
+function serializePublicForm(row: DbForm, consultationWebinarSlug: string | null = null) {
   return {
     id: row.id,
     name: row.name,
@@ -157,10 +146,7 @@ function serializePublicForm(
   };
 }
 
-async function consultationWebinarSlugForForm(
-  db: D1Database,
-  formId: string,
-): Promise<string | null> {
+async function consultationWebinarSlugForForm(db: D1Database, formId: string): Promise<string | null> {
   const row = await db
     .prepare(
       `SELECT w.slug
@@ -223,10 +209,7 @@ forms.get('/api/forms/:id', async (c) => {
     }
     const data = c.get('staff')
       ? serializeForm(form)
-      : serializePublicForm(
-          form,
-          await consultationWebinarSlugForForm(c.env.DB, id),
-        );
+      : serializePublicForm(form, await consultationWebinarSlugForForm(c.env.DB, id));
     return c.json({ success: true, data });
   } catch (err) {
     console.error('GET /api/forms/:id error:', err);
@@ -325,7 +308,8 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.onSubmitMessageContent !== undefined) updates.onSubmitMessageContent = body.onSubmitMessageContent;
     if (body.onSubmitWebhookUrl !== undefined) updates.onSubmitWebhookUrl = body.onSubmitWebhookUrl;
     if (body.onSubmitWebhookHeaders !== undefined) updates.onSubmitWebhookHeaders = body.onSubmitWebhookHeaders;
-    if (body.onSubmitWebhookFailMessage !== undefined) updates.onSubmitWebhookFailMessage = body.onSubmitWebhookFailMessage;
+    if (body.onSubmitWebhookFailMessage !== undefined)
+      updates.onSubmitWebhookFailMessage = body.onSubmitWebhookFailMessage;
     if (body.saveToMetadata !== undefined) updates.saveToMetadata = body.saveToMetadata;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
     if (body.ogTitle !== undefined) updates.ogTitle = body.ogTitle;
@@ -385,27 +369,17 @@ forms.post('/api/forms/:id/opened', async (c) => {
     // open to the LINE identity proven by its ID token. Body-supplied customer
     // IDs are intentionally ignored.
     const lineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
-    const friend = lineUserId
-      ? await getFriendByLineUserId(c.env.DB, lineUserId)
-      : null;
-    if (friend && !await getFormByIdForLineAccount(
-      c.env.DB,
-      formId,
-      friend.line_account_id ?? null,
-    )) {
+    const friend = lineUserId ? await getFriendByLineUserId(c.env.DB, lineUserId) : null;
+    if (friend && !(await getFormByIdForLineAccount(c.env.DB, formId, friend.line_account_id ?? null))) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
 
     const now = jstNow();
     await c.env.DB.prepare(
       'INSERT INTO form_opens (id, form_id, friend_id, friend_name, opened_at) VALUES (?, ?, ?, ?, ?)',
-    ).bind(
-      crypto.randomUUID(),
-      formId,
-      friend?.id ?? null,
-      friend?.display_name ?? null,
-      now,
-    ).run();
+    )
+      .bind(crypto.randomUUID(), formId, friend?.id ?? null, friend?.display_name ?? null, now)
+      .run();
 
     return c.json({ success: true });
   } catch (err) {
@@ -431,16 +405,16 @@ forms.post('/api/forms/:id/partial', async (c) => {
     if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
       return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
     }
-    if (!await getFormByIdForLineAccount(c.env.DB, c.req.param('id'), friend.line_account_id ?? null)) {
+    if (!(await getFormByIdForLineAccount(c.env.DB, c.req.param('id'), friend.line_account_id ?? null))) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
 
     // Save survey data to friend metadata (merge with existing)
     const existingMeta = friend.metadata ? JSON.parse(friend.metadata) : {};
     const merged = { ...existingMeta, ...body.data };
-    await c.env.DB.prepare(
-      'UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?',
-    ).bind(JSON.stringify(merged), jstNow(), friend.id).run();
+    await c.env.DB.prepare('UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?')
+      .bind(JSON.stringify(merged), jstNow(), friend.id)
+      .run();
 
     return c.json({ success: true });
   } catch (err) {
@@ -479,11 +453,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
     if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
       return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
     }
-    const accessibleForm = await getFormByIdForLineAccount(
-      c.env.DB,
-      formId,
-      friend.line_account_id ?? null,
-    );
+    const accessibleForm = await getFormByIdForLineAccount(c.env.DB, formId, friend.line_account_id ?? null);
     if (!accessibleForm) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
@@ -502,10 +472,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
       if (field.required) {
         const val = submissionData[field.name];
         if (val === undefined || val === null || val === '') {
-          return c.json(
-            { success: false, error: `${field.label} は必須項目です` },
-            400,
-          );
+          return c.json({ success: false, error: `${field.label} は必須項目です` }, 400);
         }
       }
     }
@@ -529,21 +496,13 @@ forms.post('/api/forms/:id/submit', async (c) => {
         if (form.on_submit_webhook_fail_message) {
           if (friend.line_user_id) {
             try {
-              const accessToken = await resolveFriendAccessToken(
-                c.env.DB,
-                friend,
-                c.env.LINE_CHANNEL_ACCESS_TOKEN,
-              );
+              const accessToken = await resolveFriendAccessToken(c.env.DB, friend, c.env.LINE_CHANNEL_ACCESS_TOKEN);
               await pushViaHarnessProxy(
                 new URL(c.req.url).origin,
                 accessToken,
                 friend.line_user_id,
                 [{ type: 'text', text: form.on_submit_webhook_fail_message }],
-                await createBroadcastRetryKey(
-                  'form-submission',
-                  submission.id,
-                  'webhook-rejected',
-                ),
+                await createBroadcastRetryKey('form-submission', submission.id, 'webhook-rejected'),
                 (request) => dispatchLineProxyLocally(request, c.env, optionalExecutionCtx(c)),
               );
             } catch (e) {
@@ -551,7 +510,17 @@ forms.post('/api/forms/:id/submit', async (c) => {
             }
           }
         }
-        return c.json({ success: true, data: { ...serializeSubmission(submission), webhookPassed: false, webhookData: webhookResult.data } }, 201);
+        return c.json(
+          {
+            success: true,
+            data: {
+              ...serializeSubmission(submission),
+              webhookPassed: false,
+              webhookData: webhookResult.data,
+            },
+          },
+          201,
+        );
       }
     }
 
@@ -627,10 +596,12 @@ forms.post('/api/forms/:id/submit', async (c) => {
       // Add tag — guarded attach so a tag_added-triggered scenario fires on
       // first-time submit (and never re-fires on duplicate submits).
       if (form.on_submit_tag_id) {
-        sideEffects.push(attachTagAndFireSideEffects(db, friendId, form.on_submit_tag_id, {
-          defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
-          workerUrl: c.env.WORKER_URL,
-        }));
+        sideEffects.push(
+          attachTagAndFireSideEffects(db, friendId, form.on_submit_tag_id, {
+            defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
+            workerUrl: c.env.WORKER_URL,
+          }),
+        );
       }
 
       // Enroll in scenario
@@ -644,33 +615,47 @@ forms.post('/api/forms/:id/submit', async (c) => {
           (async () => {
             const friend = await getFriendById(db, friendId!);
             if (!friend?.line_user_id) return;
-            const accessToken = await resolveFriendAccessToken(
-              db,
-              friend,
-              c.env.LINE_CHANNEL_ACCESS_TOKEN,
-            );
+            const accessToken = await resolveFriendAccessToken(db, friend, c.env.LINE_CHANNEL_ACCESS_TOKEN);
             const joinUrl = String(webhookData!.join_url);
             const meetFlex = {
               type: 'bubble',
               header: {
-                type: 'box', layout: 'vertical',
+                type: 'box',
+                layout: 'vertical',
                 contents: [
-                  { type: 'text', text: 'ヒアリングの準備ができました', size: 'md', weight: 'bold', color: '#1e293b' },
+                  {
+                    type: 'text',
+                    text: 'ヒアリングの準備ができました',
+                    size: 'md',
+                    weight: 'bold',
+                    color: '#1e293b',
+                  },
                 ],
-                paddingAll: '20px', backgroundColor: '#f0f9ff',
+                paddingAll: '20px',
+                backgroundColor: '#f0f9ff',
               },
               body: {
-                type: 'box', layout: 'vertical',
+                type: 'box',
+                layout: 'vertical',
                 contents: [
-                  { type: 'text', text: 'アンケートありがとうございます。続けて短いヒアリングにご協力ください。', size: 'sm', color: '#475569', wrap: true },
+                  {
+                    type: 'text',
+                    text: 'アンケートありがとうございます。続けて短いヒアリングにご協力ください。',
+                    size: 'sm',
+                    color: '#475569',
+                    wrap: true,
+                  },
                 ],
                 paddingAll: '20px',
               },
               footer: {
-                type: 'box', layout: 'vertical',
+                type: 'box',
+                layout: 'vertical',
                 contents: [
                   {
-                    type: 'button', style: 'primary', color: '#4CAF50',
+                    type: 'button',
+                    style: 'primary',
+                    color: '#4CAF50',
                     action: { type: 'uri', label: 'ヒアリングを始める', uri: joinUrl },
                   },
                 ],
@@ -694,15 +679,14 @@ forms.post('/api/forms/:id/submit', async (c) => {
         (async () => {
           const friend = await getFriendById(db, friendId!);
           if (!friend?.line_user_id) return;
-          const accessToken = await resolveFriendAccessToken(
-            db,
-            friend,
-            c.env.LINE_CHANNEL_ACCESS_TOKEN,
-          );
+          const accessToken = await resolveFriendAccessToken(db, friend, c.env.LINE_CHANNEL_ACCESS_TOKEN);
           const { buildMessage, expandVariables } = await import('../../services/step-delivery.js');
           const apiOrigin = new URL(c.req.url).origin;
           const { resolveMetadata } = await import('../../services/step-delivery.js');
-          const resolvedMeta = await resolveMetadata(c.env.DB, { user_id: (friend as unknown as Record<string, string | null>).user_id, metadata: (friend as unknown as Record<string, string | null>).metadata });
+          const resolvedMeta = await resolveMetadata(c.env.DB, {
+            user_id: (friend as unknown as Record<string, string | null>).user_id,
+            metadata: (friend as unknown as Record<string, string | null>).metadata,
+          });
           const friendData = {
             id: friend.id,
             display_name: friend.display_name,
@@ -714,34 +698,69 @@ forms.post('/api/forms/:id/submit', async (c) => {
           // Build diagnostic result Flex card showing their answers
           const entries = Object.entries(submissionData as Record<string, unknown>);
           const answerRows = entries.map(([key, value]) => {
-            const field = form.fields ? (JSON.parse(form.fields) as Array<{ name: string; label: string }>).find((f: { name: string }) => f.name === key) : null;
+            const field = form.fields
+              ? (JSON.parse(form.fields) as Array<{ name: string; label: string }>).find(
+                  (f: { name: string }) => f.name === key,
+                )
+              : null;
             const label = field?.label || key;
-            const val = Array.isArray(value) ? value.join(', ') : (value !== null && value !== undefined && value !== '') ? String(value) : '-';
+            const val = Array.isArray(value)
+              ? value.join(', ')
+              : value !== null && value !== undefined && value !== ''
+                ? String(value)
+                : '-';
             return {
-              type: 'box' as const, layout: 'vertical' as const, margin: 'md' as const,
+              type: 'box' as const,
+              layout: 'vertical' as const,
+              margin: 'md' as const,
               contents: [
                 { type: 'text' as const, text: label, size: 'xxs' as const, color: '#64748b' },
-                { type: 'text' as const, text: val, size: 'sm' as const, color: '#1e293b', weight: 'bold' as const, wrap: true },
+                {
+                  type: 'text' as const,
+                  text: val,
+                  size: 'sm' as const,
+                  color: '#1e293b',
+                  weight: 'bold' as const,
+                  wrap: true,
+                },
               ],
             };
           });
 
           const resultFlex = {
-            type: 'bubble', size: 'giga',
+            type: 'bubble',
+            size: 'giga',
             header: {
-              type: 'box', layout: 'vertical',
+              type: 'box',
+              layout: 'vertical',
               contents: [
                 { type: 'text', text: '診断結果', size: 'lg', weight: 'bold', color: '#1e293b' },
-                { type: 'text', text: `${friend.display_name || ''}さんの回答`, size: 'xs', color: '#64748b', margin: 'sm' },
+                {
+                  type: 'text',
+                  text: `${friend.display_name || ''}さんの回答`,
+                  size: 'xs',
+                  color: '#64748b',
+                  margin: 'sm',
+                },
               ],
-              paddingAll: '20px', backgroundColor: '#f0fdf4',
+              paddingAll: '20px',
+              backgroundColor: '#f0fdf4',
             },
             body: {
-              type: 'box', layout: 'vertical',
+              type: 'box',
+              layout: 'vertical',
               contents: [
                 ...answerRows,
                 { type: 'separator', margin: 'lg' },
-                { type: 'text', text: '他社サービスでは、フォームの回答内容に合わせたリアルタイム返信はできません。LINE Harnessだからこそ可能な体験です。', size: 'xs', color: '#06C755', weight: 'bold', wrap: true, margin: 'lg' },
+                {
+                  type: 'text',
+                  text: '他社サービスでは、フォームの回答内容に合わせたリアルタイム返信はできません。LINE Harnessだからこそ可能な体験です。',
+                  size: 'xs',
+                  color: '#06C755',
+                  weight: 'bold',
+                  wrap: true,
+                  margin: 'lg',
+                },
               ],
               paddingAll: '20px',
             },
@@ -757,7 +776,12 @@ forms.post('/api/forms/:id/submit', async (c) => {
             messages.push(rewardFromTrackedLink as ReturnType<typeof buildMessage>);
           } else if (form.on_submit_message_type && form.on_submit_message_content) {
             // Custom form message replaces default diagnostic result
-            const expanded = expandVariables(form.on_submit_message_content, friendData, apiOrigin, form.on_submit_message_type);
+            const expanded = expandVariables(
+              form.on_submit_message_content,
+              friendData,
+              apiOrigin,
+              form.on_submit_message_type,
+            );
             // 1:1 push → /t リンクに f=<friendId> を焼き込み (LIFF 識別ホップ回避)
             const { appendFriendToTrackedLinks } = await import('../../services/auto-track.js');
             const decorated = await appendFriendToTrackedLinks(db, expanded, apiOrigin, friend.id);
@@ -835,7 +859,7 @@ async function callFormWebhook(
       return { passed: false, data: { error: `HTTP ${res.status}` } };
     }
 
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
 
     // Check for eligibility — support both { eligible: bool } and { success: bool, data: { eligible: bool } }
     const eligible = data.eligible ?? (data.data as Record<string, unknown> | undefined)?.eligible ?? data.success;

@@ -49,9 +49,7 @@ export async function pushViaHarnessProxy(
   const signal = AbortSignal.timeout(LINE_PUSH_TIMEOUT_MS);
   let response: Response;
   try {
-    const operation = dispatch
-      ? dispatch(new Request(url, { ...init, signal }))
-      : fetch(url, { ...init, signal });
+    const operation = dispatch ? dispatch(new Request(url, { ...init, signal })) : fetch(url, { ...init, signal });
     response = await Promise.race([
       operation,
       new Promise<never>((_, reject) => {
@@ -63,8 +61,7 @@ export async function pushViaHarnessProxy(
   }
 
   // 同じ retry key がすでに LINE に受理済みなら、再送の 409 も成功扱い。
-  const alreadyAccepted =
-    response.status === 409 && Boolean(response.headers.get('x-line-accepted-request-id'));
+  const alreadyAccepted = response.status === 409 && Boolean(response.headers.get('x-line-accepted-request-id'));
   if (response.ok || alreadyAccepted) return;
   if (response.status >= 500) {
     throw new LineHarnessUnknownOutcomeError(

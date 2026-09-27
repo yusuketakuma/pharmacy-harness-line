@@ -4,10 +4,7 @@
 // scheduler currently calls this function without one, which is intentionally a
 // no-op until the recovery worker supplies the shared proof.
 
-import {
-  assertRetentionDeleteExecution,
-  RetentionDeleteExecution,
-} from '../retention/execution.js';
+import { assertRetentionDeleteExecution, RetentionDeleteExecution } from '../retention/execution.js';
 import {
   cancelDeletionIntent,
   commitPrescriptionDeletionIntent,
@@ -18,11 +15,7 @@ import {
   RetentionFence,
 } from '../retention/deletion-intents.js';
 import { prepareRetentionFence } from '../retention/fence.js';
-import {
-  isR2RetentionTombstone,
-  putR2RetentionTombstone,
-  r2ChecksumHex,
-} from '../../../services/immutable-r2.js';
+import { isR2RetentionTombstone, putR2RetentionTombstone, r2ChecksumHex } from '../../../services/immutable-r2.js';
 
 export interface PrescriptionRetentionPurgeOptions {
   /** Required for a mutating run; omitted scheduler calls are fail-closed no-ops. */
@@ -47,23 +40,19 @@ interface PurgeCandidate {
   patient_mapping_count: number;
 }
 
-function intentMatchesExecution(
-  intent: DeletionIntent,
-  execution: RetentionDeleteExecution,
-): boolean {
-  return intent.operation_id === execution.operationId &&
+function intentMatchesExecution(intent: DeletionIntent, execution: RetentionDeleteExecution): boolean {
+  return (
+    intent.operation_id === execution.operationId &&
     intent.execution_id === execution.executionId &&
     intent.fence_token === execution.fenceToken &&
     intent.executor_subject === execution.executorSubject &&
     intent.environment === execution.environment &&
     intent.tenant_id === execution.tenantId &&
-    intent.line_account_id === execution.lineAccountId;
+    intent.line_account_id === execution.lineAccountId
+  );
 }
 
-async function verifyR2Identity(
-  images: R2Bucket,
-  intent: DeletionIntent,
-): Promise<R2Object | null> {
+async function verifyR2Identity(images: R2Bucket, intent: DeletionIntent): Promise<R2Object | null> {
   let head: R2Object | null;
   try {
     head = await images.head(intent.r2_key);
@@ -71,8 +60,7 @@ async function verifyR2Identity(
     return null;
   }
   if (!head || !head.etag || isR2RetentionTombstone(head)) return null;
-  return r2ChecksumHex(head.checksums?.sha256) === intent.stored_sha256.toLowerCase()
-    ? head : null;
+  return r2ChecksumHex(head.checksums?.sha256) === intent.stored_sha256.toLowerCase() ? head : null;
 }
 
 export interface RetentionPurgeResult {
@@ -89,8 +77,7 @@ const PURGE_BATCH_LIMIT = 50;
  * malformed or offset value is kept: a missed purge is recoverable, a guessed
  * delete is not.
  */
-export const UTC_TIMESTAMP_GLOB =
-  '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
+export const UTC_TIMESTAMP_GLOB = '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
 // D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
 const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 const STRICT_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -158,11 +145,14 @@ async function finalizePrescriptionDeletion(
     return false;
   }
   if (!intentMatchesExecution(intent, execution)) return false;
-  const existingLog = await db.prepare(
-    `SELECT r2_key
+  const existingLog = await db
+    .prepare(
+      `SELECT r2_key
        FROM pharmacy_phi_retention_purge_log
       WHERE resource_type = 'prescription_file' AND resource_id = ?`,
-  ).bind(intent.resource_id).first<{ r2_key: string | null }>();
+    )
+    .bind(intent.resource_id)
+    .first<{ r2_key: string | null }>();
   if (existingLog?.r2_key && existingLog.r2_key !== intent.r2_key) {
     await markDeletionOutcomeUnknown(db, {
       id: intent.id,
@@ -180,8 +170,9 @@ async function finalizePrescriptionDeletion(
   }
   try {
     const results = await db.batch([
-      db.prepare(
-        `UPDATE pharmacy_prescription_files
+      db
+        .prepare(
+          `UPDATE pharmacy_prescription_files
             SET state = 'deleted', updated_at = ?
           WHERE id = ? AND r2_key = ? AND sha256 = ? AND revision = ? AND state = ?
             AND EXISTS (
@@ -189,10 +180,19 @@ async function finalizePrescriptionDeletion(
                WHERE intent.id = ?
                  AND intent.status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
             )`,
-      ).bind(now, intent.resource_id, intent.r2_key, intent.stored_sha256,
-        intent.row_revision, intent.row_state, intent.id),
-      db.prepare(
-        `INSERT OR IGNORE INTO pharmacy_phi_retention_purge_log
+        )
+        .bind(
+          now,
+          intent.resource_id,
+          intent.r2_key,
+          intent.stored_sha256,
+          intent.row_revision,
+          intent.row_state,
+          intent.id,
+        ),
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO pharmacy_phi_retention_purge_log
            (id, tenant_id, line_account_id, resource_type, resource_id, r2_key,
             age_reference_at, retention_years, purged_at)
          SELECT ?, ?, ?, 'prescription_file', ?, ?, ?, ?, ?
@@ -205,14 +205,26 @@ async function finalizePrescriptionDeletion(
                WHERE intent.id = ?
                  AND intent.status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
             )`,
-      ).bind(
-        crypto.randomUUID(), intent.tenant_id, intent.line_account_id, intent.resource_id,
-        intent.r2_key, intent.age_reference_at, retentionYears, now,
-        intent.resource_id, intent.r2_key, intent.stored_sha256, intent.row_revision, now,
-        intent.id,
-      ),
-      db.prepare(
-        `UPDATE pharmacy_retention_deletion_intents
+        )
+        .bind(
+          crypto.randomUUID(),
+          intent.tenant_id,
+          intent.line_account_id,
+          intent.resource_id,
+          intent.r2_key,
+          intent.age_reference_at,
+          retentionYears,
+          now,
+          intent.resource_id,
+          intent.r2_key,
+          intent.stored_sha256,
+          intent.row_revision,
+          now,
+          intent.id,
+        ),
+      db
+        .prepare(
+          `UPDATE pharmacy_retention_deletion_intents
             SET status = 'FINALIZED_DELETED', last_error_code = NULL, updated_at = ?
           WHERE id = ? AND status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
             AND EXISTS (
@@ -226,13 +238,20 @@ async function finalizePrescriptionDeletion(
                WHERE log.resource_type = 'prescription_file'
                  AND log.resource_id = ? AND log.r2_key = ?
             )`,
-      ).bind(
-        now, intent.id, intent.resource_id, intent.r2_key, intent.stored_sha256,
-        intent.row_revision, now, intent.resource_id, intent.r2_key,
-      ),
+        )
+        .bind(
+          now,
+          intent.id,
+          intent.resource_id,
+          intent.r2_key,
+          intent.stored_sha256,
+          intent.row_revision,
+          now,
+          intent.resource_id,
+          intent.r2_key,
+        ),
     ]);
-    if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-        (results[2]?.meta?.changes ?? 0) !== 1) {
+    if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[2]?.meta?.changes ?? 0) !== 1) {
       throw new Error('retention finalize CAS failed');
     }
     return true;
@@ -256,9 +275,7 @@ async function purgeCandidate(
   retentionYears: number,
 ): Promise<'purged' | 'failed' | 'skipped'> {
   if (!candidate.tenant_id || candidate.patient_mapping_count > 1) return 'skipped';
-  const patientKey = candidate.patient_mapping_count === 1 && candidate.patient_id
-    ? candidate.patient_id
-    : '*';
+  const patientKey = candidate.patient_mapping_count === 1 && candidate.patient_id ? candidate.patient_id : '*';
   const fenceScope = {
     tenantId: candidate.tenant_id,
     lineAccountId: candidate.line_account_id,
@@ -331,7 +348,7 @@ async function purgeCandidate(
   }
   try {
     await assertRetentionDeleteExecution(db, execution);
-    if (!await putR2RetentionTombstone(images, intent.r2_key, selectedObject.etag)) {
+    if (!(await putR2RetentionTombstone(images, intent.r2_key, selectedObject.etag))) {
       await markDeletionOutcomeUnknown(db, {
         id: intent.id,
         reasonCode: 'r2_object_identity_changed',
@@ -350,8 +367,7 @@ async function purgeCandidate(
     return 'failed';
   }
 
-  return await finalizePrescriptionDeletion(db, intent, execution, now, retentionYears)
-    ? 'purged' : 'failed';
+  return (await finalizePrescriptionDeletion(db, intent, execution, now, retentionYears)) ? 'purged' : 'failed';
 }
 
 export async function purgePrescriptionFilesPastRetention(
@@ -370,8 +386,9 @@ export async function purgePrescriptionFilesPastRetention(
   const cutoff = retentionCutoff(now, retentionYears);
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? PURGE_BATCH_LIMIT)));
 
-  const due = await db.prepare(
-    `SELECT f.id AS file_id, f.r2_key, f.sha256, f.revision, f.state, f.created_at,
+  const due = await db
+    .prepare(
+      `SELECT f.id AS file_id, f.r2_key, f.sha256, f.revision, f.state, f.created_at,
             mapping.tenant_id AS tenant_id, s.line_account_id, s.friend_id,
             (SELECT pp.patient_id
                FROM pharmacy_prescription_patients AS pp
@@ -402,22 +419,26 @@ export async function purgePrescriptionFilesPastRetention(
         )
       ORDER BY f.created_at, f.id
       LIMIT ?`,
-  ).bind(
-    execution.tenantId, execution.lineAccountId, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff,
-    execution.operationId, limit,
-  ).all<PurgeCandidate>();
+    )
+    .bind(
+      execution.tenantId,
+      execution.lineAccountId,
+      UTC_DATE_GLOB,
+      UTC_TIME_GLOB,
+      cutoff,
+      execution.operationId,
+      limit,
+    )
+    .all<PurgeCandidate>();
 
   const result: RetentionPurgeResult = { purged: 0, failed: 0, skipped: 0 };
   for (const candidate of due.results ?? []) {
-    if (!STRICT_UTC_TIMESTAMP.test(candidate.created_at) ||
-        !Number.isFinite(Date.parse(candidate.created_at))) {
+    if (!STRICT_UTC_TIMESTAMP.test(candidate.created_at) || !Number.isFinite(Date.parse(candidate.created_at))) {
       result.skipped++;
       continue;
     }
     try {
-      const outcome = await purgeCandidate(
-        db, images, candidate, execution, nowIso, retentionYears,
-      );
+      const outcome = await purgeCandidate(db, images, candidate, execution, nowIso, retentionYears);
       result[outcome]++;
     } catch {
       // A proof expiry or source query failure fails this candidate closed and
@@ -450,8 +471,9 @@ export async function reconcilePrescriptionDeletionIntents(
   if (!Number.isFinite(now.getTime())) return { purged: 0, failed: 0, skipped: 0 };
   const nowIso = now.toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? PURGE_BATCH_LIMIT)));
-  const rows = await db.prepare(
-    `SELECT id, operation_id, execution_id, fence_token, executor_subject, environment,
+  const rows = await db
+    .prepare(
+      `SELECT id, operation_id, execution_id, fence_token, executor_subject, environment,
             tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
             resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision, hold_epoch,
             status, last_error_code, created_at, updated_at
@@ -463,11 +485,18 @@ export async function reconcilePrescriptionDeletionIntents(
         AND environment = ?
       ORDER BY updated_at, id
       LIMIT ?`,
-  ).bind(
-    execution.tenantId, execution.lineAccountId, execution.operationId,
-    execution.executionId, execution.fenceToken, execution.executorSubject,
-    execution.environment, limit,
-  ).all<DeletionIntent>();
+    )
+    .bind(
+      execution.tenantId,
+      execution.lineAccountId,
+      execution.operationId,
+      execution.executionId,
+      execution.fenceToken,
+      execution.executorSubject,
+      execution.environment,
+      limit,
+    )
+    .all<DeletionIntent>();
 
   const result: RetentionPurgeResult = { purged: 0, failed: 0, skipped: 0 };
   for (const intent of rows.results ?? []) {

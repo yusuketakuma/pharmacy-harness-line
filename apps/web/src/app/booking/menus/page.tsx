@@ -1,11 +1,11 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { api, bookingApi, type BookingMenu } from '@/lib/api'
-import type { Tag } from '@line-crm/shared'
-import { useAccount } from '@/contexts/account-context'
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { api, bookingApi, type BookingMenu } from '@/lib/api';
+import type { Tag } from '@line-crm/shared';
+import { useAccount } from '@/contexts/account-context';
 
 const EMPTY: Partial<BookingMenu> = {
   name: '',
@@ -17,88 +17,88 @@ const EMPTY: Partial<BookingMenu> = {
   sort_order: 0,
   is_active: 1,
   auto_tag_id: null,
-}
+};
 
 export default function MenusPage() {
-  const { selectedAccountId, selectedAccount } = useAccount()
-  const [items, setItems] = useState<BookingMenu[]>([])
-  const [editing, setEditing] = useState<Partial<BookingMenu> | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { selectedAccountId, selectedAccount } = useAccount();
+  const [items, setItems] = useState<BookingMenu[]>([]);
+  const [editing, setEditing] = useState<Partial<BookingMenu> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   // copy 状態は menu.id 単位で持つ。複数メニューを連続でコピーしたとき
   // 直近にコピーした行だけ「コピー済」が出る。
-  const [copiedMenuId, setCopiedMenuId] = useState<string | null>(null)
-  const [tags, setTags] = useState<Tag[]>([])
+  const [copiedMenuId, setCopiedMenuId] = useState<string | null>(null);
+  const [tags, setTags] = useState<Tag[]>([]);
 
-  const liffId = selectedAccount?.liffId ?? null
-  const workerBase = process.env.NEXT_PUBLIC_API_URL ?? ''
+  const liffId = selectedAccount?.liffId ?? null;
+  const workerBase = process.env.NEXT_PUBLIC_API_URL ?? '';
 
   async function copyMenuUrl(menuId: string) {
-    if (!workerBase || !liffId) return
-    const url = `${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=salon-book&menu_id=${encodeURIComponent(menuId)}`
+    if (!workerBase || !liffId) return;
+    const url = `${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=salon-book&menu_id=${encodeURIComponent(menuId)}`;
     try {
-      await navigator.clipboard.writeText(url)
-      setCopiedMenuId(menuId)
+      await navigator.clipboard.writeText(url);
+      setCopiedMenuId(menuId);
       setTimeout(() => {
-        setCopiedMenuId((cur) => (cur === menuId ? null : cur))
-      }, 2000)
+        setCopiedMenuId((cur) => (cur === menuId ? null : cur));
+      }, 2000);
     } catch {
-      window.prompt('コピーしてください:', url)
+      window.prompt('コピーしてください:', url);
     }
   }
 
   const load = useCallback(async () => {
-    if (!selectedAccountId) return
-    setLoading(true)
-    setError(null)
+    if (!selectedAccountId) return;
+    setLoading(true);
+    setError(null);
     // アカウント切替時は前 account の menus が表示・操作可能なまま残らないよう
     // 先にクリア。fetch 失敗でも cross-account の操作事故が起きない。
-    setItems([])
+    setItems([]);
     try {
-      const r = await bookingApi.listMenus(selectedAccountId)
-      setItems(r.menus)
+      const r = await bookingApi.listMenus(selectedAccountId);
+      setItems(r.menus);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     api.tags
       .list()
       .then((r) => {
-        if (!cancelled && r.success) setTags(r.data)
+        if (!cancelled && r.success) setTags(r.data);
       })
       .catch(() => {
         // タグ取得失敗時はセレクタが空になるが、メニュー編集自体は継続可能。
-      })
+      });
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   async function save(m: Partial<BookingMenu>) {
-    if (!selectedAccountId) return
+    if (!selectedAccountId) return;
     if (m.id) {
-      await bookingApi.updateMenu(selectedAccountId, m.id, m)
+      await bookingApi.updateMenu(selectedAccountId, m.id, m);
     } else {
-      await bookingApi.createMenu(selectedAccountId, m)
+      await bookingApi.createMenu(selectedAccountId, m);
     }
-    setEditing(null)
-    await load()
+    setEditing(null);
+    await load();
   }
 
   async function remove(id: string) {
-    if (!selectedAccountId) return
-    if (!confirm('このメニューを削除しますか？（既存予約は維持されます）')) return
-    await bookingApi.deleteMenu(selectedAccountId, id)
-    await load()
+    if (!selectedAccountId) return;
+    if (!confirm('このメニューを削除しますか？（既存予約は維持されます）')) return;
+    await bookingApi.deleteMenu(selectedAccountId, id);
+    await load();
   }
 
   return (
@@ -118,11 +118,7 @@ export default function MenusPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {!selectedAccountId ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center text-sm text-gray-500">
@@ -179,19 +175,25 @@ export default function MenusPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex gap-2 text-xs">
-                        <button onClick={() => setEditing(m)} className="text-blue-600 hover:underline">編集</button>
+                        <button onClick={() => setEditing(m)} className="text-blue-600 hover:underline">
+                          編集
+                        </button>
                         <Link href={`/booking/menus/staff?menu_id=${m.id}`} className="text-blue-600 hover:underline">
                           スタッフ割当
                         </Link>
                         {!liffId ? (
-                          <span className="text-gray-300" title="LIFF ID 未設定">専用URL</span>
+                          <span className="text-gray-300" title="LIFF ID 未設定">
+                            専用URL
+                          </span>
                         ) : !m.is_active ? (
                           // is_active=0 のメニューは /api/liff/booking/menus が
                           // 返さないので、URL を送っても LIFF は解決失敗して
                           // 通常のメニュー一覧に fallback する。間違って「指定メニュー
                           // 直通」のつもりで送って別メニュー予約されるのを防ぐため、
                           // 有効化されるまでコピー不可にする。
-                          <span className="text-gray-300" title="メニューを有効化するとコピーできます">専用URL</span>
+                          <span className="text-gray-300" title="メニューを有効化するとコピーできます">
+                            専用URL
+                          </span>
                         ) : (
                           <button
                             type="button"
@@ -202,7 +204,9 @@ export default function MenusPage() {
                             {copiedMenuId === m.id ? '✓ コピー済' : '専用URL'}
                           </button>
                         )}
-                        <button onClick={() => remove(m.id)} className="text-red-600 hover:underline">削除</button>
+                        <button onClick={() => remove(m.id)} className="text-red-600 hover:underline">
+                          削除
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -215,7 +219,7 @@ export default function MenusPage() {
 
       {editing && <Modal menu={editing} tags={tags} onSave={save} onClose={() => setEditing(null)} />}
     </div>
-  )
+  );
 }
 
 function Modal({
@@ -224,28 +228,28 @@ function Modal({
   onSave,
   onClose,
 }: {
-  menu: Partial<BookingMenu>
-  tags: Tag[]
-  onSave: (m: Partial<BookingMenu>) => Promise<void>
-  onClose: () => void
+  menu: Partial<BookingMenu>;
+  tags: Tag[];
+  onSave: (m: Partial<BookingMenu>) => Promise<void>;
+  onClose: () => void;
 }) {
-  const [form, setForm] = useState<Partial<BookingMenu>>(menu)
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [form, setForm] = useState<Partial<BookingMenu>>(menu);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   function set<K extends keyof BookingMenu>(k: K, v: BookingMenu[K] | string | null) {
-    setForm({ ...form, [k]: v })
+    setForm({ ...form, [k]: v });
   }
 
   async function submit() {
-    setSaving(true)
-    setErr(null)
+    setSaving(true);
+    setErr(null);
     try {
-      await onSave(form)
+      await onSave(form);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
@@ -295,17 +299,8 @@ function Modal({
               value={form.buffer_after_minutes ?? 0}
               onChange={(v) => set('buffer_after_minutes', v)}
             />
-            <NumField
-              label="料金（円）"
-              required
-              value={form.base_price ?? 0}
-              onChange={(v) => set('base_price', v)}
-            />
-            <NumField
-              label="並び順"
-              value={form.sort_order ?? 0}
-              onChange={(v) => set('sort_order', v)}
-            />
+            <NumField label="料金（円）" required value={form.base_price ?? 0} onChange={(v) => set('base_price', v)} />
+            <NumField label="並び順" value={form.sort_order ?? 0} onChange={(v) => set('sort_order', v)} />
           </div>
           <Field label="予約申込時に自動付与するタグ">
             <select
@@ -321,7 +316,8 @@ function Modal({
               ))}
             </select>
             <p className="mt-1 text-xs text-gray-500">
-              このメニューが予約されると、申込者の友だちに自動でこのタグが付きます。タグは既存のものから選択してください (友だち画面 / シナリオ等で使われているタグ)。
+              このメニューが予約されると、申込者の友だちに自動でこのタグが付きます。タグは既存のものから選択してください
+              (友だち画面 / シナリオ等で使われているタグ)。
             </p>
           </Field>
           <label className="flex items-center gap-2 text-sm">
@@ -353,7 +349,7 @@ function Modal({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -365,7 +361,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
       </span>
       {children}
     </label>
-  )
+  );
 }
 
 function NumField({
@@ -373,7 +369,12 @@ function NumField({
   required,
   value,
   onChange,
-}: { label: string; required?: boolean; value: number; onChange: (v: number) => void }) {
+}: {
+  label: string;
+  required?: boolean;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <Field label={label} required={required}>
       <input
@@ -383,5 +384,5 @@ function NumField({
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 tabular-nums"
       />
     </Field>
-  )
+  );
 }

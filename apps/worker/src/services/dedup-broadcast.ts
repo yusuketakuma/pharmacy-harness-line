@@ -56,7 +56,13 @@ export async function computeDedupBroadcastPreview(
   targetTagId?: string | null,
 ): Promise<DedupPreviewResult> {
   if (accountIds.length === 0) {
-    return { totalSelected: 0, uniqueRecipients: 0, reduction: 0, reductionRate: 0, perAccount: [] };
+    return {
+      totalSelected: 0,
+      uniqueRecipients: 0,
+      reduction: 0,
+      reductionRate: 0,
+      perAccount: [],
+    };
   }
 
   const priority = dedupPriority.filter((id) => accountIds.includes(id));
@@ -64,9 +70,7 @@ export async function computeDedupBroadcastPreview(
   const inPlaceholders = accountIds.map(() => '?').join(', ');
 
   const caseWhens = priority.map((_, i) => `WHEN ? THEN ${i}`).join(' ');
-  const caseExpr = priority.length === 0
-    ? '999'
-    : `CASE line_account_id ${caseWhens} ELSE 999 END`;
+  const caseExpr = priority.length === 0 ? '999' : `CASE line_account_id ${caseWhens} ELSE 999 END`;
 
   // Tag filter — applied identically to both selectedCount and ranked queries
   // so the "selected" denominator and the dedup numerator share the same
@@ -89,9 +93,7 @@ export async function computeDedupBroadcastPreview(
       ${tagJoinForSelectedCount}
     GROUP BY line_account_id
   `;
-  const selectedCountBinds = hasTagFilter
-    ? [...accountIds, targetTagId]
-    : [...accountIds];
+  const selectedCountBinds = hasTagFilter ? [...accountIds, targetTagId] : [...accountIds];
   const selectedCounts = await db
     .prepare(selectedCountSql)
     .bind(...selectedCountBinds)
@@ -135,9 +137,7 @@ export async function computeDedupBroadcastPreview(
   // Bind order matches placeholder order in the SQL: accountIds (for IN), then
   // tag filter (if any) inside the `selected` CTE, then priority (for the CASE
   // in ORDER BY of the `ranked` CTE).
-  const rankedBinds = hasTagFilter
-    ? [...accountIds, targetTagId, ...priority]
-    : [...accountIds, ...priority];
+  const rankedBinds = hasTagFilter ? [...accountIds, targetTagId, ...priority] : [...accountIds, ...priority];
   const rankedRows = await db
     .prepare(rankedSql)
     .bind(...rankedBinds)
@@ -201,10 +201,7 @@ import {
 import { buildMessage } from './broadcast.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { deliverTrackedLinePush } from './outbound-line-delivery.js';
-import {
-  getActiveMappedAccountTenantId,
-  isPermanentLineDeliveryError,
-} from './step-delivery.js';
+import { getActiveMappedAccountTenantId, isPermanentLineDeliveryError } from './step-delivery.js';
 
 const MULTICAST_BATCH_SIZE = 500;
 const PERSONALIZED_PUSH_BATCH_SIZE = 10;
@@ -271,26 +268,32 @@ const MAX_DEDUP_PROGRESS_BYTES = 900_000;
 function parseFrozenPlan(value: unknown): FrozenDedupPlan | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const candidate = value as { recipients?: unknown; accountContent?: unknown };
-  if (!Array.isArray(candidate.recipients)
-    || !candidate.accountContent
-    || typeof candidate.accountContent !== 'object'
-    || Array.isArray(candidate.accountContent)) return undefined;
+  if (
+    !Array.isArray(candidate.recipients) ||
+    !candidate.accountContent ||
+    typeof candidate.accountContent !== 'object' ||
+    Array.isArray(candidate.accountContent)
+  )
+    return undefined;
   const recipients = candidate.recipients.filter((recipient): recipient is FrozenDedupRecipient => {
     if (!recipient || typeof recipient !== 'object') return false;
     const row = recipient as Record<string, unknown>;
-    return typeof row.accountId === 'string'
-      && typeof row.friendId === 'string'
-      && typeof row.lineUserId === 'string'
-      && typeof row.identKey === 'string'
-      && (row.displayName === null || typeof row.displayName === 'string');
+    return (
+      typeof row.accountId === 'string' &&
+      typeof row.friendId === 'string' &&
+      typeof row.lineUserId === 'string' &&
+      typeof row.identKey === 'string' &&
+      (row.displayName === null || typeof row.displayName === 'string')
+    );
   });
   if (recipients.length !== candidate.recipients.length) return undefined;
   const accountContent = Object.fromEntries(
-    Object.entries(candidate.accountContent as Record<string, unknown>)
-      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    Object.entries(candidate.accountContent as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
   );
-  if (Object.keys(accountContent).length
-    !== Object.keys(candidate.accountContent as Record<string, unknown>).length) return undefined;
+  if (Object.keys(accountContent).length !== Object.keys(candidate.accountContent as Record<string, unknown>).length)
+    return undefined;
   return { recipients, accountContent };
 }
 
@@ -301,8 +304,11 @@ function parseProgress(raw: string | null | undefined): DedupProgress {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { sentIdentKeys?: unknown }).sentIdentKeys)) {
       return {
-        sentIdentKeys: [...new Set((parsed as { sentIdentKeys: unknown[] }).sentIdentKeys
-          .filter((s): s is string => typeof s === 'string'))],
+        sentIdentKeys: [
+          ...new Set(
+            (parsed as { sentIdentKeys: unknown[] }).sentIdentKeys.filter((s): s is string => typeof s === 'string'),
+          ),
+        ],
         plan: parseFrozenPlan((parsed as { plan?: unknown }).plan),
       };
     }
@@ -345,9 +351,10 @@ export async function processMultiAccountDedupBroadcast(
   const progress = parseProgress(broadcast.dedup_progress);
   const failPlan = async (totalCount: number): Promise<ProcessMultiAccountDedupResult> => {
     const failedAccountIds = [...new Set(accountIds)];
-    await db.prepare(
-      `UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`,
-    ).bind(failedAccountIds.length > 0 ? JSON.stringify(failedAccountIds) : null, broadcast.id).run();
+    await db
+      .prepare(`UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`)
+      .bind(failedAccountIds.length > 0 ? JSON.stringify(failedAccountIds) : null, broadcast.id)
+      .run();
     return {
       totalCount,
       successCount: progress.sentIdentKeys.length,
@@ -361,26 +368,21 @@ export async function processMultiAccountDedupBroadcast(
 
   const needsPlanPersistence = !progress.plan;
   if (!progress.plan) {
-    const preview = await computeDedupBroadcastPreview(
-      db,
-      accountIds,
-      dedupPriority,
-      broadcast.target_tag_id ?? null,
-    );
+    const preview = await computeDedupBroadcastPreview(db, accountIds, dedupPriority, broadcast.target_tag_id ?? null);
     const recipients: FrozenDedupRecipient[] = [];
     const accountContent: Record<string, string> = {};
     for (const accountResult of preview.perAccount) {
       const account = await getLineAccountById(db, accountResult.accountId);
       if (!account || !account.is_active) continue;
-      accountContent[account.id] = renderBroadcastMessageContent(
-        broadcast.message_type,
-        broadcast.message_content,
-        { liffId: (account as unknown as { liff_id?: string | null }).liff_id ?? null },
+      accountContent[account.id] = renderBroadcastMessageContent(broadcast.message_type, broadcast.message_content, {
+        liffId: (account as unknown as { liff_id?: string | null }).liff_id ?? null,
+      });
+      recipients.push(
+        ...accountResult.recipients.map((recipient) => ({
+          accountId: account.id,
+          ...recipient,
+        })),
       );
-      recipients.push(...accountResult.recipients.map((recipient) => ({
-        accountId: account.id,
-        ...recipient,
-      })));
     }
     progress.plan = { recipients, accountContent };
   }
@@ -388,22 +390,19 @@ export async function processMultiAccountDedupBroadcast(
   const plan = progress.plan;
   const completedProgress = JSON.stringify({
     ...progress,
-    sentIdentKeys: [...new Set([
-      ...progress.sentIdentKeys,
-      ...plan.recipients.map((recipient) => recipient.identKey),
-    ])],
+    sentIdentKeys: [...new Set([...progress.sentIdentKeys, ...plan.recipients.map((recipient) => recipient.identKey)])],
   });
   // ponytail: JSON plan keeps this migration-free; use a row-per-recipient table above 900KB.
   if (new TextEncoder().encode(completedProgress).length > MAX_DEDUP_PROGRESS_BYTES) {
-    return failPlan(new Set([
-      ...progress.sentIdentKeys,
-      ...plan.recipients.map((recipient) => recipient.identKey),
-    ]).size);
+    return failPlan(
+      new Set([...progress.sentIdentKeys, ...plan.recipients.map((recipient) => recipient.identKey)]).size,
+    );
   }
   if (needsPlanPersistence) {
-    await db.prepare(
-      `UPDATE broadcasts SET dedup_progress = ? WHERE id = ?`,
-    ).bind(JSON.stringify(progress), broadcast.id).run();
+    await db
+      .prepare(`UPDATE broadcasts SET dedup_progress = ? WHERE id = ?`)
+      .bind(JSON.stringify(progress), broadcast.id)
+      .run();
   }
 
   // Network I/O 前に固定した plan だけを再生する。ライブの名前・画像・
@@ -509,11 +508,7 @@ export async function processMultiAccountDedupBroadcast(
                 displayName: recipient.displayName,
               });
               assertNoUnresolvedBroadcastVariables(content);
-              const recipientMessage = buildMessage(
-                broadcast.message_type,
-                content,
-                broadcast.alt_text ?? undefined,
-              );
+              const recipientMessage = buildMessage(broadcast.message_type, content, broadcast.alt_text ?? undefined);
               const retryKey = await createBroadcastRetryKey(
                 broadcast.id,
                 'dedup-personalized-push',
@@ -531,12 +526,7 @@ export async function processMultiAccountDedupBroadcast(
                 broadcastId: broadcast.id,
                 request: { to: recipient.lineUserId, messages: [recipientMessage] },
                 send: async (request, providerRetryKey) => {
-                  await client.pushMessage(
-                    request.to,
-                    request.messages,
-                    providerRetryKey,
-                    [unit],
-                  );
+                  await client.pushMessage(request.to, request.messages, providerRetryKey, [unit]);
                 },
               });
               if (result !== 'sent' && result !== 'already_sent') {
@@ -551,7 +541,10 @@ export async function processMultiAccountDedupBroadcast(
         } else {
           let batchMessage = message!;
           if (batchMessage.type === 'text' && totalBatches > 1) {
-            batchMessage = { ...batchMessage, text: addMessageVariation(batchMessage.text, batchIdx) } as Message;
+            batchMessage = {
+              ...batchMessage,
+              text: addMessageVariation(batchMessage.text, batchIdx),
+            } as Message;
           }
           const retryKey = await createBroadcastRetryKey(
             broadcast.id,
@@ -560,7 +553,12 @@ export async function processMultiAccountDedupBroadcast(
             ...batch.map((r) => r.identKey),
             JSON.stringify(batchMessage),
           );
-          await client.multicast(batch.map((r) => r.lineUserId), [batchMessage], [unit], retryKey);
+          await client.multicast(
+            batch.map((r) => r.lineUserId),
+            [batchMessage],
+            [unit],
+            retryKey,
+          );
           for (const recipient of batch) {
             delivered.push({
               recipient,
@@ -581,17 +579,21 @@ export async function processMultiAccountDedupBroadcast(
         // recipient ごとの outbound ledger が先に log を確定するため、ここでは progress
         // だけを書く。crash 後の再入でも ledger が already_sent を返して progress を直せる。
         const stmts = [
-          ...(personalized ? [] : delivered.map(({ recipient: r, messageType, content }) =>
-            db.prepare(
-              `INSERT INTO messages_log
+          ...(personalized
+            ? []
+            : delivered.map(({ recipient: r, messageType, content }) =>
+                db
+                  .prepare(
+                    `INSERT INTO messages_log
                 (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
                VALUES (?, ?, 'outgoing', ?, ?, ?, NULL, 'push', 'broadcast', ?, ?)`,
-            ).bind(crypto.randomUUID(), r.friendId, messageType, content, broadcast.id, account.id, now),
-          )),
+                  )
+                  .bind(crypto.randomUUID(), r.friendId, messageType, content, broadcast.id, account.id, now),
+              )),
           // success_count は absolute (`= ?`) で書いて double-counting を防ぐ。
-          db.prepare(
-            `UPDATE broadcasts SET dedup_progress = ?, success_count = ? WHERE id = ?`,
-          ).bind(JSON.stringify(progress), progress.sentIdentKeys.length, broadcast.id),
+          db
+            .prepare(`UPDATE broadcasts SET dedup_progress = ?, success_count = ? WHERE id = ?`)
+            .bind(JSON.stringify(progress), progress.sentIdentKeys.length, broadcast.id),
         ];
         await db.batch(stmts);
         sentAnyBatch = true; // 1 batch 以上 durable に記録した → 前進保証 & yield 可
@@ -601,9 +603,10 @@ export async function processMultiAccountDedupBroadcast(
       console.error(`[multi-account-dedup] account ${account.id} failed:`, err);
       recordFailedAccount(account.id);
       const message = err instanceof Error ? err.message : String(err);
-      const terminal = isPermanentLineDeliveryError(err)
-        || message === 'OUTBOUND_LINE_RECONCILIATION_REQUIRED'
-        || message === 'OUTBOUND_LINE_DELIVERY_SCOPE_MISMATCH';
+      const terminal =
+        isPermanentLineDeliveryError(err) ||
+        message === 'OUTBOUND_LINE_RECONCILIATION_REQUIRED' ||
+        message === 'OUTBOUND_LINE_DELIVERY_SCOPE_MISMATCH';
       if (!terminal) hasRetryableFailure = true;
     }
   }
@@ -611,9 +614,10 @@ export async function processMultiAccountDedupBroadcast(
   // failed_account_ids は常に上書きする。前回 stalled run で残った古い失敗リストを
   // resume 後の成功で上書きしないと「全件成功したのに UI が partial-failure 表示」に
   // なる。今回失敗が無ければ NULL に戻して clean state にする。
-  await db.prepare(
-    `UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`,
-  ).bind(failedAccountIds.length > 0 ? JSON.stringify(failedAccountIds) : null, broadcast.id).run();
+  await db
+    .prepare(`UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`)
+    .bind(failedAccountIds.length > 0 ? JSON.stringify(failedAccountIds) : null, broadcast.id)
+    .run();
 
   const successCount = progress.sentIdentKeys.length;
   const totalCount = allIdentKeys.size;

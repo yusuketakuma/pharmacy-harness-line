@@ -23,37 +23,56 @@ export type PharmacyRichMenuCatalogEntry = {
   bytes: number;
 };
 
-const expectedOrders = new Map(listPharmacyRichMenuVariantOrders().map((order) => {
-  const presentation = getPharmacyRichMenuPresentation(order);
-  return [presentation.variantKey, { order, presentation }] as const;
-}));
+const expectedOrders = new Map(
+  listPharmacyRichMenuVariantOrders().map((order) => {
+    const presentation = getPharmacyRichMenuPresentation(order);
+    return [presentation.variantKey, { order, presentation }] as const;
+  }),
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function validateCatalog(value: unknown): Map<string, PharmacyRichMenuCatalogEntry> {
-  if (!isRecord(value) || value.catalogVersion !== PHARMACY_RICH_MENU_CATALOG_VERSION ||
-      !Array.isArray(value.entries) || value.entries.length !== expectedOrders.size ||
-      expectedOrders.size !== 228) {
+  if (
+    !isRecord(value) ||
+    value.catalogVersion !== PHARMACY_RICH_MENU_CATALOG_VERSION ||
+    !Array.isArray(value.entries) ||
+    value.entries.length !== expectedOrders.size ||
+    expectedOrders.size !== 228
+  ) {
     throw new Error('pharmacy rich-menu catalog must contain exactly 228 variants');
   }
   const entries = new Map<string, PharmacyRichMenuCatalogEntry>();
   for (const raw of value.entries) {
-    if (!isRecord(raw) || typeof raw.variantKey !== 'string' || !Array.isArray(raw.orderedActions) ||
-        raw.orderedActions.some((key) => typeof key !== 'string') ||
-        typeof raw.objectKey !== 'string' || typeof raw.imageHash !== 'string' ||
-        !/^[a-f0-9]{64}$/u.test(raw.imageHash) || raw.width !== 2500 ||
-        (raw.height !== 843 && raw.height !== 1686) ||
-        (raw.size !== 'compact' && raw.size !== 'large') ||
-        raw.contentType !== 'image/jpeg' || !Number.isInteger(raw.bytes) ||
-        Number(raw.bytes) <= 0 || Number(raw.bytes) > 1_000_000) {
+    if (
+      !isRecord(raw) ||
+      typeof raw.variantKey !== 'string' ||
+      !Array.isArray(raw.orderedActions) ||
+      raw.orderedActions.some((key) => typeof key !== 'string') ||
+      typeof raw.objectKey !== 'string' ||
+      typeof raw.imageHash !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(raw.imageHash) ||
+      raw.width !== 2500 ||
+      (raw.height !== 843 && raw.height !== 1686) ||
+      (raw.size !== 'compact' && raw.size !== 'large') ||
+      raw.contentType !== 'image/jpeg' ||
+      !Number.isInteger(raw.bytes) ||
+      Number(raw.bytes) <= 0 ||
+      Number(raw.bytes) > 1_000_000
+    ) {
       throw new Error('invalid pharmacy rich-menu catalog entry');
     }
     const expected = expectedOrders.get(raw.variantKey);
-    if (!expected || expected.order.join() !== raw.orderedActions.join() ||
-        raw.size !== expected.presentation.size || raw.height !== expected.presentation.height ||
-        raw.objectKey !== `${CATALOG_PREFIX}/${raw.variantKey}.jpg` || entries.has(raw.variantKey)) {
+    if (
+      !expected ||
+      expected.order.join() !== raw.orderedActions.join() ||
+      raw.size !== expected.presentation.size ||
+      raw.height !== expected.presentation.height ||
+      raw.objectKey !== `${CATALOG_PREFIX}/${raw.variantKey}.jpg` ||
+      entries.has(raw.variantKey)
+    ) {
       throw new Error('pharmacy rich-menu catalog entry does not match its variant');
     }
     entries.set(raw.variantKey, raw as PharmacyRichMenuCatalogEntry);
@@ -96,7 +115,7 @@ export async function loadPharmacyRichMenuCatalogImage(
   if (!validation.ok || validation.size !== entry.size || validation.format !== 'jpeg') {
     throw new Error('pharmacy rich-menu catalog image is not LINE-compliant');
   }
-  if (await sha256Hex(bytes) !== entry.imageHash) {
+  if ((await sha256Hex(bytes)) !== entry.imageHash) {
     throw new Error('pharmacy rich-menu catalog image hash does not match manifest');
   }
   return { ...entry, bytes, byteLength: entry.bytes };

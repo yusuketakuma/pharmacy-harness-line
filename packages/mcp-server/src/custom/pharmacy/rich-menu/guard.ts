@@ -9,11 +9,7 @@ export function pinnedAccountId(explicit?: string): string {
   return configured;
 }
 
-export function requireConfirmation(
-  dryRun: boolean,
-  confirm: boolean,
-  operation: string,
-): void {
+export function requireConfirmation(dryRun: boolean, confirm: boolean, operation: string): void {
   if (!dryRun && !confirm) {
     throw new Error(`${operation} is mutating; rerun with dryRun=false and confirm=true`);
   }

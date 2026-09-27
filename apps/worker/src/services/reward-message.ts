@@ -4,9 +4,7 @@ import type { MessageTemplate } from '@line-crm/db';
  * LINE Messaging API message shape we send via push.
  * Subset to keep this module decoupled from the SDK.
  */
-export type RewardMessage =
-  | { type: 'text'; text: string }
-  | { type: 'flex'; altText: string; contents: unknown };
+export type RewardMessage = { type: 'text'; text: string } | { type: 'flex'; altText: string; contents: unknown };
 
 /**
  * Build the reward push message sent to a friend after they submit the

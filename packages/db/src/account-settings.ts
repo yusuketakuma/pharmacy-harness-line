@@ -9,11 +9,7 @@
  * Retrieve a raw setting value (JSON string) for an account.
  * Returns null when the key is not set.
  */
-export async function getAccountSetting(
-  db: D1Database,
-  accountId: string,
-  key: string,
-): Promise<string | null> {
+export async function getAccountSetting(db: D1Database, accountId: string, key: string): Promise<string | null> {
   const row = await db
     .prepare(`SELECT value FROM account_settings WHERE line_account_id = ? AND key = ?`)
     .bind(accountId, key)
@@ -24,16 +20,9 @@ export async function getAccountSetting(
 /**
  * Upsert a raw setting value (JSON string) for an account.
  */
-export async function setAccountSetting(
-  db: D1Database,
-  accountId: string,
-  key: string,
-  value: string,
-): Promise<void> {
+export async function setAccountSetting(db: D1Database, accountId: string, key: string, value: string): Promise<void> {
   const id = crypto.randomUUID();
-  const now = new Date(Date.now() + 9 * 60 * 60_000)
-    .toISOString()
-    .replace('Z', '+09:00');
+  const now = new Date(Date.now() + 9 * 60 * 60_000).toISOString().replace('Z', '+09:00');
 
   await db
     .prepare(
@@ -50,11 +39,7 @@ export async function setAccountSetting(
 const LINK_BASE_URL_KEY = 'link_base_url';
 const TRACKED_LINK_BASE_URL_KEY = 'tracked_link_base_url';
 
-async function getUrlSetting(
-  db: D1Database,
-  accountId: string,
-  key: string,
-): Promise<string | null> {
+async function getUrlSetting(db: D1Database, accountId: string, key: string): Promise<string | null> {
   const raw = await getAccountSetting(db, accountId, key);
   if (!raw) return null;
   try {
@@ -74,22 +59,12 @@ async function getUrlSetting(
  *
  * Throws a descriptive Error on validation failure.
  */
-async function setUrlSetting(
-  db: D1Database,
-  accountId: string,
-  key: string,
-  value: string,
-): Promise<void> {
+async function setUrlSetting(db: D1Database, accountId: string, key: string, value: string): Promise<void> {
   const trimmed = value.trim();
 
   if (trimmed === '') {
     // Clear the setting.
-    await db
-      .prepare(
-        `DELETE FROM account_settings WHERE line_account_id = ? AND key = ?`,
-      )
-      .bind(accountId, key)
-      .run();
+    await db.prepare(`DELETE FROM account_settings WHERE line_account_id = ? AND key = ?`).bind(accountId, key).run();
     return;
   }
 
@@ -106,18 +81,11 @@ async function setUrlSetting(
  * Returns null when not set (caller should fall back to WORKER_URL/r).
  * The stored value has no trailing slash.
  */
-export async function getLinkBaseUrl(
-  db: D1Database,
-  accountId: string,
-): Promise<string | null> {
+export async function getLinkBaseUrl(db: D1Database, accountId: string): Promise<string | null> {
   return getUrlSetting(db, accountId, LINK_BASE_URL_KEY);
 }
 
-export async function setLinkBaseUrl(
-  db: D1Database,
-  accountId: string,
-  value: string,
-): Promise<void> {
+export async function setLinkBaseUrl(db: D1Database, accountId: string, value: string): Promise<void> {
   return setUrlSetting(db, accountId, LINK_BASE_URL_KEY, value);
 }
 
@@ -131,17 +99,10 @@ export async function setLinkBaseUrl(
  * domain's root paths to /r/ (affiliate), so silently reusing it for /t/
  * would emit broken URLs on upgrade.
  */
-export async function getTrackedLinkBaseUrl(
-  db: D1Database,
-  accountId: string,
-): Promise<string | null> {
+export async function getTrackedLinkBaseUrl(db: D1Database, accountId: string): Promise<string | null> {
   return getUrlSetting(db, accountId, TRACKED_LINK_BASE_URL_KEY);
 }
 
-export async function setTrackedLinkBaseUrl(
-  db: D1Database,
-  accountId: string,
-  value: string,
-): Promise<void> {
+export async function setTrackedLinkBaseUrl(db: D1Database, accountId: string, value: string): Promise<void> {
   return setUrlSetting(db, accountId, TRACKED_LINK_BASE_URL_KEY, value);
 }

@@ -22,13 +22,17 @@ Promise.all([
   process.argv.includes('--with-bookmark')
     ? getD1Bookmark({ creds, databaseId: required('D1_DATABASE_ID') })
     : Promise.resolve(undefined),
-]).then(([worker, admin, bookmark]) => {
-  console.log(JSON.stringify({
-    workerVersionId: worker.versions[0].version_id,
-    adminDeploymentId: admin.id,
-    ...(bookmark ? { d1Bookmark: bookmark } : {}),
-  }));
-}).catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+])
+  .then(([worker, admin, bookmark]) => {
+    console.log(
+      JSON.stringify({
+        workerVersionId: worker.versions[0].version_id,
+        adminDeploymentId: admin.id,
+        ...(bookmark ? { d1Bookmark: bookmark } : {}),
+      }),
+    );
+  })
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });

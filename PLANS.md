@@ -2,6 +2,12 @@
 
 ## Active
 
+### AUDIT-20260922 — 契約保全型の全体監査・修復・構造改善
+
+- **状態**: RUNNING。基準 `dev` / `f62b90acd41154ab07c27f13b89a70ecb0eaa452`、開始差分なし。
+- **範囲**: repo全体、12共通領域＋8条件付き探索。ローカルのみ。
+- **受入台帳**: [監査記録](docs/pharmacy/evidence/audit-20260922/README.md)。packet、検証、coverage、独立レビュー、再探索を同記録へ集約。
+
 ### MAINT-20260915 - 15領域メンテナンス監査と有限修正キュー
 
 **基準**: `dev` / `dcc8bb8f097b3188c2e56766ca00fb2826c9a561` / package `0.35.0`。

@@ -5,9 +5,10 @@ import HistoryCard from '../components/HistoryCard.js';
 
 export default function BookingHistory() {
   const ctx = useSalonContext();
-  const [data, setData] = useState<{ upcoming: BookingHistoryItem[]; past: BookingHistoryItem[] } | null>(
-    null,
-  );
+  const [data, setData] = useState<{
+    upcoming: BookingHistoryItem[];
+    past: BookingHistoryItem[];
+  } | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [error, setError] = useState<string | null>(null);
 
@@ -83,9 +84,7 @@ export default function BookingHistory() {
           ))}
         </ul>
       )}
-      <p className="text-xs text-gray-400 text-center pt-2">
-        変更・キャンセルはお店に LINE で直接ご連絡ください
-      </p>
+      <p className="text-xs text-gray-400 text-center pt-2">変更・キャンセルはお店に LINE で直接ご連絡ください</p>
     </div>
   );
 }

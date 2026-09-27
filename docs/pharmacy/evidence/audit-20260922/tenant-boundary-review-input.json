@@ -1,0 +1,13 @@
+{
+  "snapshot": "da40c463db40423af8bbc32ce2ade603949bcffb",
+  "paths": {
+    "apps/worker/src/middleware/tenant-boundary.ts": "488672889bcae25bfea5460452af10aa7d36f704a2ce081c83327c7c431ca3bf",
+    "apps/worker/src/middleware/tenant-boundary.test.ts": "d586148a39d31a59ea9434164a8b8a47e9ff10fe0ce44271e1684b0e4f769b8f",
+    "apps/worker/src/index.ts": "3c7a9341a4f26b2fd86f90ccb575826504779c91ae3ad7ac719741be4830c227",
+    "apps/worker/src/custom/pharmacy/growth-loop/access.ts": "6e014eabbd49f68d62203e224e66090716222d01c21c004b72c033705632ff2a",
+    "apps/worker/src/middleware/role-guard.ts": "4962f620ea7043d96c3ea4f8376fec8bfc4bb96ff6df7985e700cd8ae0e69f74",
+    "apps/worker/src/middleware/deny.ts": "82c0ba46e42ebd2cb56b0304a83c8814439b847e37834a4a28b71a0aad5255f0",
+    "apps/worker/src/middleware/cookie.ts": "4fea6cef293a99a2ffc96f2ada783591edf9661b68c1baede927c84e951f664b"
+  },
+  "mode": "primary read-only investigation; F31 implementation recorded separately"
+}

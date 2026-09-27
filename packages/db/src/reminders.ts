@@ -41,14 +41,11 @@ export interface ReminderWriteScope {
 
 // --- リマインダCRUD ---
 
-export async function getReminders(
-  db: D1Database,
-  tenantId: string,
-  lineAccountId?: string,
-): Promise<ReminderRow[]> {
+export async function getReminders(db: D1Database, tenantId: string, lineAccountId?: string): Promise<ReminderRow[]> {
   const accountFilter = lineAccountId ? ' AND reminder.line_account_id = ?' : '';
   const values = lineAccountId ? [tenantId, lineAccountId] : [tenantId];
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT reminder.*
       FROM reminders AS reminder
       INNER JOIN tenant_line_accounts AS mapping
@@ -63,16 +60,15 @@ export async function getReminders(
        AND reminder.line_account_id IS NOT NULL
        ${accountFilter}
      ORDER BY reminder.created_at DESC
-  `).bind(...values).all<ReminderRow>();
+  `)
+    .bind(...values)
+    .all<ReminderRow>();
   return result.results;
 }
 
-export async function getReminderById(
-  db: D1Database,
-  id: string,
-  tenantId: string,
-): Promise<ReminderRow | null> {
-  return db.prepare(`
+export async function getReminderById(db: D1Database, id: string, tenantId: string): Promise<ReminderRow | null> {
+  return db
+    .prepare(`
     SELECT reminder.*
       FROM reminders AS reminder
       INNER JOIN tenant_line_accounts AS mapping
@@ -87,7 +83,9 @@ export async function getReminderById(
        AND mapping.tenant_id = ?
        AND reminder.line_account_id IS NOT NULL
      LIMIT 1
-  `).bind(id, tenantId).first<ReminderRow>();
+  `)
+    .bind(id, tenantId)
+    .first<ReminderRow>();
 }
 
 export async function createReminder(
@@ -102,7 +100,8 @@ export async function createReminder(
 ): Promise<ReminderRow | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  const inserted = await db.prepare(`
+  const inserted = await db
+    .prepare(`
     INSERT INTO reminders
       (id, name, description, line_account_id, is_active, created_at, updated_at)
     SELECT ?, ?, ?, ?, 1, ?, ?
@@ -122,17 +121,19 @@ export async function createReminder(
              AND staff.is_active = 1
      WHERE mapping.tenant_id = ?
        AND mapping.line_account_id = ?
-  `).bind(
-    id,
-    input.name,
-    input.description ?? null,
-    input.lineAccountId,
-    now,
-    now,
-    input.staffId,
-    input.tenantId,
-    input.lineAccountId,
-  ).run();
+  `)
+    .bind(
+      id,
+      input.name,
+      input.description ?? null,
+      input.lineAccountId,
+      now,
+      now,
+      input.staffId,
+      input.tenantId,
+      input.lineAccountId,
+    )
+    .run();
   if ((inserted.meta?.changes ?? 0) !== 1) return null;
   return getReminderById(db, id, input.tenantId);
 }
@@ -145,15 +146,25 @@ export async function updateReminder(
 ): Promise<ReminderRow | null> {
   const sets: string[] = [];
   const values: unknown[] = [];
-  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
-  if (updates.description !== undefined) { sets.push('description = ?'); values.push(updates.description); }
-  if (updates.isActive !== undefined) { sets.push('is_active = ?'); values.push(updates.isActive ? 1 : 0); }
+  if (updates.name !== undefined) {
+    sets.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.description !== undefined) {
+    sets.push('description = ?');
+    values.push(updates.description);
+  }
+  if (updates.isActive !== undefined) {
+    sets.push('is_active = ?');
+    values.push(updates.isActive ? 1 : 0);
+  }
   if (sets.length === 0) return getReminderById(db, id, scope.tenantId);
 
   sets.push('updated_at = ?');
   values.push(jstNow());
   values.push(id, scope.staffId, scope.tenantId);
-  const updated = await db.prepare(`
+  const updated = await db
+    .prepare(`
     UPDATE reminders
        SET ${sets.join(', ')}
      WHERE reminders.id = ?
@@ -177,17 +188,16 @@ export async function updateReminder(
           WHERE mapping.tenant_id = ?
             AND mapping.line_account_id = reminders.line_account_id
        )
-  `).bind(...values).run();
+  `)
+    .bind(...values)
+    .run();
   if ((updated.meta?.changes ?? 0) !== 1) return null;
   return getReminderById(db, id, scope.tenantId);
 }
 
-export async function deleteReminder(
-  db: D1Database,
-  id: string,
-  scope: ReminderWriteScope,
-): Promise<boolean> {
-  const deleted = await db.prepare(`
+export async function deleteReminder(db: D1Database, id: string, scope: ReminderWriteScope): Promise<boolean> {
+  const deleted = await db
+    .prepare(`
     DELETE FROM reminders
      WHERE reminders.id = ?
        AND reminders.line_account_id IS NOT NULL
@@ -210,7 +220,9 @@ export async function deleteReminder(
           WHERE mapping.tenant_id = ?
             AND mapping.line_account_id = reminders.line_account_id
        )
-  `).bind(id, scope.staffId, scope.tenantId).run();
+  `)
+    .bind(id, scope.staffId, scope.tenantId)
+    .run();
   return (deleted.meta?.changes ?? 0) === 1;
 }
 
@@ -221,7 +233,8 @@ export async function getReminderSteps(
   reminderId: string,
   tenantId: string,
 ): Promise<ReminderStepRow[]> {
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT step.*
       FROM reminder_steps AS step
       INNER JOIN reminders AS reminder
@@ -238,7 +251,9 @@ export async function getReminderSteps(
      WHERE step.reminder_id = ?
        AND mapping.tenant_id = ?
      ORDER BY step.offset_minutes ASC
-  `).bind(reminderId, tenantId).all<ReminderStepRow>();
+  `)
+    .bind(reminderId, tenantId)
+    .all<ReminderStepRow>();
   return result.results;
 }
 
@@ -255,7 +270,8 @@ export async function createReminderStep(
 ): Promise<ReminderStepRow | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  const inserted = await db.prepare(`
+  const inserted = await db
+    .prepare(`
     INSERT INTO reminder_steps
       (id, reminder_id, offset_minutes, message_type, message_content, created_at)
     SELECT ?, reminder.id, ?, ?, ?, ?
@@ -278,16 +294,18 @@ export async function createReminderStep(
      WHERE reminder.id = ?
        AND reminder.line_account_id IS NOT NULL
        AND mapping.tenant_id = ?
-  `).bind(
-    id,
-    input.offsetMinutes,
-    input.messageType,
-    input.messageContent,
-    now,
-    input.staffId,
-    input.reminderId,
-    input.tenantId,
-  ).run();
+  `)
+    .bind(
+      id,
+      input.offsetMinutes,
+      input.messageType,
+      input.messageContent,
+      now,
+      input.staffId,
+      input.reminderId,
+      input.tenantId,
+    )
+    .run();
   if ((inserted.meta?.changes ?? 0) !== 1) return null;
   return db.prepare(`SELECT * FROM reminder_steps WHERE id = ?`).bind(id).first<ReminderStepRow>();
 }
@@ -298,7 +316,8 @@ export async function deleteReminderStep(
   id: string,
   scope: ReminderWriteScope,
 ): Promise<boolean> {
-  const deleted = await db.prepare(`
+  const deleted = await db
+    .prepare(`
     DELETE FROM reminder_steps
      WHERE reminder_steps.id = ?
        AND reminder_steps.reminder_id = ?
@@ -324,7 +343,9 @@ export async function deleteReminderStep(
             AND reminder.line_account_id IS NOT NULL
             AND mapping.tenant_id = ?
        )
-  `).bind(id, reminderId, scope.staffId, scope.tenantId).run();
+  `)
+    .bind(id, reminderId, scope.staffId, scope.tenantId)
+    .run();
   return (deleted.meta?.changes ?? 0) === 1;
 }
 
@@ -342,7 +363,8 @@ export async function enrollFriendInReminder(
 ): Promise<FriendReminderRow | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  const inserted = await db.prepare(`
+  const inserted = await db
+    .prepare(`
     INSERT INTO friend_reminders
       (id, friend_id, reminder_id, target_date, created_at, updated_at)
     SELECT ?, friend.id, reminder.id, ?, ?, ?
@@ -368,16 +390,9 @@ export async function enrollFriendInReminder(
              AND staff.is_active = 1
      WHERE reminder.id = ?
        AND reminder.line_account_id IS NOT NULL
-  `).bind(
-    id,
-    input.targetDate,
-    now,
-    now,
-    input.friendId,
-    input.tenantId,
-    input.staffId,
-    input.reminderId,
-  ).run();
+  `)
+    .bind(id, input.targetDate, now, now, input.friendId, input.tenantId, input.staffId, input.reminderId)
+    .run();
   if ((inserted.meta?.changes ?? 0) !== 1) return null;
   return (await db.prepare(`SELECT * FROM friend_reminders WHERE id = ?`).bind(id).first<FriendReminderRow>())!;
 }
@@ -387,7 +402,8 @@ export async function getFriendReminders(
   friendId: string,
   tenantId: string,
 ): Promise<FriendReminderRow[]> {
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT friendReminder.*
       FROM friend_reminders AS friendReminder
       INNER JOIN reminders AS reminder
@@ -407,7 +423,9 @@ export async function getFriendReminders(
      WHERE friendReminder.friend_id = ?
        AND mapping.tenant_id = ?
      ORDER BY friendReminder.target_date ASC
-  `).bind(friendId, tenantId).all<FriendReminderRow>();
+  `)
+    .bind(friendId, tenantId)
+    .all<FriendReminderRow>();
   return result.results;
 }
 
@@ -416,7 +434,8 @@ export async function getFriendReminderById(
   id: string,
   tenantId: string,
 ): Promise<FriendReminderWithAccountRow | null> {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT friendReminder.*, reminder.line_account_id AS line_account_id
       FROM friend_reminders AS friendReminder
       INNER JOIN reminders AS reminder
@@ -436,15 +455,14 @@ export async function getFriendReminderById(
      WHERE friendReminder.id = ?
        AND mapping.tenant_id = ?
      LIMIT 1
-  `).bind(id, tenantId).first<FriendReminderWithAccountRow>();
+  `)
+    .bind(id, tenantId)
+    .first<FriendReminderWithAccountRow>();
 }
 
-export async function cancelFriendReminder(
-  db: D1Database,
-  id: string,
-  scope: ReminderWriteScope,
-): Promise<boolean> {
-  const updated = await db.prepare(`
+export async function cancelFriendReminder(db: D1Database, id: string, scope: ReminderWriteScope): Promise<boolean> {
+  const updated = await db
+    .prepare(`
     UPDATE friend_reminders
        SET status = 'cancelled', updated_at = ?
      WHERE friend_reminders.id = ?
@@ -473,7 +491,9 @@ export async function cancelFriendReminder(
             AND reminder.line_account_id IS NOT NULL
             AND mapping.tenant_id = ?
        )
-  `).bind(jstNow(), id, scope.staffId, scope.tenantId).run();
+  `)
+    .bind(jstNow(), id, scope.staffId, scope.tenantId)
+    .run();
   return (updated.meta?.changes ?? 0) === 1;
 }
 
@@ -530,21 +550,39 @@ export async function getDueReminderDeliveries(
 }
 
 /** 配信済みを記録 */
-export async function markReminderStepDelivered(db: D1Database, friendReminderId: string, reminderStepId: string): Promise<void> {
+export async function markReminderStepDelivered(
+  db: D1Database,
+  friendReminderId: string,
+  reminderStepId: string,
+): Promise<void> {
   const id = crypto.randomUUID();
-  await db.prepare(`INSERT OR IGNORE INTO friend_reminder_deliveries (id, friend_reminder_id, reminder_step_id) VALUES (?, ?, ?)`)
-    .bind(id, friendReminderId, reminderStepId).run();
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO friend_reminder_deliveries (id, friend_reminder_id, reminder_step_id) VALUES (?, ?, ?)`,
+    )
+    .bind(id, friendReminderId, reminderStepId)
+    .run();
 }
 
 /** 全ステップ配信済みならcompletedにする */
-export async function completeReminderIfDone(db: D1Database, friendReminderId: string, reminderId: string): Promise<void> {
-  const totalSteps = await db.prepare(`SELECT COUNT(*) as count FROM reminder_steps WHERE reminder_id = ?`)
-    .bind(reminderId).first<{ count: number }>();
-  const deliveredSteps = await db.prepare(`SELECT COUNT(*) as count FROM friend_reminder_deliveries WHERE friend_reminder_id = ?`)
-    .bind(friendReminderId).first<{ count: number }>();
+export async function completeReminderIfDone(
+  db: D1Database,
+  friendReminderId: string,
+  reminderId: string,
+): Promise<void> {
+  const totalSteps = await db
+    .prepare(`SELECT COUNT(*) as count FROM reminder_steps WHERE reminder_id = ?`)
+    .bind(reminderId)
+    .first<{ count: number }>();
+  const deliveredSteps = await db
+    .prepare(`SELECT COUNT(*) as count FROM friend_reminder_deliveries WHERE friend_reminder_id = ?`)
+    .bind(friendReminderId)
+    .first<{ count: number }>();
 
   if (totalSteps && deliveredSteps && deliveredSteps.count >= totalSteps.count) {
-    await db.prepare(`UPDATE friend_reminders SET status = 'completed', updated_at = ? WHERE id = ?`)
-      .bind(jstNow(), friendReminderId).run();
+    await db
+      .prepare(`UPDATE friend_reminders SET status = 'completed', updated_at = ? WHERE id = ?`)
+      .bind(jstNow(), friendReminderId)
+      .run();
   }
 }

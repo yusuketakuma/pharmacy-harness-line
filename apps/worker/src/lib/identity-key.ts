@@ -20,11 +20,7 @@ export const IDENTITY_KEY_SQL = `
 // (start-1) からとる。
 //
 // 引数の friend には id / user_id / picture_url を渡す。
-export function computeIdentityKey(friend: {
-  id: string;
-  user_id: string | null;
-  picture_url: string | null;
-}): string {
+export function computeIdentityKey(friend: { id: string; user_id: string | null; picture_url: string | null }): string {
   const pic = friend.picture_url;
   if (pic) {
     if (pic.startsWith('https://sprofile.line-scdn.net/')) {

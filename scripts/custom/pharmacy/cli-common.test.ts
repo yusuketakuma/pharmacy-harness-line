@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  requestId,
-  required,
-  safeText,
-  temporaryPassword,
-  workerOrigin,
-} from './cli-common.js';
+import { requestId, required, safeText, temporaryPassword, workerOrigin } from './cli-common.js';
 
 describe('pharmacy CLI common input handling', () => {
   it('keeps shared argument and one-time password generation contracts consistent', () => {

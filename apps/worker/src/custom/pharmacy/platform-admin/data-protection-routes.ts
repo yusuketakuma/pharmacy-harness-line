@@ -58,9 +58,7 @@ type Body = Record<string, unknown>;
 type RecoveryContext = Context<Env>;
 
 function asBody(value: unknown): Body | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Body
-    : null;
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Body) : null;
 }
 
 function stringValue(value: unknown): string | null {
@@ -69,20 +67,26 @@ function stringValue(value: unknown): string | null {
 
 function operationValue(value: unknown): RecoveryOperation | null {
   return typeof value === 'string' && (RECOVERY_OPERATIONS as readonly string[]).includes(value)
-    ? value as RecoveryOperation
+    ? (value as RecoveryOperation)
     : null;
 }
 
 const IDENTITY_KEYS = new Set([
-  'approvedBy', 'approved_by', 'approver', 'approverSubject', 'approver_subject',
-  'executor', 'executorBy', 'executorSubject', 'executor_subject',
+  'approvedBy',
+  'approved_by',
+  'approver',
+  'approverSubject',
+  'approver_subject',
+  'executor',
+  'executorBy',
+  'executorSubject',
+  'executor_subject',
 ]);
 
 function identitySpoofed(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(identitySpoofed);
   if (value === null || typeof value !== 'object') return false;
-  return Object.entries(value as Body).some(([key, nested]) =>
-    IDENTITY_KEYS.has(key) || identitySpoofed(nested));
+  return Object.entries(value as Body).some(([key, nested]) => IDENTITY_KEYS.has(key) || identitySpoofed(nested));
 }
 
 function scopeFromBody(body: Body): RecoveryScope | null {
@@ -109,8 +113,13 @@ function parsePreflight(value: unknown): RecoveryPreflight | null {
   const keyVersions = body.keyVersions;
   if (!Array.isArray(keyVersions)) return null;
   const fields = [
-    'schemaDigest', 'fieldInventoryDigest', 'backupGenerationId', 'stopPolicy',
-    'rollbackPolicy', 'evidenceDigest', 'rowDigest',
+    'schemaDigest',
+    'fieldInventoryDigest',
+    'backupGenerationId',
+    'stopPolicy',
+    'rollbackPolicy',
+    'evidenceDigest',
+    'rowDigest',
   ];
   if (fields.some((field) => stringValue(body[field]) === null)) return null;
   const expectedRowCount = nonNegativeInteger(body.expectedRowCount);
@@ -150,18 +159,16 @@ async function audit(
   action: string,
   detail?: Record<string, unknown>,
 ): Promise<void> {
-  await recordPlatformAdminAccess(
-    db,
-    adminId,
-    operation.scope.tenantId,
-    action,
-    'recovery_operation',
-    operation.id,
-    { operation: operation.operation, environment: operation.scope.environment, ...detail },
-  );
+  await recordPlatformAdminAccess(db, adminId, operation.scope.tenantId, action, 'recovery_operation', operation.id, {
+    operation: operation.operation,
+    environment: operation.scope.environment,
+    ...detail,
+  });
 }
 
-function migrationApproval(operation: Awaited<ReturnType<typeof getRecoveryOperation>>): PatientIntakeMigrationApproval {
+function migrationApproval(
+  operation: Awaited<ReturnType<typeof getRecoveryOperation>>,
+): PatientIntakeMigrationApproval {
   if (!operation?.preflight || !operation.approverSubject) throw new RecoveryOperationError('PREFLIGHT_REQUIRED');
   return {
     approvedBy: operation.approverSubject,
@@ -183,9 +190,10 @@ async function verifyIntakeCoverage(
   preflight: RecoveryPreflight,
 ): Promise<void> {
   const migrationScope = { ...cryptoScope, lineAccountId: scope.lineAccountId };
-  const coverage = operation === 'fle_backfill'
-    ? await inspectPatientIntakeBackfillCoverage(db, migrationScope)
-    : await inspectPatientIntakeCoverage(db, migrationScope);
+  const coverage =
+    operation === 'fle_backfill'
+      ? await inspectPatientIntakeBackfillCoverage(db, migrationScope)
+      : await inspectPatientIntakeCoverage(db, migrationScope);
   const activeVersion = String(activePatientIntakeKeyVersion(cryptoScope));
   const keyVersions = coverage.keyVersions?.length ? [...coverage.keyVersions] : [activeVersion];
   if (operation === 'fle_backfill' && !keyVersions.includes(activeVersion)) {
@@ -193,16 +201,20 @@ async function verifyIntakeCoverage(
     keyVersions.sort((left, right) => Number(left) - Number(right));
   }
   const metadata = await patientIntakeRecoveryMetadata(keyVersions);
-  if (coverage.errorCode || coverage.coverageTotal !== preflight.coverageTotal ||
-      coverage.coverageTotal !== preflight.expectedRowCount ||
-      coverage.coverageDigest !== preflight.rowDigest ||
-      coverage.counts.covered !== coverage.counts.scanned ||
-      preflight.schemaDigest !== metadata.schemaDigest ||
-      preflight.fieldInventoryDigest !== metadata.fieldInventoryDigest ||
-      JSON.stringify(preflight.keyVersions) !== JSON.stringify(metadata.keyVersions) ||
-      !preflight.coverageVerified || !preflight.keyRecoveryAcknowledged ||
-      preflight.stopPolicy !== 'stop-on-drift' ||
-      preflight.rollbackPolicy !== 'restore-verified-envelope') {
+  if (
+    coverage.errorCode ||
+    coverage.coverageTotal !== preflight.coverageTotal ||
+    coverage.coverageTotal !== preflight.expectedRowCount ||
+    coverage.coverageDigest !== preflight.rowDigest ||
+    coverage.counts.covered !== coverage.counts.scanned ||
+    preflight.schemaDigest !== metadata.schemaDigest ||
+    preflight.fieldInventoryDigest !== metadata.fieldInventoryDigest ||
+    JSON.stringify(preflight.keyVersions) !== JSON.stringify(metadata.keyVersions) ||
+    !preflight.coverageVerified ||
+    !preflight.keyRecoveryAcknowledged ||
+    preflight.stopPolicy !== 'stop-on-drift' ||
+    preflight.rollbackPolicy !== 'restore-verified-envelope'
+  ) {
     throw new RecoveryOperationError('PREFLIGHT_BLOCKED');
   }
 }
@@ -221,12 +233,21 @@ async function executeIntakeOperation(
   execution: RecoveryExecution,
 ): Promise<IntakeExecutionResult> {
   if (!operation.preflight) throw new RecoveryOperationError('PREFLIGHT_REQUIRED');
-  const cursor = body.cursor === null || body.cursor === undefined
-    ? operation.cursor
-    : typeof body.cursor === 'string' ? body.cursor : undefined;
+  const cursor =
+    body.cursor === null || body.cursor === undefined
+      ? operation.cursor
+      : typeof body.cursor === 'string'
+        ? body.cursor
+        : undefined;
   const limit = body.limit === undefined ? MAX_BATCH : body.limit;
-  if (cursor === undefined || typeof limit !== 'number' || !Number.isSafeInteger(limit) ||
-      limit < 1 || limit > MAX_BATCH) throw new RecoveryOperationError('INVALID_INPUT');
+  if (
+    cursor === undefined ||
+    typeof limit !== 'number' ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_BATCH
+  )
+    throw new RecoveryOperationError('INVALID_INPUT');
   const scope = {
     ...cryptoScope,
     execution,
@@ -234,7 +255,10 @@ async function executeIntakeOperation(
   };
   if (operation.operation === 'fle_backfill') {
     return backfillPatientIntakeEnvelopes(db, {
-      ...scope, cursor, limit, dryRun: false,
+      ...scope,
+      cursor,
+      limit,
+      dryRun: false,
     });
   }
   const approval = migrationApproval(operation);
@@ -246,7 +270,13 @@ async function executeIntakeOperation(
     return scrubPatientIntakeLegacyFields(db, { ...scope, cursor, limit, dryRun: false, approval });
   }
   if (operation.operation === 'plaintext_restore') {
-    return restorePatientIntakeLegacyFields(db, { ...scope, cursor, limit, dryRun: false, approval });
+    return restorePatientIntakeLegacyFields(db, {
+      ...scope,
+      cursor,
+      limit,
+      dryRun: false,
+      approval,
+    });
   }
   throw new RecoveryOperationError('INVALID_INPUT');
 }
@@ -268,8 +298,13 @@ async function executeRetentionOperation(
   const backfill = await backfillIncomingImageTracking(c.env.DB, options);
   const inventory = await reconcileIncomingImageInventory(c.env.DB, c.env.IMAGES, options);
   if (backfill.tracked > 0) throw new RecoveryOperationError('STALE');
-  if (backfill.blocked > 0 || inventory.orphan > 0 || inventory.missing > 0 ||
-      inventory.mismatch > 0 || inventory.unknown > 0) {
+  if (
+    backfill.blocked > 0 ||
+    inventory.orphan > 0 ||
+    inventory.missing > 0 ||
+    inventory.mismatch > 0 ||
+    inventory.unknown > 0
+  ) {
     throw new RecoveryOperationError('PREFLIGHT_BLOCKED');
   }
   const readiness = await incomingImageRetentionReadiness(c.env.DB, { execution });
@@ -287,15 +322,16 @@ async function executeRetentionOperation(
   }
   const prescriptions = await purgePrescriptionFilesPastRetention(c.env.DB, c.env.IMAGES, options);
   const incoming = await purgeTrackedIncomingImages(c.env.DB, c.env.IMAGES, options);
-  const incomingReconcile = await reconcileIncomingImageDeletionOutcomes(
-    c.env.DB, c.env.IMAGES, options,
-  );
-  const prescriptionReconcile = await reconcilePrescriptionDeletionIntents(
-    c.env.DB, c.env.IMAGES, options,
-  );
+  const incomingReconcile = await reconcileIncomingImageDeletionOutcomes(c.env.DB, c.env.IMAGES, options);
+  const prescriptionReconcile = await reconcilePrescriptionDeletionIntents(c.env.DB, c.env.IMAGES, options);
   return {
-    backfill, inventory, prescriptions, incoming, incomingReconcile,
-    prescriptionReconcile, readiness,
+    backfill,
+    inventory,
+    prescriptions,
+    incoming,
+    incomingReconcile,
+    prescriptionReconcile,
+    readiness,
   };
 }
 
@@ -313,7 +349,11 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}`, async (c) => {
   }
   try {
     const record = await createRecoveryApproval(c.env.DB, {
-      scope, operation, requestedBy: principal(c), approvalExpiresAt, idempotencyKey,
+      scope,
+      operation,
+      requestedBy: principal(c),
+      approvalExpiresAt,
+      idempotencyKey,
       jobId: stringValue(body.jobId) ?? undefined,
     });
     await audit(c.env.DB, admin.id, record, 'recovery_operation_created');
@@ -334,8 +374,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/preflight`
   let preflight = parsePreflight(body.preflight ?? body);
   if (current.operation === 'retention_delete') {
     const submitted = asBody(body.preflight);
-    const backupGenerationId = stringValue(body.backupGenerationId) ??
-      stringValue(submitted?.backupGenerationId);
+    const backupGenerationId = stringValue(body.backupGenerationId) ?? stringValue(submitted?.backupGenerationId);
     if (!backupGenerationId) return c.json({ success: false, error: 'Invalid recovery request' }, 400);
     try {
       preflight = await buildRetentionPreflight(c.env.DB, {
@@ -348,8 +387,10 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/preflight`
     }
   }
   if (!preflight) return c.json({ success: false, error: 'Invalid recovery request' }, 400);
-  const isIntakeOperation = current.operation === 'fle_backfill' ||
-    current.operation === 'plaintext_scrub' || current.operation === 'plaintext_restore';
+  const isIntakeOperation =
+    current.operation === 'fle_backfill' ||
+    current.operation === 'plaintext_scrub' ||
+    current.operation === 'plaintext_restore';
   const cryptoScope = isIntakeOperation ? requirePhiKeys(c, current.scope.tenantId) : null;
   if (isIntakeOperation && !cryptoScope) {
     return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
@@ -381,7 +422,10 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/approve`, 
   if (!current) return c.json({ success: false, error: 'Not found' }, 404);
   try {
     const record = await approveRecoveryOperation(c.env.DB, {
-      operationId, scope: current.scope, operation: current.operation, principal: principal(c),
+      operationId,
+      scope: current.scope,
+      operation: current.operation,
+      principal: principal(c),
     });
     await audit(c.env.DB, admin.id, record, 'recovery_operation_approved');
     return c.json({ success: true, data: record });
@@ -398,8 +442,10 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
   const operationId = c.req.param('operationId');
   const current = await getRecoveryOperation(c.env.DB, operationId).catch(() => null);
   if (!current) return c.json({ success: false, error: 'Not found' }, 404);
-  const isIntakeOperation = current.operation === 'fle_backfill' ||
-    current.operation === 'plaintext_scrub' || current.operation === 'plaintext_restore';
+  const isIntakeOperation =
+    current.operation === 'fle_backfill' ||
+    current.operation === 'plaintext_scrub' ||
+    current.operation === 'plaintext_restore';
   if (!isIntakeOperation && current.operation !== 'retention_delete') {
     return c.json({ success: false, error: 'Operation is not executable by this route' }, 409);
   }
@@ -431,12 +477,19 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       }
     } else {
       claimed = await claimRecoveryOperation(c.env.DB, {
-        operationId, scope: current.scope, operation: current.operation, executor: principal(c),
+        operationId,
+        scope: current.scope,
+        operation: current.operation,
+        executor: principal(c),
       });
     }
     const verified = await preflightRecoveryOperation(c.env.DB, {
-      operationId, scope: claimed.scope, operation: claimed.operation, preflight,
-      executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
+      operationId,
+      scope: claimed.scope,
+      operation: claimed.operation,
+      preflight,
+      executionId: claimed.executionId!,
+      fenceToken: claimed.fenceToken!,
     });
     if (isIntakeOperation && cryptoScope) {
       await verifyIntakeCoverage(c.env.DB, verified.operation, verified.scope, cryptoScope, preflight);
@@ -458,57 +511,78 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
         throw new RecoveryOperationError('INVALID_INPUT');
       }
       const result = await executeRetentionOperation(c, execution, limit);
-      const failed = result.prescriptions.failed + result.incoming.failed +
-        result.incomingReconcile.failed + result.prescriptionReconcile.failed +
+      const failed =
+        result.prescriptions.failed +
+        result.incoming.failed +
+        result.incomingReconcile.failed +
+        result.prescriptionReconcile.failed +
         result.inventory.unknown;
-      const blocked = result.backfill.blocked + result.inventory.orphan +
-        result.inventory.missing + result.inventory.mismatch +
-        result.prescriptions.skipped + result.incoming.skipped +
-        result.incomingReconcile.skipped + result.prescriptionReconcile.skipped +
+      const blocked =
+        result.backfill.blocked +
+        result.inventory.orphan +
+        result.inventory.missing +
+        result.inventory.mismatch +
+        result.prescriptions.skipped +
+        result.incoming.skipped +
+        result.incomingReconcile.skipped +
+        result.prescriptionReconcile.skipped +
         (result.readiness.status === 'BLOCKED' ? 1 : 0);
-      const rowBatch = result.prescriptions.purged + result.prescriptions.failed +
-        result.prescriptions.skipped;
+      const rowBatch = result.prescriptions.purged + result.prescriptions.failed + result.prescriptions.skipped;
       const objectBatch = result.incoming.purged + result.incoming.failed + result.incoming.skipped;
-      const processedRowCount = Math.min(
-        verified.preflight!.expectedRowCount, verified.processedRowCount + rowBatch,
-      );
+      const processedRowCount = Math.min(verified.preflight!.expectedRowCount, verified.processedRowCount + rowBatch);
       const processedObjectCount = Math.min(
-        verified.preflight!.expectedObjectCount, verified.processedObjectCount + objectBatch,
+        verified.preflight!.expectedObjectCount,
+        verified.processedObjectCount + objectBatch,
       );
-      const progressed = result.readiness.status === 'READY'
-        ? await markRecoveryProgress(c.env.DB, {
-          ...execution,
-          expectedLastBatchId: verified.lastBatchId,
-          batchId: stringValue(body.batchId) ??
-            `${verified.id}:${verified.processedRowCount}:${verified.processedObjectCount}`,
-          cursor: null,
-          processedRowCount,
-          processedObjectCount,
-        })
-        : verified;
-      const final = failed === 0 && blocked === 0 &&
+      const progressed =
+        result.readiness.status === 'READY'
+          ? await markRecoveryProgress(c.env.DB, {
+              ...execution,
+              expectedLastBatchId: verified.lastBatchId,
+              batchId:
+                stringValue(body.batchId) ??
+                `${verified.id}:${verified.processedRowCount}:${verified.processedObjectCount}`,
+              cursor: null,
+              processedRowCount,
+              processedObjectCount,
+            })
+          : verified;
+      const final =
+        failed === 0 &&
+        blocked === 0 &&
         processedRowCount === verified.preflight!.expectedRowCount &&
         processedObjectCount === verified.preflight!.expectedObjectCount
-        ? await completeRecoveryOperation(c.env.DB, execution)
-        : progressed;
-      await audit(c.env.DB, admin.id, final,
-        failed === 0 && blocked === 0
-          ? 'recovery_operation_completed' : 'recovery_operation_progressed', {
+          ? await completeRecoveryOperation(c.env.DB, execution)
+          : progressed;
+      await audit(
+        c.env.DB,
+        admin.id,
+        final,
+        failed === 0 && blocked === 0 ? 'recovery_operation_completed' : 'recovery_operation_progressed',
+        {
           prescriptionPurged: result.prescriptions.purged,
           incomingPurged: result.incoming.purged,
           failed,
           blocked,
           readiness: result.readiness.status,
           blockedReasons: result.readiness.blockedReasons,
-        });
+        },
+      );
       return c.json({ success: true, data: { operation: final, result } });
     }
     const result = await executeIntakeOperation(c.env.DB, verified, cryptoScope!, body, execution);
     if (result.errorCode) {
       throw new RecoveryOperationError(
-        ['COVERAGE_MISMATCH', 'MISMATCH', 'MIXED_SENTINEL', 'CORRUPT_ENVELOPE',
-          'PARTIAL_ENVELOPE', 'INVALID_STATE'].includes(result.errorCode)
-          ? 'STALE' : 'STATE_CONFLICT',
+        [
+          'COVERAGE_MISMATCH',
+          'MISMATCH',
+          'MIXED_SENTINEL',
+          'CORRUPT_ENVELOPE',
+          'PARTIAL_ENVELOPE',
+          'INVALID_STATE',
+        ].includes(result.errorCode)
+          ? 'STALE'
+          : 'STATE_CONFLICT',
       );
     }
     const batchId = stringValue(body.batchId) ?? `${verified.id}:${verified.cursor ?? 'start'}`;
@@ -520,36 +594,46 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       processedRowCount: verified.processedRowCount + (result.counts.scanned ?? 0),
       processedObjectCount: verified.processedObjectCount,
     });
-    const final = result.nextCursor === null
-      ? await completeRecoveryOperation(c.env.DB, execution)
-      : progressed;
-    await audit(c.env.DB, admin.id, final, result.nextCursor === null
-      ? 'recovery_operation_completed' : 'recovery_operation_progressed', {
-      scanned: result.counts.scanned ?? 0,
-      verified: result.counts.verified ?? 0,
-      rewrapped: result.counts.rewrapped ?? 0,
-    });
+    const final = result.nextCursor === null ? await completeRecoveryOperation(c.env.DB, execution) : progressed;
+    await audit(
+      c.env.DB,
+      admin.id,
+      final,
+      result.nextCursor === null ? 'recovery_operation_completed' : 'recovery_operation_progressed',
+      {
+        scanned: result.counts.scanned ?? 0,
+        verified: result.counts.verified ?? 0,
+        rewrapped: result.counts.rewrapped ?? 0,
+      },
+    );
     return c.json({ success: true, data: { operation: final, result } });
   } catch (error) {
-    if (error instanceof RecoveryOperationError &&
-        ['PROGRESS_CONFLICT', 'COMPLETE_CONFLICT'].includes(error.code)) {
+    if (error instanceof RecoveryOperationError && ['PROGRESS_CONFLICT', 'COMPLETE_CONFLICT'].includes(error.code)) {
       // Another request may have advanced the same execution. Its operation
       // and lease must survive this request's stale progress/completion attempt.
       return errorResponse(c, error);
     }
-    if (error instanceof RecoveryOperationError &&
-        ['PREFLIGHT_BLOCKED', 'STALE', 'EXECUTION_NOT_FOUND', 'FENCE_EXPIRED'].includes(error.code)) {
+    if (
+      error instanceof RecoveryOperationError &&
+      ['PREFLIGHT_BLOCKED', 'STALE', 'EXECUTION_NOT_FOUND', 'FENCE_EXPIRED'].includes(error.code)
+    ) {
       const latest = await getRecoveryOperation(c.env.DB, operationId).catch(() => null);
       if (latest && latest.status === 'running' && latest.executorSubject === admin.id) {
         await markRecoveryStale(c.env.DB, {
-          operationId, scope: latest.scope, operation: latest.operation, code: error.code,
+          operationId,
+          scope: latest.scope,
+          operation: latest.operation,
+          code: error.code,
         }).catch(() => undefined);
       }
     } else {
       const latest = await getRecoveryOperation(c.env.DB, operationId).catch(() => null);
       if (latest && latest.status === 'running' && latest.executorSubject === admin.id) {
         await markRecoveryFailed(c.env.DB, {
-          operationId, scope: latest.scope, operation: latest.operation, code: 'EXECUTION_FAILED',
+          operationId,
+          scope: latest.scope,
+          operation: latest.operation,
+          code: 'EXECUTION_FAILED',
         }).catch(() => undefined);
       }
     }
@@ -567,8 +651,12 @@ platformAdminDataProtectionRoutes.get(`${RECOVERY_PATH}/:operationId`, async (c)
     success: true,
     data: {
       ...record,
-      readiness: record.operation === 'fle_backfill' || record.operation === 'plaintext_scrub' ||
-        record.operation === 'plaintext_restore' ? 'UNVERIFIED' : 'NOT_RUN',
+      readiness:
+        record.operation === 'fle_backfill' ||
+        record.operation === 'plaintext_scrub' ||
+        record.operation === 'plaintext_restore'
+          ? 'UNVERIFIED'
+          : 'NOT_RUN',
     },
   });
 });

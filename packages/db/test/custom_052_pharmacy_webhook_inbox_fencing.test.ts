@@ -33,9 +33,9 @@ describe('custom_052 pharmacy webhook inbox fencing', () => {
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
       '021_calendar_bookings_overlap_index.sql',
       '022_booking_idempotency_scoped.sql',
-    '023_meet_reminder_delivery_id.sql',
-    '024_stripe_effect_completion.sql',
-    '025_friend_link_scope_triggers.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
       '027_custom_079_pharmacy_followup_notification_queue.sql',
       '028_custom_080_pharmacy_continuity_notification_queue.sql',
@@ -56,7 +56,9 @@ describe('custom_052 pharmacy webhook inbox fencing', () => {
       (tenant_id, line_account_id, webhook_event_id, status, received_at)
       VALUES ('tenant-a', 'account-a', 'event-a', 'processing', '2026-08-23T00:00:00Z')`).run();
 
-    expect(db.prepare(`SELECT status, claim_token FROM pharmacy_webhook_event_receipts`).get())
-      .toEqual({ status: 'processing', claim_token: null });
+    expect(db.prepare(`SELECT status, claim_token FROM pharmacy_webhook_event_receipts`).get()).toEqual({
+      status: 'processing',
+      claim_token: null,
+    });
   });
 });

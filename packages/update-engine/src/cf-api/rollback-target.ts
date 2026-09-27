@@ -23,9 +23,15 @@ export async function getRollbackPagesDeployment(opts: {
     };
   };
   const deployment = body.result?.canonical_deployment;
-  if (body.success !== true || typeof deployment?.id !== 'string' || !deployment.id ||
-      deployment.environment !== 'production' || deployment.is_skipped !== false ||
-      deployment.latest_stage?.name !== 'deploy' || deployment.latest_stage.status !== 'success') {
+  if (
+    body.success !== true ||
+    typeof deployment?.id !== 'string' ||
+    !deployment.id ||
+    deployment.environment !== 'production' ||
+    deployment.is_skipped !== false ||
+    deployment.latest_stage?.name !== 'deploy' ||
+    deployment.latest_stage.status !== 'success'
+  ) {
     throw new Error('Pages production rollback target is unavailable or unhealthy');
   }
   return { id: deployment.id };

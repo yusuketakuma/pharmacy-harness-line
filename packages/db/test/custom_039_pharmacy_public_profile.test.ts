@@ -11,7 +11,13 @@ function seed(db: Database.Database, suffix: 'a' | 'b') {
   db.prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-    `account-${suffix}`, `channel-${suffix}`, `薬局${suffix}`, `token-${suffix}`, `secret-${suffix}`, NOW, NOW,
+    `account-${suffix}`,
+    `channel-${suffix}`,
+    `薬局${suffix}`,
+    `token-${suffix}`,
+    `secret-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO staff_members
     (id, name, role, api_key, is_active, created_at, updated_at)
@@ -31,7 +37,8 @@ function seed(db: Database.Database, suffix: 'a' | 'b') {
 }
 
 function insert(db: Database.Database, account: string, staff: string) {
-  return db.prepare(`INSERT INTO pharmacy_public_profiles
+  return db
+    .prepare(`INSERT INTO pharmacy_public_profiles
     (line_account_id, display_name, address, business_hours, updated_by, created_at, updated_at)
     VALUES (?, 'みどり薬局', '東京都千代田区', '月〜金 9:00〜18:00', ?, ?, ?)`)
     .run(account, staff, NOW, NOW);
@@ -50,8 +57,9 @@ describe('custom_039 pharmacy public profile', () => {
 
   it('stores one public profile per LINE account', () => {
     insert(db, 'account-a', 'staff-a');
-    expect(db.prepare(`SELECT display_name FROM pharmacy_public_profiles WHERE line_account_id = ?`)
-      .get('account-a')).toEqual({ display_name: 'みどり薬局' });
+    expect(
+      db.prepare(`SELECT display_name FROM pharmacy_public_profiles WHERE line_account_id = ?`).get('account-a'),
+    ).toEqual({ display_name: 'みどり薬局' });
     expect(() => insert(db, 'account-a', 'staff-a')).toThrow(/unique/i);
   });
 
@@ -62,7 +70,8 @@ describe('custom_039 pharmacy public profile', () => {
   it('cascades the public profile with its LINE account', () => {
     insert(db, 'account-a', 'staff-a');
     db.prepare(`DELETE FROM line_accounts WHERE id = ?`).run('account-a');
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_public_profiles`).get())
-      .toEqual({ count: 0 });
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_public_profiles`).get()).toEqual({
+      count: 0,
+    });
   });
 });

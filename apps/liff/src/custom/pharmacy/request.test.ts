@@ -41,17 +41,15 @@ describe('requestPharmacyLiff', () => {
   });
 
   it('keeps the response status and body on JSON request failures', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ error: 'Prescription changed' }),
-      { status: 409 },
-    ));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Prescription changed' }), { status: 409 }),
+    );
 
-    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me'))
-      .rejects.toMatchObject({
-        message: '内容が更新されています。画面を再読み込みしてください。',
-        status: 409,
-        body: { error: 'Prescription changed' },
-      });
+    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me')).rejects.toMatchObject({
+      message: '内容が更新されています。画面を再読み込みしてください。',
+      status: 409,
+      body: { error: 'Prescription changed' },
+    });
   });
 
   it('distinguishes previous-Worker feature absence from current binding and auth failures', async () => {
@@ -93,41 +91,38 @@ describe('requestPharmacyLiff', () => {
   });
 
   it('preserves the route-not-found discriminator on JSON request failures', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ success: false, error: 'Not found' }),
-      { status: 404, headers: { 'X-Line-Harness-Error': 'route_not_found' } },
-    ));
-
-    await expect(requestPharmacyJson('/api/liff/pharmacy/timeline'))
-      .rejects.toMatchObject({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: 'Not found' }), {
         status: 404,
-        routeError: 'route_not_found',
-      });
+        headers: { 'X-Line-Harness-Error': 'route_not_found' },
+      }),
+    );
+
+    await expect(requestPharmacyJson('/api/liff/pharmacy/timeline')).rejects.toMatchObject({
+      status: 404,
+      routeError: 'route_not_found',
+    });
   });
 
   it('maps 503 (feature unavailable) to a message distinct from server failures', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ error: 'Myna受付URLが設定されていません' }),
-      { status: 503 },
-    ));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Myna受付URLが設定されていません' }), { status: 503 }),
+    );
 
-    await expect(requestPharmacyJson('/api/liff/pharmacy/myna-handoffs'))
-      .rejects.toMatchObject({
-        message: 'この機能は現在利用できません。薬局にお問い合わせください。',
-        status: 503,
-      });
+    await expect(requestPharmacyJson('/api/liff/pharmacy/myna-handoffs')).rejects.toMatchObject({
+      message: 'この機能は現在利用できません。薬局にお問い合わせください。',
+      status: 503,
+    });
   });
 
   it('shows a safe Japanese message instead of a raw server error', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ error: 'SQLITE_CONSTRAINT internal detail' }),
-      { status: 500 },
-    ));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'SQLITE_CONSTRAINT internal detail' }), { status: 500 }),
+    );
 
-    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me'))
-      .rejects.toMatchObject({
-        message: '薬局システムに接続できませんでした。時間をおいて再度お試しください。',
-      });
+    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me')).rejects.toMatchObject({
+      message: '薬局システムに接続できませんでした。時間をおいて再度お試しください。',
+    });
   });
 
   it('shows only mapped request errors and hides arbitrary runtime details', () => {
@@ -135,7 +130,8 @@ describe('requestPharmacyLiff', () => {
       status: 409,
     });
     expect(pharmacyErrorMessage(mapped, '安全な再試行案内')).toBe(mapped.message);
-    expect(pharmacyErrorMessage(new Error('SQLITE_CONSTRAINT internal detail'), '安全な再試行案内'))
-      .toBe('安全な再試行案内');
+    expect(pharmacyErrorMessage(new Error('SQLITE_CONSTRAINT internal detail'), '安全な再試行案内')).toBe(
+      '安全な再試行案内',
+    );
   });
 });

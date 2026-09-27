@@ -9,10 +9,7 @@ import {
   isValidAdminPassword,
 } from './credentials.js';
 import { requireLineBotUserId } from './line-connection.js';
-import {
-  encryptLineCredential,
-  type LineCredentialKind,
-} from './line-credentials.js';
+import { encryptLineCredential, type LineCredentialKind } from './line-credentials.js';
 import {
   backfillLineCredentials,
   restoreLegacyLineCredentials,
@@ -25,14 +22,8 @@ import {
   scrubPatientIntakeLegacyFields,
 } from '../intake/migration.js';
 import { resolvePatientIntakeCryptoScope } from '../intake/envelopes.js';
-import {
-  platformAdminSessionTokenFromCookie,
-  resolvePlatformAdminSession,
-} from '../platform-admin/auth.js';
-import {
-  platformAdminAccessStatement,
-  recordPlatformAdminAccess,
-} from '../platform-admin/audit.js';
+import { platformAdminSessionTokenFromCookie, resolvePlatformAdminSession } from '../platform-admin/auth.js';
+import { platformAdminAccessStatement, recordPlatformAdminAccess } from '../platform-admin/audit.js';
 
 type ProvisioningInput = {
   tenantName: string;
@@ -72,7 +63,7 @@ const encoder = new TextEncoder();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -86,15 +77,23 @@ function optionalStringField(record: Record<string, unknown>, key: string): stri
 }
 
 const LEGACY_RECOVERY_IDENTITY_FIELDS = new Set([
-  'approvedBy', 'approved_by', 'approver', 'approverSubject', 'approver_subject',
-  'executor', 'executorBy', 'executorSubject', 'executor_subject',
+  'approvedBy',
+  'approved_by',
+  'approver',
+  'approverSubject',
+  'approver_subject',
+  'executor',
+  'executorBy',
+  'executorSubject',
+  'executor_subject',
 ]);
 
 function containsLegacyRecoveryIdentity(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsLegacyRecoveryIdentity);
   if (value === null || typeof value !== 'object') return false;
-  return Object.entries(value as Record<string, unknown>).some(([key, nested]) =>
-    LEGACY_RECOVERY_IDENTITY_FIELDS.has(key) || containsLegacyRecoveryIdentity(nested));
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nested]) => LEGACY_RECOVERY_IDENTITY_FIELDS.has(key) || containsLegacyRecoveryIdentity(nested),
+  );
 }
 
 function parseInput(value: unknown): ProvisioningInput | null {
@@ -110,9 +109,7 @@ function parseInput(value: unknown): ProvisioningInput | null {
       displayName: stringField(admin, 'displayName'),
       email: optionalStringField(admin, 'email'),
       // Password whitespace is significant. Never trim a credential.
-      temporaryPassword: typeof admin.temporaryPassword === 'string'
-        ? admin.temporaryPassword
-        : '',
+      temporaryPassword: typeof admin.temporaryPassword === 'string' ? admin.temporaryPassword : '',
     },
     line: {
       channelId: stringField(line, 'channelId'),
@@ -125,18 +122,23 @@ function parseInput(value: unknown): ProvisioningInput | null {
     },
   };
 
-  if (!input.tenantName || input.tenantName.length > 120 ||
-      (input.admin.loginId !== '' &&
-        !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.admin.loginId)) ||
-      !input.admin.displayName || input.admin.displayName.length > 120 ||
-      (input.admin.temporaryPassword !== '' && !isValidAdminPassword(input.admin.temporaryPassword)) ||
-      (input.admin.email !== null &&
-        (input.admin.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.admin.email))) ||
-      !/^\d{6,32}$/u.test(input.line.channelId) ||
-      !input.line.displayName || input.line.displayName.length > 120 ||
-      input.line.channelAccessToken.length < 32 || input.line.channelAccessToken.length > 2048 ||
-      !/^[\x21-\x7E]+$/u.test(input.line.channelAccessToken) ||
-      !/^[A-Fa-f0-9]{32}$/u.test(input.line.channelSecret)) {
+  if (
+    !input.tenantName ||
+    input.tenantName.length > 120 ||
+    (input.admin.loginId !== '' && !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.admin.loginId)) ||
+    !input.admin.displayName ||
+    input.admin.displayName.length > 120 ||
+    (input.admin.temporaryPassword !== '' && !isValidAdminPassword(input.admin.temporaryPassword)) ||
+    (input.admin.email !== null &&
+      (input.admin.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.admin.email))) ||
+    !/^\d{6,32}$/u.test(input.line.channelId) ||
+    !input.line.displayName ||
+    input.line.displayName.length > 120 ||
+    input.line.channelAccessToken.length < 32 ||
+    input.line.channelAccessToken.length > 2048 ||
+    !/^[\x21-\x7E]+$/u.test(input.line.channelAccessToken) ||
+    !/^[A-Fa-f0-9]{32}$/u.test(input.line.channelSecret)
+  ) {
     return null;
   }
   // A pharmacy tenant cannot open the patient intake or prescription LIFF
@@ -147,13 +149,15 @@ function parseInput(value: unknown): ProvisioningInput | null {
   }
   const hasLoginId = input.line.loginChannelId !== null;
   const hasLoginSecret = input.line.loginChannelSecret !== null;
-  if (hasLoginId !== hasLoginSecret ||
-      (input.line.loginChannelId !== null && !/^\d{6,32}$/u.test(input.line.loginChannelId)) ||
-      (input.line.loginChannelSecret !== null && !/^[A-Fa-f0-9]{32}$/u.test(input.line.loginChannelSecret)) ||
-      (input.line.liffId !== null &&
-        (!/^\d{6,32}-[A-Za-z0-9_-]{8,64}$/u.test(input.line.liffId) ||
-         !input.line.loginChannelId ||
-         !input.line.liffId.startsWith(`${input.line.loginChannelId}-`)))) {
+  if (
+    hasLoginId !== hasLoginSecret ||
+    (input.line.loginChannelId !== null && !/^\d{6,32}$/u.test(input.line.loginChannelId)) ||
+    (input.line.loginChannelSecret !== null && !/^[A-Fa-f0-9]{32}$/u.test(input.line.loginChannelSecret)) ||
+    (input.line.liffId !== null &&
+      (!/^\d{6,32}-[A-Za-z0-9_-]{8,64}$/u.test(input.line.liffId) ||
+        !input.line.loginChannelId ||
+        !input.line.liffId.startsWith(`${input.line.loginChannelId}-`)))
+  ) {
     return null;
   }
   return input;
@@ -166,15 +170,15 @@ function parseAdminBootstrapInput(value: unknown): AdminBootstrapInput | null {
     loginId: stringField(body, 'loginId'),
     displayName: stringField(body, 'displayName'),
     email: optionalStringField(body, 'email'),
-    temporaryPassword: typeof body.temporaryPassword === 'string'
-      ? body.temporaryPassword
-      : '',
+    temporaryPassword: typeof body.temporaryPassword === 'string' ? body.temporaryPassword : '',
   };
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.loginId) ||
-      !input.displayName || input.displayName.length > 120 ||
-      !isValidAdminPassword(input.temporaryPassword) ||
-      (input.email !== null &&
-        (input.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.email)))) {
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.loginId) ||
+    !input.displayName ||
+    input.displayName.length > 120 ||
+    !isValidAdminPassword(input.temporaryPassword) ||
+    (input.email !== null && (input.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.email)))
+  ) {
     return null;
   }
   return input;
@@ -234,12 +238,10 @@ async function requestHash(input: ProvisioningInput): Promise<string> {
   return hex(await sha256(JSON.stringify({ ...input, admin })));
 }
 
-async function findReceipt(
-  db: D1Database,
-  idempotencyKeyHash: string,
-): Promise<ProvisioningReceipt | null> {
-  return db.prepare(
-    `SELECT request.request_hash, request.tenant_id, request.line_account_id,
+async function findReceipt(db: D1Database, idempotencyKeyHash: string): Promise<ProvisioningReceipt | null> {
+  return db
+    .prepare(
+      `SELECT request.request_hash, request.tenant_id, request.line_account_id,
             request.staff_id, tenant.tenant_code, tenant.display_name,
             credential.login_id, credential.auth_enabled,
             account.name AS line_account_name, account.liff_id
@@ -251,7 +253,9 @@ async function findReceipt(
               AND credential.staff_id = request.staff_id
       WHERE request.idempotency_key_hash = ?
       LIMIT 1`,
-  ).bind(idempotencyKeyHash).first<ProvisioningReceipt>();
+    )
+    .bind(idempotencyKeyHash)
+    .first<ProvisioningReceipt>();
 }
 
 function setupUrls(c: Context<Env>, liffId: string | null) {
@@ -298,11 +302,10 @@ async function rejectUnauthorizedPlatformRequest(
     return c.json({ success: false, error: 'Platform provisioning is not configured' }, 503);
   }
   const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
-  if (requireCredentialRoot && (
-    !credentialRootSecret ||
-    encoder.encode(credentialRootSecret).length < 32 ||
-    credentialRootSecret.length > 4096
-  )) {
+  if (
+    requireCredentialRoot &&
+    (!credentialRootSecret || encoder.encode(credentialRootSecret).length < 32 || credentialRootSecret.length > 4096)
+  ) {
     return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
   }
   if (c.req.header('origin')) {
@@ -323,18 +326,14 @@ async function rejectUnauthorizedPlatformRequest(
     c.env.PHARMACY_PHI_KEY_V1,
     c.env.PHARMACY_PHI_KEY_V2,
   ]) {
-    if (tenantSecret && await sameSecret(c.env.PLATFORM_ADMIN_KEY, tenantSecret)) {
+    if (tenantSecret && (await sameSecret(c.env.PLATFORM_ADMIN_KEY, tenantSecret))) {
       return c.json({ success: false, error: 'Platform provisioning key is not isolated' }, 503);
     }
   }
   return null;
 }
 
-async function provisionTenant(
-  c: Context<Env>,
-  actorKeyHash: string,
-  platformAdminId: string | null,
-) {
+async function provisionTenant(c: Context<Env>, actorKeyHash: string, platformAdminId: string | null) {
   const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1!;
   const idempotencyKey = c.req.header('idempotency-key') ?? '';
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(idempotencyKey)) {
@@ -355,8 +354,12 @@ async function provisionTenant(
     }
     if (platformAdminId) {
       await recordPlatformAdminAccess(
-        c.env.DB, platformAdminId, existing.tenant_id,
-        'tenant_provision_replay', 'tenant', existing.tenant_id,
+        c.env.DB,
+        platformAdminId,
+        existing.tenant_id,
+        'tenant_provision_replay',
+        'tenant',
+        existing.tenant_id,
       );
     }
     return c.json({
@@ -397,16 +400,18 @@ async function provisionTenant(
     lookupDigest: string | null;
   }>;
   try {
-    encryptedCredentials = await Promise.all(credentials.map(async ({ kind, credential }) => ({
-      kind,
-      ...await encryptLineCredential({
-        rootSecret: credentialRootSecret,
-        tenantId,
-        lineAccountId,
+    encryptedCredentials = await Promise.all(
+      credentials.map(async ({ kind, credential }) => ({
         kind,
-        credential,
-      }),
-    })));
+        ...(await encryptLineCredential({
+          rootSecret: credentialRootSecret,
+          tenantId,
+          lineAccountId,
+          kind,
+          credential,
+        })),
+      })),
+    );
   } catch {
     return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
   }
@@ -422,9 +427,9 @@ async function provisionTenant(
   // simply draws a new code.
   let tenantCode = generateTenantCode();
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const taken = await c.env.DB.prepare(
-      `SELECT 1 AS ok FROM tenants WHERE tenant_code = ? COLLATE NOCASE LIMIT 1`,
-    ).bind(tenantCode).first<{ ok: number }>();
+    const taken = await c.env.DB.prepare(`SELECT 1 AS ok FROM tenants WHERE tenant_code = ? COLLATE NOCASE LIMIT 1`)
+      .bind(tenantCode)
+      .first<{ ok: number }>();
     if (!taken) break;
     tenantCode = generateTenantCode();
   }
@@ -455,26 +460,40 @@ async function provisionTenant(
            is_active, display_order, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
       ).bind(
-        lineAccountId, input.line.channelId, input.line.displayName,
-        'encrypted:v1', 'encrypted:v1',
-        input.line.loginChannelId, input.line.loginChannelSecret ? 'encrypted:v1' : null,
+        lineAccountId,
+        input.line.channelId,
+        input.line.displayName,
+        'encrypted:v1',
+        'encrypted:v1',
+        input.line.loginChannelId,
+        input.line.loginChannelSecret ? 'encrypted:v1' : null,
         input.line.liffId,
-        now, now,
+        now,
+        now,
       ),
       c.env.DB.prepare(
         `INSERT INTO tenant_line_accounts
           (tenant_id, line_account_id, created_at, updated_at)
          VALUES (?, ?, ?, ?)`,
       ).bind(tenantId, lineAccountId, now, now),
-      ...encryptedCredentials.map((credential) => c.env.DB.prepare(
-        `INSERT INTO pharmacy_line_credentials
+      ...encryptedCredentials.map((credential) =>
+        c.env.DB.prepare(
+          `INSERT INTO pharmacy_line_credentials
           (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
            key_version, revision, lookup_digest, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-      ).bind(
-        tenantId, lineAccountId, credential.kind, credential.nonce,
-        credential.ciphertext, credential.keyVersion, credential.lookupDigest, now, now,
-      )),
+        ).bind(
+          tenantId,
+          lineAccountId,
+          credential.kind,
+          credential.nonce,
+          credential.ciphertext,
+          credential.keyVersion,
+          credential.lookupDigest,
+          now,
+          now,
+        ),
+      ),
       c.env.DB.prepare(
         `INSERT INTO pharmacy_line_channel_identities
           (line_account_id, bot_user_id, created_at)
@@ -502,34 +521,40 @@ async function provisionTenant(
           (idempotency_key_hash, request_hash, actor_key_hash,
            tenant_id, line_account_id, staff_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        idempotencyKeyHash, hash, actorKeyHash,
-        tenantId, lineAccountId, staffId, now,
-      ),
+      ).bind(idempotencyKeyHash, hash, actorKeyHash, tenantId, lineAccountId, staffId, now),
       c.env.DB.prepare(
         `INSERT INTO pharmacy_growth_events
           (id, line_account_id, event_type, aggregate_id, subject_key,
            schema_version, occurred_at, idempotency_key, metadata_json, created_at)
          VALUES (?, ?, 'tenant_provisioned', ?, NULL, 1, ?, ?, ?, ?)`,
       ).bind(
-        crypto.randomUUID(), lineAccountId, tenantId, now,
+        crypto.randomUUID(),
+        lineAccountId,
+        tenantId,
+        now,
         `provision:${idempotencyKeyHash}`,
         JSON.stringify({ actor_key_hash: actorKeyHash.slice(0, 16) }),
         now,
       ),
-      ...(platformAdminId ? [platformAdminAccessStatement(
-        c.env.DB, platformAdminId, tenantId,
-        'tenant_provision', 'tenant', tenantId,
-        { lineAccountId },
-      )] : []),
+      ...(platformAdminId
+        ? [
+            platformAdminAccessStatement(c.env.DB, platformAdminId, tenantId, 'tenant_provision', 'tenant', tenantId, {
+              lineAccountId,
+            }),
+          ]
+        : []),
     ]);
   } catch (error) {
     const raced = await findReceipt(c.env.DB, idempotencyKeyHash);
     if (raced?.request_hash === hash) {
       if (platformAdminId) {
         await recordPlatformAdminAccess(
-          c.env.DB, platformAdminId, raced.tenant_id,
-          'tenant_provision_replay', 'tenant', raced.tenant_id,
+          c.env.DB,
+          platformAdminId,
+          raced.tenant_id,
+          'tenant_provision_replay',
+          'tenant',
+          raced.tenant_id,
         );
       }
       return c.json({
@@ -541,10 +566,13 @@ async function provisionTenant(
       });
     }
     const constraint = error instanceof Error && /constraint|unique/i.test(error.message);
-    return c.json({
-      success: false,
-      error: constraint ? 'Tenant or LINE account already exists' : 'Tenant provisioning failed',
-    }, constraint ? 409 : 500);
+    return c.json(
+      {
+        success: false,
+        error: constraint ? 'Tenant or LINE account already exists' : 'Tenant provisioning failed',
+      },
+      constraint ? 409 : 500,
+    );
   }
 
   let webhookConfigured = true;
@@ -556,21 +584,24 @@ async function provisionTenant(
     webhookConfigured = false;
   }
 
-  return c.json({
-    success: true,
-    data: {
-      ...responseData(receipt, urls, false),
-      line: {
-        tokenValidated: true,
-        webhookConfigured,
-        channelSecretVerification: 'pending_first_webhook',
+  return c.json(
+    {
+      success: true,
+      data: {
+        ...responseData(receipt, urls, false),
+        line: {
+          tokenValidated: true,
+          webhookConfigured,
+          channelSecretVerification: 'pending_first_webhook',
+        },
+        manualSteps: [
+          'Enable webhook use in LINE Developers if it is disabled.',
+          'Register the LIFF endpoint in the LINE Login channel when LIFF is used.',
+        ],
       },
-      manualSteps: [
-        'Enable webhook use in LINE Developers if it is disabled.',
-        'Register the LIFF endpoint in the LINE Login channel when LIFF is used.',
-      ],
     },
-  }, 201);
+    201,
+  );
 }
 
 tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
@@ -589,26 +620,17 @@ tenantProvisioningRoutes.post('/api/platform-admin/tenants', async (c) => {
   return provisionTenant(c, hex(await sha256(`platform-admin:${admin.id}`)), admin.id);
 });
 
-tenantProvisioningRoutes.post(
-  '/api/platform/pharmacy/tenants/:tenantId/admin-bootstrap',
-  async (c) => {
-    return c.json({ success: false, error: 'Individual tenant admin credentials are retired' }, 410);
-  },
-);
+tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants/:tenantId/admin-bootstrap', async (c) => {
+  return c.json({ success: false, error: 'Individual tenant admin credentials are retired' }, 410);
+});
 
-tenantProvisioningRoutes.post(
-  '/api/platform/pharmacy/tenants/:tenantId/cli-sessions',
-  async (c) => {
-    return c.json({ success: false, error: 'Tenant-owner CLI sessions are retired' }, 410);
-  },
-);
+tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants/:tenantId/cli-sessions', async (c) => {
+  return c.json({ success: false, error: 'Tenant-owner CLI sessions are retired' }, 410);
+});
 
-tenantProvisioningRoutes.post(
-  '/api/platform/pharmacy/tenants/:tenantId/cli-sessions/:sessionId/revoke',
-  async (c) => {
-    return c.json({ success: false, error: 'Tenant-owner CLI sessions are retired' }, 410);
-  },
-);
+tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants/:tenantId/cli-sessions/:sessionId/revoke', async (c) => {
+  return c.json({ success: false, error: 'Tenant-owner CLI sessions are retired' }, 410);
+});
 
 /**
  * POST /api/platform/pharmacy/platform-admins
@@ -653,11 +675,15 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
     const token = platformAdminSessionTokenFromCookie(c);
     const resolved = token ? await resolvePlatformAdminSession(c.env.DB, token) : null;
     if (!resolved || resolved.mustChangePassword) {
-      return c.json({
-        success: false,
-        error: 'A platform admin already exists; creating another requires an authenticated ' +
-          'platform-admin session in addition to PLATFORM_ADMIN_KEY',
-      }, 403);
+      return c.json(
+        {
+          success: false,
+          error:
+            'A platform admin already exists; creating another requires an authenticated ' +
+            'platform-admin session in addition to PLATFORM_ADMIN_KEY',
+        },
+        403,
+      );
     }
     actingAdminId = resolved.admin.id;
   }
@@ -667,11 +693,13 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
        FROM platform_admin_credentials AS credential
       WHERE credential.login_id = ? COLLATE NOCASE
       LIMIT 1`,
-  ).bind(input.loginId).first<{
-    staff_id: string;
-    password_hash: string;
-    must_change_password: number;
-  }>();
+  )
+    .bind(input.loginId)
+    .first<{
+      staff_id: string;
+      password_hash: string;
+      must_change_password: number;
+    }>();
   if (existing) {
     // Replay is recognized from the login id alone. The CLI now generates a
     // random temporary password (it used to derive one from the platform key,
@@ -711,10 +739,7 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
         `INSERT INTO staff_members
           (id, name, email, role, api_key, is_active, created_at, updated_at)
          VALUES (?, ?, ?, 'owner', ?, 1, ?, ?)`,
-      ).bind(
-        staffId, input.displayName, input.email,
-        `disabled:${crypto.randomUUID()}`, now, now,
-      ),
+      ).bind(staffId, input.displayName, input.email, `disabled:${crypto.randomUUID()}`, now, now),
       c.env.DB.prepare(
         `INSERT INTO platform_admins (staff_id, granted_by, is_active, created_at, updated_at)
          VALUES (?, ?, 1, ?, ?)`,
@@ -734,10 +759,13 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
     return c.json({ success: false, error: 'Platform admin bootstrap failed' }, 409);
   }
 
-  return c.json({
-    success: true,
-    data: { staffId, adminLoginId: input.loginId, replayed: false },
-  }, 201);
+  return c.json(
+    {
+      success: true,
+      data: { staffId, adminLoginId: input.loginId, replayed: false },
+    },
+    201,
+  );
 });
 
 for (const phase of ['backfill', 'scrub', 'restore'] as const) {
@@ -751,27 +779,30 @@ for (const phase of ['backfill', 'scrub', 'restore'] as const) {
         lineAccountId: c.req.param('lineAccountId'),
       };
       try {
-        const result = phase === 'backfill'
-          ? await backfillLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input)
-          : phase === 'scrub'
-            ? await scrubLegacyLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input)
-            : await restoreLegacyLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input);
+        const result =
+          phase === 'backfill'
+            ? await backfillLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input)
+            : phase === 'scrub'
+              ? await scrubLegacyLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input)
+              : await restoreLegacyLineCredentials(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1!, input);
         const now = new Date().toISOString();
         await c.env.DB.prepare(
           `INSERT OR IGNORE INTO pharmacy_growth_events
             (id, line_account_id, event_type, aggregate_id, subject_key,
              schema_version, occurred_at, idempotency_key, metadata_json, created_at)
            VALUES (?, ?, ?, ?, NULL, 1, ?, ?, ?, ?)`,
-        ).bind(
-          crypto.randomUUID(),
-          input.lineAccountId,
-          `line_credentials_${phase}`,
-          input.tenantId,
-          now,
-          `line-credentials:${phase}:v1`,
-          JSON.stringify(result),
-          now,
-        ).run();
+        )
+          .bind(
+            crypto.randomUUID(),
+            input.lineAccountId,
+            `line_credentials_${phase}`,
+            input.tenantId,
+            now,
+            `line-credentials:${phase}:v1`,
+            JSON.stringify(result),
+            now,
+          )
+          .run();
         return c.json({ success: true, data: result });
       } catch {
         return c.json({ success: false, error: `LINE credential ${phase} failed` }, 409);
@@ -803,25 +834,40 @@ for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as co
       if (containsLegacyRecoveryIdentity(body)) {
         return c.json({ success: false, error: 'Legacy recovery identity fields are not accepted' }, 400);
       }
-      const cursor = body.cursor === null || body.cursor === undefined
-        ? null
-        : typeof body.cursor === 'string' ? body.cursor : undefined;
+      const cursor =
+        body.cursor === null || body.cursor === undefined
+          ? null
+          : typeof body.cursor === 'string'
+            ? body.cursor
+            : undefined;
       const limit = body.limit === undefined ? 50 : body.limit;
       if (cursor === undefined || !Number.isSafeInteger(limit)) {
         return c.json({ success: false, error: 'Invalid migration input' }, 400);
       }
       const dryRun = true;
-      const result = phase === 'coverage'
-        ? await inspectPatientIntakeCoverage(c.env.DB, scope)
-        : phase === 'backfill'
-            ? await backfillPatientIntakeEnvelopes(c.env.DB, { ...scope, cursor, limit: limit as number, dryRun })
+      const result =
+        phase === 'coverage'
+          ? await inspectPatientIntakeCoverage(c.env.DB, scope)
+          : phase === 'backfill'
+            ? await backfillPatientIntakeEnvelopes(c.env.DB, {
+                ...scope,
+                cursor,
+                limit: limit as number,
+                dryRun,
+              })
             : phase === 'scrub'
               ? await scrubPatientIntakeLegacyFields(c.env.DB, {
-                ...scope, cursor, limit: limit as number, dryRun,
-              })
+                  ...scope,
+                  cursor,
+                  limit: limit as number,
+                  dryRun,
+                })
               : await restorePatientIntakeLegacyFields(c.env.DB, {
-                ...scope, cursor, limit: limit as number, dryRun,
-              });
+                  ...scope,
+                  cursor,
+                  limit: limit as number,
+                  dryRun,
+                });
       return result.errorCode
         ? c.json({ success: false, error: result.errorCode, data: result }, 409)
         : c.json({ success: true, data: result });

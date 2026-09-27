@@ -1,0 +1,7 @@
+{
+  "P": "f62b90acd41154ab07c27f13b89a70ecb0eaa452",
+  "files": {
+    "scripts/check-migrations.ts": "3332253f70a7a26773f30e0bb7008e8becd58fc04fb2440dc552681c49e697af",
+    "scripts/check-migrations.test.ts": "c466ef0c8e794982122e4d5f8ded259d6f68b49d124961ead36a55ec9dcafb5b"
+  }
+}

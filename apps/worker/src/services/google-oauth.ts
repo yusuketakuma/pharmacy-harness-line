@@ -16,8 +16,7 @@ export interface GoogleOAuthClientCredentials {
   oauthClientSecret?: string;
 }
 
-export type GoogleCalendarCredentials = GoogleServiceAccountCredentials &
-  GoogleOAuthClientCredentials;
+export type GoogleCalendarCredentials = GoogleServiceAccountCredentials & GoogleOAuthClientCredentials;
 
 export interface GoogleOAuthStatePayload {
   accountId: string;
@@ -67,10 +66,7 @@ export function googleOAuthConfigured(credentials: GoogleOAuthClientCredentials)
   return Boolean(credentials.oauthClientId?.trim() && credentials.oauthClientSecret?.trim());
 }
 
-export async function signGoogleOAuthState(
-  payload: GoogleOAuthStatePayload,
-  secret: string,
-): Promise<string> {
+export async function signGoogleOAuthState(payload: GoogleOAuthStatePayload, secret: string): Promise<string> {
   if (!secret) throw new Error('google_oauth_state_secret_missing');
   const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
   return `${encoded}.${base64Url(await hmac(encoded, secret))}`;
@@ -87,9 +83,7 @@ export async function verifyGoogleOAuthState(
   if (!timingSafeEqual(expected, decodeBase64Url(signature))) {
     throw new Error('invalid_google_oauth_state');
   }
-  const payload = JSON.parse(
-    new TextDecoder().decode(decodeBase64Url(encoded)),
-  ) as Partial<GoogleOAuthStatePayload>;
+  const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encoded))) as Partial<GoogleOAuthStatePayload>;
   if (
     typeof payload.accountId !== 'string' ||
     typeof payload.staffId !== 'string' ||
@@ -126,9 +120,7 @@ async function requestToken(body: URLSearchParams): Promise<GoogleTokenResponse>
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
-  const data: GoogleTokenResponse = await response
-    .json<GoogleTokenResponse>()
-    .catch(() => ({}));
+  const data: GoogleTokenResponse = await response.json<GoogleTokenResponse>().catch(() => ({}));
   if (!response.ok || !data.access_token) {
     throw new Error(`google_oauth_token_failed:${response.status}`);
   }
@@ -141,13 +133,15 @@ export async function exchangeGoogleOAuthCode(input: {
   clientSecret: string;
   redirectUri: string;
 }): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
-  const data = await requestToken(new URLSearchParams({
-    code: input.code,
-    client_id: input.clientId,
-    client_secret: input.clientSecret,
-    redirect_uri: input.redirectUri,
-    grant_type: 'authorization_code',
-  }));
+  const data = await requestToken(
+    new URLSearchParams({
+      code: input.code,
+      client_id: input.clientId,
+      client_secret: input.clientSecret,
+      redirect_uri: input.redirectUri,
+      grant_type: 'authorization_code',
+    }),
+  );
   if (!data.refresh_token) throw new Error('google_oauth_refresh_token_missing');
   return {
     accessToken: data.access_token!,
@@ -161,12 +155,14 @@ export async function refreshGoogleOAuthAccessToken(input: {
   clientId: string;
   clientSecret: string;
 }): Promise<string> {
-  const data = await requestToken(new URLSearchParams({
-    refresh_token: input.refreshToken,
-    client_id: input.clientId,
-    client_secret: input.clientSecret,
-    grant_type: 'refresh_token',
-  }));
+  const data = await requestToken(
+    new URLSearchParams({
+      refresh_token: input.refreshToken,
+      client_id: input.clientId,
+      client_secret: input.clientSecret,
+      grant_type: 'refresh_token',
+    }),
+  );
   return data.access_token!;
 }
 

@@ -12,15 +12,11 @@ describe('shouldRunGenericCron', () => {
 
   it('disables generic jobs when any active account is a pharmacy', async () => {
     pharmacyMode.mockImplementation(async (_db: D1Database, id: string) => id === 'pharmacy-a');
-    await expect(
-      shouldRunGenericCron({} as D1Database, ['generic-a', 'pharmacy-a']),
-    ).resolves.toBe(false);
+    await expect(shouldRunGenericCron({} as D1Database, ['generic-a', 'pharmacy-a'])).resolves.toBe(false);
   });
 
   it('keeps generic jobs for an all-generic installation', async () => {
     pharmacyMode.mockResolvedValue(false);
-    await expect(
-      shouldRunGenericCron({} as D1Database, ['generic-a']),
-    ).resolves.toBe(true);
+    await expect(shouldRunGenericCron({} as D1Database, ['generic-a'])).resolves.toBe(true);
   });
 });

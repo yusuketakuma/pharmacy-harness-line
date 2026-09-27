@@ -1,13 +1,6 @@
-import {
-  assessPatientRetention,
-  RetentionAssessment,
-} from '../data-subject-requests/legal-hold.js';
+import { assessPatientRetention, RetentionAssessment } from '../data-subject-requests/legal-hold.js';
 import { readRetentionFence, RetentionFence } from './deletion-intents.js';
-import {
-  assertRetentionDeleteExecution,
-  executionMatchesScope,
-  RetentionDeleteExecution,
-} from './execution.js';
+import { assertRetentionDeleteExecution, executionMatchesScope, RetentionDeleteExecution } from './execution.js';
 
 export interface RetentionFenceScope {
   tenantId: string;
@@ -33,18 +26,20 @@ function aggregateAssessments(assessments: RetentionAssessment[]): RetentionAsse
     return unknownAssessment();
   }
   if (assessments.some((assessment) => assessment.status === 'held')) {
-    const releaseAt = assessments
+    const releaseAt =
+      assessments
+        .map((assessment) => assessment.releaseAt)
+        .filter((value): value is string => value !== null)
+        .sort()
+        .at(-1) ?? null;
+    return { status: 'held', releaseAt };
+  }
+  const releaseAt =
+    assessments
       .map((assessment) => assessment.releaseAt)
       .filter((value): value is string => value !== null)
       .sort()
       .at(-1) ?? null;
-    return { status: 'held', releaseAt };
-  }
-  const releaseAt = assessments
-    .map((assessment) => assessment.releaseAt)
-    .filter((value): value is string => value !== null)
-    .sort()
-    .at(-1) ?? null;
   return { status: 'released', releaseAt };
 }
 
@@ -55,13 +50,15 @@ async function activeRequestOverlay(
   now: Date,
 ): Promise<RetentionAssessment | null> {
   try {
-    const rows = await db.prepare(
-      `SELECT status, legal_hold, legal_hold_release_at
+    const rows = await db
+      .prepare(
+        `SELECT status, legal_hold, legal_hold_release_at
          FROM pharmacy_data_subject_requests
         WHERE tenant_id = ? AND line_account_id = ? AND owner_friend_id = ?
           AND patient_id = ? AND request_type IN ('erasure', 'suspension')
           AND status IN ('received', 'identity_verified', 'legal_hold_assessed')`,
-    ).bind(scope.tenantId, scope.lineAccountId, scope.ownerFriendId, patientId)
+      )
+      .bind(scope.tenantId, scope.lineAccountId, scope.ownerFriendId, patientId)
       .all<{ status: string; legal_hold: number | null; legal_hold_release_at: string | null }>();
     let held: string | null = null;
     for (const row of rows.results ?? []) {
@@ -70,13 +67,15 @@ async function activeRequestOverlay(
       }
       if (row.legal_hold !== 0 && row.legal_hold !== 1) return unknownAssessment();
       if (row.legal_hold === 1) {
-        if (!row.legal_hold_release_at || !STRICT_UTC_TIMESTAMP.test(row.legal_hold_release_at) ||
-            !Number.isFinite(Date.parse(row.legal_hold_release_at)) ||
-            new Date(row.legal_hold_release_at).toISOString() !== row.legal_hold_release_at) {
+        if (
+          !row.legal_hold_release_at ||
+          !STRICT_UTC_TIMESTAMP.test(row.legal_hold_release_at) ||
+          !Number.isFinite(Date.parse(row.legal_hold_release_at)) ||
+          new Date(row.legal_hold_release_at).toISOString() !== row.legal_hold_release_at
+        ) {
           return unknownAssessment();
         }
-        if (Date.parse(row.legal_hold_release_at) > now.getTime() &&
-            (!held || row.legal_hold_release_at > held)) {
+        if (Date.parse(row.legal_hold_release_at) > now.getTime() && (!held || row.legal_hold_release_at > held)) {
           held = row.legal_hold_release_at;
         }
       }
@@ -93,20 +92,25 @@ async function assessedPatientRetention(
   patientId: string,
   now: Date,
 ): Promise<RetentionAssessment> {
-  const base = await assessPatientRetention(db, {
-    tenantId: scope.tenantId,
-    lineAccountId: scope.lineAccountId,
-    ownerFriendId: scope.ownerFriendId,
-    patientId,
-  }, now);
+  const base = await assessPatientRetention(
+    db,
+    {
+      tenantId: scope.tenantId,
+      lineAccountId: scope.lineAccountId,
+      ownerFriendId: scope.ownerFriendId,
+      patientId,
+    },
+    now,
+  );
   const overlay = await activeRequestOverlay(db, scope, patientId, now);
   if (!overlay) return base;
   if (overlay.status === 'unknown' || base.status === 'unknown') return unknownAssessment();
   if (overlay.status === 'held' || base.status === 'held') {
-    const releaseAt = [base.releaseAt, overlay.releaseAt]
-      .filter((value): value is string => value !== null)
-      .sort()
-      .at(-1) ?? null;
+    const releaseAt =
+      [base.releaseAt, overlay.releaseAt]
+        .filter((value): value is string => value !== null)
+        .sort()
+        .at(-1) ?? null;
     return { status: 'held', releaseAt };
   }
   return base;
@@ -118,20 +122,26 @@ async function ownerSourceInventory(
   now: Date,
 ): Promise<RetentionAssessment> {
   try {
-    const mapping = await db.prepare(
-      `SELECT COUNT(*) AS count
+    const mapping = await db
+      .prepare(
+        `SELECT COUNT(*) AS count
          FROM tenant_line_accounts AS mapping
          INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
         WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?
           AND tenant.status = 'active'`,
-    ).bind(scope.tenantId, scope.lineAccountId).first<{ count: number }>();
+      )
+      .bind(scope.tenantId, scope.lineAccountId)
+      .first<{ count: number }>();
     if ((mapping?.count ?? 0) !== 1) return unknownAssessment();
 
-    const rows = await db.prepare(
-      `SELECT id FROM pharmacy_patients
+    const rows = await db
+      .prepare(
+        `SELECT id FROM pharmacy_patients
         WHERE line_account_id = ? AND owner_friend_id = ?
         ORDER BY id`,
-    ).bind(scope.lineAccountId, scope.ownerFriendId).all<{ id: string }>();
+      )
+      .bind(scope.lineAccountId, scope.ownerFriendId)
+      .all<{ id: string }>();
     const patientIds = rows.results ?? [];
     if (patientIds.length === 0) return unknownAssessment();
 
@@ -145,14 +155,8 @@ async function ownerSourceInventory(
   }
 }
 
-async function sourceInventory(
-  db: D1Database,
-  scope: RetentionFenceScope,
-  now: Date,
-): Promise<SourceInventory> {
-  const exact = scope.patientId
-    ? await assessedPatientRetention(db, scope, scope.patientId, now)
-    : null;
+async function sourceInventory(db: D1Database, scope: RetentionFenceScope, now: Date): Promise<SourceInventory> {
+  const exact = scope.patientId ? await assessedPatientRetention(db, scope, scope.patientId, now) : null;
   return { exact, owner: await ownerSourceInventory(db, scope, now) };
 }
 
@@ -170,8 +174,9 @@ function upsertFenceStatement(
   expectedEpoch: number,
   now: string,
 ) {
-  return db.prepare(
-    `INSERT INTO pharmacy_retention_hold_epochs
+  return db
+    .prepare(
+      `INSERT INTO pharmacy_retention_hold_epochs
       (tenant_id, line_account_id, owner_friend_id, patient_key, epoch,
        status, release_at, reason_code, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -180,11 +185,19 @@ function upsertFenceStatement(
        status = excluded.status, release_at = excluded.release_at,
        reason_code = excluded.reason_code, updated_at = excluded.updated_at
      WHERE pharmacy_retention_hold_epochs.epoch = ?`,
-  ).bind(
-    scope.tenantId, scope.lineAccountId, scope.ownerFriendId, patientKey,
-    expectedEpoch + 1, assessment.status, assessment.releaseAt,
-    reasonCode(assessment.status), now, expectedEpoch,
-  );
+    )
+    .bind(
+      scope.tenantId,
+      scope.lineAccountId,
+      scope.ownerFriendId,
+      patientKey,
+      expectedEpoch + 1,
+      assessment.status,
+      assessment.releaseAt,
+      reasonCode(assessment.status),
+      now,
+      expectedEpoch,
+    );
 }
 
 /**
@@ -205,13 +218,14 @@ export async function prepareRetentionFence(
   }
   let epochs: Map<string, number>;
   try {
-    const rows = await db.prepare(
-      `SELECT patient_key, epoch FROM pharmacy_retention_hold_epochs
+    const rows = await db
+      .prepare(
+        `SELECT patient_key, epoch FROM pharmacy_retention_hold_epochs
         WHERE tenant_id = ? AND line_account_id = ? AND owner_friend_id = ?
           AND patient_key IN (?, '*')`,
-    ).bind(
-      scope.tenantId, scope.lineAccountId, scope.ownerFriendId, scope.patientId ?? '*',
-    ).all<{ patient_key: string; epoch: number }>();
+      )
+      .bind(scope.tenantId, scope.lineAccountId, scope.ownerFriendId, scope.patientId ?? '*')
+      .all<{ patient_key: string; epoch: number }>();
     if ((rows.results ?? []).some((row) => !Number.isInteger(row.epoch) || row.epoch < 1)) {
       return { status: 'unknown', epoch: 0 };
     }
@@ -221,13 +235,11 @@ export async function prepareRetentionFence(
   }
   const inventory = await sourceInventory(db, scope, now);
   const nowIso = now.toISOString();
-  const statements = [
-    upsertFenceStatement(db, scope, '*', inventory.owner, epochs.get('*') ?? 0, nowIso),
-  ];
+  const statements = [upsertFenceStatement(db, scope, '*', inventory.owner, epochs.get('*') ?? 0, nowIso)];
   if (scope.patientId && inventory.exact) {
-    statements.unshift(upsertFenceStatement(
-      db, scope, scope.patientId, inventory.exact, epochs.get(scope.patientId) ?? 0, nowIso,
-    ));
+    statements.unshift(
+      upsertFenceStatement(db, scope, scope.patientId, inventory.exact, epochs.get(scope.patientId) ?? 0, nowIso),
+    );
   }
   await assertRetentionDeleteExecution(db, execution);
   try {

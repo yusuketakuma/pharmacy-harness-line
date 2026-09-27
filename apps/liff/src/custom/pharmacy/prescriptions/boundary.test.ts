@@ -13,8 +13,8 @@ it('keeps LIFF integration to one marked import and route', () => {
   expect(source).toContain(
     "import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake",
   );
-  expect(source).toContain(
-    '<Route path="/pharmacy/patient-intake" element={<PharmacyPage screenTitle="患者アンケート" capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyPage>} /> {/* custom:pharmacy-intake */}',
+  expect(source).toMatch(
+    /path="\/pharmacy\/patient-intake"[\s\S]*?<PatientIntakePage \/>[\s\S]*?custom:pharmacy-intake/,
   );
   expect(source).toContain(
     "import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity",

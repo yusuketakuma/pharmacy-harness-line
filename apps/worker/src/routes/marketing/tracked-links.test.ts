@@ -73,9 +73,7 @@ function makeDb(state: {
           }
           if (sql.includes('FROM friends')) {
             const [id, accountId] = bound as [string, string];
-            const owned = (state.friends ?? []).some(
-              (f) => f.id === id && f.line_account_id === accountId,
-            );
+            const owned = (state.friends ?? []).some((f) => f.id === id && f.line_account_id === accountId);
             return (owned ? { ok: 1 } : null) as T | null;
           }
           return null as T | null;
@@ -137,17 +135,18 @@ beforeEach(() => {
 describe('GET /t/:linkId — per-account LIFF resolution', () => {
   test('bot preview reads only public account branding columns', async () => {
     const queries: string[] = [];
-    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(
-      makeLink({ line_account_id: 'acc-pharmacy' }),
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(makeLink({ line_account_id: 'acc-pharmacy' }));
+    const res = await request(
+      {
+        DB: makeDb({
+          pharmacyMode: true,
+          queries,
+          accounts: [{ id: 'acc-pharmacy', liff_id: '2000000000-AAAA' }],
+        }),
+        WORKER_URL: 'https://worker.example.com',
+      },
+      'facebookexternalhit/1.1',
     );
-    const res = await request({
-      DB: makeDb({
-        pharmacyMode: true,
-        queries,
-        accounts: [{ id: 'acc-pharmacy', liff_id: '2000000000-AAAA' }],
-      }),
-      WORKER_URL: 'https://worker.example.com',
-    }, 'facebookexternalhit/1.1');
 
     expect(res.status).toBe(200);
     const accountQuery = queries.find((sql) => sql.includes('FROM line_accounts'));
@@ -159,9 +158,7 @@ describe('GET /t/:linkId — per-account LIFF resolution', () => {
 
   test('keeps legacy links as plain redirects without tracking in a pharmacy deployment', async () => {
     const waits: Promise<unknown>[] = [];
-    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(
-      makeLink({ line_account_id: 'acc-pharmacy' }),
-    );
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(makeLink({ line_account_id: 'acc-pharmacy' }));
     const env = {
       DB: makeDb({ pharmacyMode: true }),
       LIFF_URL: 'https://liff.line.me/legacy-generic',
@@ -315,9 +312,7 @@ describe('GET /t/:linkId — short codes', () => {
       waitUntil: (p: Promise<unknown>) => waits.push(p),
       passThroughOnException: () => {},
     } as unknown as ExecutionContext;
-    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(
-      makeLink({ id: 'uuid-link-1', short_code: 'Ab3xY9k' }),
-    );
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(makeLink({ id: 'uuid-link-1', short_code: 'Ab3xY9k' }));
     const env = {
       DB: makeDb({}),
       LIFF_URL: 'https://liff.line.me/2009554425-4IMBmLQ9',
@@ -348,12 +343,9 @@ describe('GET /t/:linkId — short codes', () => {
     };
     const res = await request(env, LINE_UA, '/t/Ab3xY9k');
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toContain(
-      encodeURIComponent('https://worker.example.com/t/Ab3xY9k'),
-    );
+    expect(res.headers.get('location')).toContain(encodeURIComponent('https://worker.example.com/t/Ab3xY9k'));
   });
 });
-
 
 describe('PATCH tracked link ownership before mutation', () => {
   test.each([
@@ -366,16 +358,31 @@ describe('PATCH tracked link ownership before mutation', () => {
     const before = makeLink({ line_account_id: owner });
     const body = { name: 'updated', ...(target === undefined ? {} : { lineAccountId: target }) };
     dbMocks.getTrackedLinkById.mockResolvedValue(before);
-    dbMocks.updateTrackedLink.mockResolvedValue({ ...before, name: 'updated', line_account_id: target ?? owner });
+    dbMocks.updateTrackedLink.mockResolvedValue({
+      ...before,
+      name: 'updated',
+      line_account_id: target ?? owner,
+    });
     const db = {
-      prepare: () => ({ bind: () => ({ all: async () => ({ results: [{ line_account_id: 'account-a' }] }) }) }),
+      prepare: () => ({
+        bind: () => ({ all: async () => ({ results: [{ line_account_id: 'account-a' }] }) }),
+      }),
     } as unknown as D1Database;
     const app = new Hono<any>();
-    app.use('*', async (c, next) => { c.set('tenantId', 'tenant-a'); await next(); });
+    app.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
     app.route('/', trackedLinks);
-    const res = await app.request('https://worker.example.com/api/tracked-links/link-1', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }, { DB: db });
+    const res = await app.request(
+      'https://worker.example.com/api/tracked-links/link-1',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      { DB: db },
+    );
     expect(res.status).toBe(status);
     if (status === 404) {
       expect(dbMocks.updateTrackedLink).not.toHaveBeenCalled();
@@ -385,7 +392,6 @@ describe('PATCH tracked link ownership before mutation', () => {
     }
   });
 });
-
 
 describe('app redirect script URL serialization', () => {
   test.each([

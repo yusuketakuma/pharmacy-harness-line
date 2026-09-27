@@ -1,6 +1,6 @@
-import * as p from "@clack/prompts";
-import pc from "picocolors";
-import { Readable } from "node:stream";
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
+import { Readable } from 'node:stream';
 import {
   fetchManifest,
   findRelease,
@@ -10,7 +10,7 @@ import {
   type Manifest,
   type ParsedBundle,
   type ReleaseEntry,
-} from "@line-harness/update-engine";
+} from '@line-harness/update-engine';
 
 export interface FetchedRelease {
   manifest: Manifest;
@@ -37,13 +37,10 @@ export interface FetchedRelease {
  * who can't reach GitHub Releases should see why and decide (retry, or use
  * `--from-source` knowing updates won't apply).
  */
-export async function fetchLatestRelease(
-  manifestUrl: string,
-  pinVersion?: string,
-): Promise<FetchedRelease> {
+export async function fetchLatestRelease(manifestUrl: string, pinVersion?: string): Promise<FetchedRelease> {
   const s = p.spinner();
 
-  s.start("リリース情報取得中...");
+  s.start('リリース情報取得中...');
   let manifest: Manifest;
   try {
     manifest = await fetchManifest(manifestUrl);
@@ -52,25 +49,25 @@ export async function fetchLatestRelease(
     s.stop(pc.red(`リリース情報の取得に失敗: ${msg}`));
     throw new Error(
       [
-        "公式リリース情報 (release-manifest.json) を取得できませんでした。",
+        '公式リリース情報 (release-manifest.json) を取得できませんでした。',
         `  URL: ${manifestUrl}`,
-        "ネットワークを確認して再実行してください。",
-        "（開発用にソースからデプロイする場合は --from-source を付けてください。",
-        "  その場合、自動アップデートは利用できません）",
-      ].join("\n"),
+        'ネットワークを確認して再実行してください。',
+        '（開発用にソースからデプロイする場合は --from-source を付けてください。',
+        '  その場合、自動アップデートは利用できません）',
+      ].join('\n'),
     );
   }
 
   const targetVersion = pinVersion ?? manifest.latest;
   const release = findRelease(manifest, targetVersion);
   if (!release) {
-    s.stop(pc.red("リリース情報を解決できません"));
+    s.stop(pc.red('リリース情報を解決できません'));
     throw new Error(
       pinVersion
         ? [
             `前回のセットアップで選択したリリース v${pinVersion} が manifest に見つかりません。`,
-            "最初からやり直すには、インストールディレクトリの .line-harness-setup.json を削除して再実行してください。",
-          ].join("\n")
+            '最初からやり直すには、インストールディレクトリの .line-harness-setup.json を削除して再実行してください。',
+          ].join('\n')
         : `manifest が壊れています (latest=${manifest.latest} が releases にありません)`,
     );
   }
@@ -86,33 +83,27 @@ export async function fetchLatestRelease(
     throw new Error(
       [
         `最新リリース v${release.version} の bundle にはデプロイ可能な Worker が含まれていません`,
-        "（新リリースパイプライン対応前の形式です）。対応リリースの公開をお待ちください。",
-        "（開発用途では --from-source でソースからデプロイできます。",
-        "  その場合、自動アップデートは利用できません）",
-      ].join("\n"),
+        '（新リリースパイプライン対応前の形式です）。対応リリースの公開をお待ちください。',
+        '（開発用途では --from-source でソースからデプロイできます。',
+        '  その場合、自動アップデートは利用できません）',
+      ].join('\n'),
     );
   }
   s.stop(`最新リリース: v${release.version}`);
 
-  s.start(
-    `Bundle ダウンロード中 (${(release.bundle_size_bytes / 1024 / 1024).toFixed(1)} MB)...`,
-  );
+  s.start(`Bundle ダウンロード中 (${(release.bundle_size_bytes / 1024 / 1024).toFixed(1)} MB)...`);
   let bundle: ParsedBundle;
   try {
     const res = await fetch(release.bundle_url);
     if (!res.ok) throw new Error(`bundle fetch HTTP ${res.status}`);
-    if (!res.body) throw new Error("bundle response has no body");
-    bundle = await parseBundleStream(
-      Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
-    );
+    if (!res.body) throw new Error('bundle response has no body');
+    bundle = await parseBundleStream(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]));
     const hashes = verifyBundleHashes(bundle);
     verifyBundleIntegrity(hashes, release);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Bundle 検証失敗: ${msg}`));
-    throw new Error(
-      "リリース bundle のダウンロードまたはハッシュ検証に失敗しました。再実行してください。",
-    );
+    throw new Error('リリース bundle のダウンロードまたはハッシュ検証に失敗しました。再実行してください。');
   }
   s.stop(`Bundle 取得 + ハッシュ検証 OK (v${release.version})`);
 

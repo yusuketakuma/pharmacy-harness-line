@@ -1,12 +1,6 @@
 import type { BookingStatus } from './booking-types.js';
 
-export type BookingAction =
-  | 'approve'
-  | 'reject'
-  | 'expire'
-  | 'cancel'
-  | 'complete'
-  | 'no_show';
+export type BookingAction = 'approve' | 'reject' | 'expire' | 'cancel' | 'complete' | 'no_show';
 
 const TRANSITIONS: Record<BookingStatus, Partial<Record<BookingAction, BookingStatus>>> = {
   requested: { approve: 'confirmed', reject: 'rejected', expire: 'expired' },

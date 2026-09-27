@@ -100,11 +100,14 @@ describe('POST /api/broadcasts idempotency', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(dbMocks.createBroadcast).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      id: KEY,
-      lineAccountId: 'account-1',
-      messageContent: requestBody.messageContent,
-    }));
+    expect(dbMocks.createBroadcast).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: KEY,
+        lineAccountId: 'account-1',
+        messageContent: requestBody.messageContent,
+      }),
+    );
   });
 
   test('returns the original row without creating a duplicate on replay', async () => {
@@ -119,7 +122,7 @@ describe('POST /api/broadcasts idempotency', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Idempotency-Replayed')).toBe('true');
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
-    expect((await response.json() as { data: { id: string } }).data.id).toBe(KEY);
+    expect(((await response.json()) as { data: { id: string } }).data.id).toBe(KEY);
   });
 
   test('rejects reuse of the same key for different content', async () => {
@@ -167,17 +170,13 @@ describe('POST /api/broadcasts/:id/test-send idempotency', () => {
     });
     boundaryMocks.accountOwned.mockResolvedValue(false);
 
-    const response = await setupApp(db, 'tenant-a').request(
-      '/api/broadcasts/broadcast-1/test-send',
-      { method: 'POST', headers: { 'Idempotency-Key': KEY } },
-    );
+    const response = await setupApp(db, 'tenant-a').request('/api/broadcasts/broadcast-1/test-send', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': KEY },
+    });
 
     expect(response.status).toBe(404);
-    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'account-1',
-    );
+    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-1');
     expect(db.prepare).not.toHaveBeenCalled();
     expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
     expect(lineSdkMocks.pushMessage).not.toHaveBeenCalled();
@@ -192,17 +191,13 @@ describe('POST /api/broadcasts/:id/test-send idempotency', () => {
     });
     boundaryMocks.accountOwned.mockResolvedValue(false);
 
-    const response = await setupApp(db, 'tenant-a').request(
-      '/api/broadcasts/broadcast-1/test-send',
-      { method: 'POST', headers: { 'Idempotency-Key': KEY } },
-    );
+    const response = await setupApp(db, 'tenant-a').request('/api/broadcasts/broadcast-1/test-send', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': KEY },
+    });
 
     expect(response.status).toBe(404);
-    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'account-1',
-    );
+    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-1');
     expect(db.prepare).not.toHaveBeenCalled();
   });
 
@@ -230,9 +225,7 @@ describe('POST /api/broadcasts/:id/test-send idempotency', () => {
     const db = {
       prepare: vi.fn((sql: string) => ({
         bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue(
-            sql.includes('account_settings') ? { value: '["friend-1"]' } : null,
-          ),
+          first: vi.fn().mockResolvedValue(sql.includes('account_settings') ? { value: '["friend-1"]' } : null),
           all: vi.fn().mockResolvedValue({
             results: sql.includes('FROM friends')
               ? [{ id: 'friend-1', line_user_id: 'U-one', display_name: 'One' }]
@@ -268,20 +261,27 @@ describe('POST /api/broadcasts/:id/test-send idempotency', () => {
       KEY,
     );
     expect(response.status).toBe(200);
-    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId,
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-1',
-      friendId: 'friend-1',
-      broadcastId: 'broadcast-1',
-      content: expect.stringContaining('【テスト配信】'),
-      source: 'broadcast',
-      logDeliveryType: 'test',
-      request: {
-        to: 'U-one',
-        messages: [expect.objectContaining({ type: 'text', text: expect.stringContaining('【テスト配信】') })],
-      },
-    }));
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId,
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        broadcastId: 'broadcast-1',
+        content: expect.stringContaining('【テスト配信】'),
+        source: 'broadcast',
+        logDeliveryType: 'test',
+        request: {
+          to: 'U-one',
+          messages: [
+            expect.objectContaining({
+              type: 'text',
+              text: expect.stringContaining('【テスト配信】'),
+            }),
+          ],
+        },
+      }),
+    );
     expect(lineSdkMocks.pushMessage).toHaveBeenCalledWith(
       'U-one',
       [expect.objectContaining({ type: 'text', text: expect.stringContaining('【テスト配信】') })],
@@ -314,15 +314,10 @@ describe('GET /api/broadcasts/:id/per-account-stats tenant attribution', () => {
     });
     boundaryMocks.accountOwned.mockResolvedValue(false);
 
-    const response = await setupApp(db, 'tenant-a')
-      .request('/api/broadcasts/broadcast-1/per-account-stats');
+    const response = await setupApp(db, 'tenant-a').request('/api/broadcasts/broadcast-1/per-account-stats');
 
     expect(response.status).toBe(404);
-    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'account-1',
-    );
+    expect(boundaryMocks.accountOwned).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-1');
     expect(db.prepare).not.toHaveBeenCalled();
   });
 
@@ -344,14 +339,13 @@ describe('GET /api/broadcasts/:id/per-account-stats tenant attribution', () => {
       status: 'draft',
     });
 
-    const response = await setupApp(db, 'tenant-a')
-      .request('/api/broadcasts/broadcast-1/per-account-stats');
+    const response = await setupApp(db, 'tenant-a').request('/api/broadcasts/broadcast-1/per-account-stats');
 
     const messagesQuery = sql.find((query) => query.includes('FROM messages_log')) ?? '';
     expect(response.status).toBe(200);
-    expect(messagesQuery).toContain('ml.line_account_id IN')
-    expect(messagesQuery).toContain("COALESCE(ml.delivery_type, '') != 'test'")
-    expect(messagesQuery).not.toContain('COALESCE(ml.line_account_id')
-    expect(messagesQuery).not.toContain('JOIN friends')
+    expect(messagesQuery).toContain('ml.line_account_id IN');
+    expect(messagesQuery).toContain("COALESCE(ml.delivery_type, '') != 'test'");
+    expect(messagesQuery).not.toContain('COALESCE(ml.line_account_id');
+    expect(messagesQuery).not.toContain('JOIN friends');
   });
 });

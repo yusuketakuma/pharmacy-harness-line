@@ -43,37 +43,21 @@ export interface AdConversionLog {
 }
 
 export async function getActiveAdPlatforms(db: D1Database): Promise<AdPlatform[]> {
-  const result = await db
-    .prepare(`SELECT * FROM ad_platforms WHERE is_active = 1`)
-    .all<AdPlatform>();
+  const result = await db.prepare(`SELECT * FROM ad_platforms WHERE is_active = 1`).all<AdPlatform>();
   return result.results;
 }
 
-export async function getAdPlatformByName(
-  db: D1Database,
-  name: string,
-): Promise<AdPlatform | null> {
-  return db
-    .prepare(`SELECT * FROM ad_platforms WHERE name = ? AND is_active = 1`)
-    .bind(name)
-    .first<AdPlatform>();
+export async function getAdPlatformByName(db: D1Database, name: string): Promise<AdPlatform | null> {
+  return db.prepare(`SELECT * FROM ad_platforms WHERE name = ? AND is_active = 1`).bind(name).first<AdPlatform>();
 }
 
 export async function getAdPlatforms(db: D1Database): Promise<AdPlatform[]> {
-  const result = await db
-    .prepare(`SELECT * FROM ad_platforms ORDER BY created_at DESC`)
-    .all<AdPlatform>();
+  const result = await db.prepare(`SELECT * FROM ad_platforms ORDER BY created_at DESC`).all<AdPlatform>();
   return result.results;
 }
 
-export async function getAdPlatformById(
-  db: D1Database,
-  id: string,
-): Promise<AdPlatform | null> {
-  return db
-    .prepare(`SELECT * FROM ad_platforms WHERE id = ?`)
-    .bind(id)
-    .first<AdPlatform>();
+export async function getAdPlatformById(db: D1Database, id: string): Promise<AdPlatform | null> {
+  return db.prepare(`SELECT * FROM ad_platforms WHERE id = ?`).bind(id).first<AdPlatform>();
 }
 
 export async function createAdPlatform(
@@ -91,25 +75,39 @@ export async function createAdPlatform(
     .bind(id, input.name, input.displayName ?? null, JSON.stringify(input.config), now, now)
     .run();
 
-  return (await db
-    .prepare(`SELECT * FROM ad_platforms WHERE id = ?`)
-    .bind(id)
-    .first<AdPlatform>())!;
+  return (await db.prepare(`SELECT * FROM ad_platforms WHERE id = ?`).bind(id).first<AdPlatform>())!;
 }
 
 export async function updateAdPlatform(
   db: D1Database,
   id: string,
-  input: { name?: string; displayName?: string | null; config?: Record<string, unknown>; isActive?: boolean },
+  input: {
+    name?: string;
+    displayName?: string | null;
+    config?: Record<string, unknown>;
+    isActive?: boolean;
+  },
 ): Promise<AdPlatform | null> {
   const now = jstNow();
   const fields: string[] = ['updated_at = ?'];
   const values: unknown[] = [now];
 
-  if (input.name !== undefined) { fields.push('name = ?'); values.push(input.name); }
-  if (input.displayName !== undefined) { fields.push('display_name = ?'); values.push(input.displayName); }
-  if (input.config !== undefined) { fields.push('config = ?'); values.push(JSON.stringify(input.config)); }
-  if (input.isActive !== undefined) { fields.push('is_active = ?'); values.push(input.isActive ? 1 : 0); }
+  if (input.name !== undefined) {
+    fields.push('name = ?');
+    values.push(input.name);
+  }
+  if (input.displayName !== undefined) {
+    fields.push('display_name = ?');
+    values.push(input.displayName);
+  }
+  if (input.config !== undefined) {
+    fields.push('config = ?');
+    values.push(JSON.stringify(input.config));
+  }
+  if (input.isActive !== undefined) {
+    fields.push('is_active = ?');
+    values.push(input.isActive ? 1 : 0);
+  }
 
   values.push(id);
 
@@ -164,15 +162,9 @@ export async function logAdConversion(
     .run();
 }
 
-export async function getAdConversionLogs(
-  db: D1Database,
-  platformId: string,
-  limit = 50,
-): Promise<AdConversionLog[]> {
+export async function getAdConversionLogs(db: D1Database, platformId: string, limit = 50): Promise<AdConversionLog[]> {
   const result = await db
-    .prepare(
-      `SELECT * FROM ad_conversion_logs WHERE ad_platform_id = ? ORDER BY created_at DESC LIMIT ?`,
-    )
+    .prepare(`SELECT * FROM ad_conversion_logs WHERE ad_platform_id = ? ORDER BY created_at DESC LIMIT ?`)
     .bind(platformId, limit)
     .all<AdConversionLog>();
   return result.results;

@@ -106,28 +106,53 @@ body.sb-active #app {
 }
 
 /* LINE 緑テーマ */
-.sb-line-green { background-color: #06C755; }
-.sb-line-green-text { color: #06C755; }
+.sb-line-green {
+  background-color: #06c755;
+}
+.sb-line-green-text {
+  color: #06c755;
+}
 
 /* fade-in / slide-up アニメーション */
 @keyframes sb-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.sb-fade-in { animation: sb-fade-in 0.25s ease both; }
+.sb-fade-in {
+  animation: sb-fade-in 0.25s ease both;
+}
 
 @keyframes sb-slide-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.sb-slide-up { animation: sb-slide-up 0.3s ease both; }
+.sb-slide-up {
+  animation: sb-slide-up 0.3s ease both;
+}
 
 /* spinner */
-@keyframes sb-spin { to { transform: rotate(360deg); } }
+@keyframes sb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .sb-spinner {
-  width: 32px; height: 32px;
+  width: 32px;
+  height: 32px;
   border: 3px solid #e5e7eb;
-  border-top-color: #06C755;
+  border-top-color: #06c755;
   border-radius: 9999px;
   animation: sb-spin 0.8s linear infinite;
 }
@@ -139,14 +164,17 @@ body.sb-active #app {
   font-weight: 600;
   font-size: 14px;
   background: #ecfdf5;
-  color: #06C755;
-  border: 1.5px solid #06C755;
+  color: #06c755;
+  border: 1.5px solid #06c755;
   cursor: pointer;
-  transition: transform 0.15s, background-color 0.15s, color 0.15s;
+  transition:
+    transform 0.15s,
+    background-color 0.15s,
+    color 0.15s;
 }
 .sb-slot-btn:active {
   transform: scale(0.96);
-  background-color: #06C755;
+  background-color: #06c755;
   color: #fff;
 }
 
@@ -155,7 +183,9 @@ body.sb-active #app {
   background: #fff;
   border-radius: 14px;
   padding: 18px 16px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* ステータスバッジ */
@@ -177,8 +207,12 @@ body.sb-active #app {
   color: #4b5563;
   background: #fff;
   border-radius: 9999px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   transition: background-color 0.15s;
 }
-.sb-back-btn:hover { background: #f9fafb; }
-.sb-back-btn:active { background: #f3f4f6; }
+.sb-back-btn:hover {
+  background: #f9fafb;
+}
+.sb-back-btn:active {
+  background: #f3f4f6;
+}

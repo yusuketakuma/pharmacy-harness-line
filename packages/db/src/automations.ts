@@ -6,8 +6,8 @@ export interface AutomationRow {
   name: string;
   description: string | null;
   event_type: string;
-  conditions: string;  // JSON
-  actions: string;     // JSON配列
+  conditions: string; // JSON
+  actions: string; // JSON配列
   line_account_id: string | null;
   is_active: number;
   priority: number;
@@ -41,16 +41,16 @@ function redactActionsResult(actionsResult?: string): string | null {
   try {
     const parsed = JSON.parse(actionsResult) as unknown;
     if (!Array.isArray(parsed)) return null;
-    return JSON.stringify(parsed.map((entry) => {
-      if (!entry || typeof entry !== 'object') return { action: 'unknown', success: false };
-      const raw = entry as Record<string, unknown>;
-      return {
-        action: typeof raw.action === 'string' && SAFE_ACTION_TYPES.has(raw.action)
-          ? raw.action
-          : 'unknown',
-        success: raw.success === true,
-      };
-    }));
+    return JSON.stringify(
+      parsed.map((entry) => {
+        if (!entry || typeof entry !== 'object') return { action: 'unknown', success: false };
+        const raw = entry as Record<string, unknown>;
+        return {
+          action: typeof raw.action === 'string' && SAFE_ACTION_TYPES.has(raw.action) ? raw.action : 'unknown',
+          success: raw.success === true,
+        };
+      }),
+    );
   } catch {
     return null;
   }
@@ -64,11 +64,10 @@ export async function getAutomations(
   tenantId: string,
   lineAccountId?: string,
 ): Promise<AutomationRow[]> {
-  const accountFilter = lineAccountId !== undefined
-    ? ' AND automation.line_account_id = ?'
-    : '';
+  const accountFilter = lineAccountId !== undefined ? ' AND automation.line_account_id = ?' : '';
   const binds = lineAccountId !== undefined ? [tenantId, lineAccountId] : [tenantId];
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT automation.*
       FROM automations AS automation
       INNER JOIN tenant_line_accounts AS mapping
@@ -83,17 +82,16 @@ export async function getAutomations(
        AND automation.line_account_id IS NOT NULL
        ${accountFilter}
      ORDER BY automation.priority DESC, automation.created_at DESC
-  `).bind(...binds).all<AutomationRow>();
+  `)
+    .bind(...binds)
+    .all<AutomationRow>();
   return result.results;
 }
 
 /** IDOR 防止用の tenant-scoped detail lookup。 */
-export async function getAutomationById(
-  db: D1Database,
-  id: string,
-  tenantId: string,
-): Promise<AutomationRow | null> {
-  return db.prepare(`
+export async function getAutomationById(db: D1Database, id: string, tenantId: string): Promise<AutomationRow | null> {
+  return db
+    .prepare(`
     SELECT automation.*
       FROM automations AS automation
       INNER JOIN tenant_line_accounts AS mapping
@@ -108,7 +106,9 @@ export async function getAutomationById(
        AND mapping.tenant_id = ?
        AND automation.line_account_id IS NOT NULL
      LIMIT 1
-  `).bind(id, tenantId).first<AutomationRow>();
+  `)
+    .bind(id, tenantId)
+    .first<AutomationRow>();
 }
 
 export async function createAutomation(
@@ -126,7 +126,8 @@ export async function createAutomation(
 ): Promise<AutomationRow | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  const inserted = await db.prepare(`
+  const inserted = await db
+    .prepare(`
     INSERT INTO automations
       (id, name, description, event_type, conditions, actions, priority, line_account_id, created_at, updated_at)
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -139,20 +140,22 @@ export async function createAutomation(
              AND tenant.status = 'active'
      WHERE mapping.tenant_id = ?
        AND mapping.line_account_id = ?
-  `).bind(
-    id,
-    input.name,
-    input.description ?? null,
-    input.eventType,
-    JSON.stringify(input.conditions ?? {}),
-    JSON.stringify(input.actions),
-    input.priority ?? 0,
-    input.lineAccountId,
-    now,
-    now,
-    input.tenantId,
-    input.lineAccountId,
-  ).run();
+  `)
+    .bind(
+      id,
+      input.name,
+      input.description ?? null,
+      input.eventType,
+      JSON.stringify(input.conditions ?? {}),
+      JSON.stringify(input.actions),
+      input.priority ?? 0,
+      input.lineAccountId,
+      now,
+      now,
+      input.tenantId,
+      input.lineAccountId,
+    )
+    .run();
   if ((inserted.meta?.changes ?? 0) !== 1) return null;
   return getAutomationById(db, id, input.tenantId);
 }
@@ -160,18 +163,47 @@ export async function createAutomation(
 export async function updateAutomation(
   db: D1Database,
   id: string,
-  updates: Partial<{ name: string; description: string | null; eventType: string; conditions: Record<string, unknown>; actions: unknown[]; isActive: boolean; priority: number }>,
+  updates: Partial<{
+    name: string;
+    description: string | null;
+    eventType: string;
+    conditions: Record<string, unknown>;
+    actions: unknown[];
+    isActive: boolean;
+    priority: number;
+  }>,
   tenantId: string,
 ): Promise<boolean> {
   const sets: string[] = [];
   const values: unknown[] = [];
-  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
-  if (updates.description !== undefined) { sets.push('description = ?'); values.push(updates.description); }
-  if (updates.eventType !== undefined) { sets.push('event_type = ?'); values.push(updates.eventType); }
-  if (updates.conditions !== undefined) { sets.push('conditions = ?'); values.push(JSON.stringify(updates.conditions)); }
-  if (updates.actions !== undefined) { sets.push('actions = ?'); values.push(JSON.stringify(updates.actions)); }
-  if (updates.isActive !== undefined) { sets.push('is_active = ?'); values.push(updates.isActive ? 1 : 0); }
-  if (updates.priority !== undefined) { sets.push('priority = ?'); values.push(updates.priority); }
+  if (updates.name !== undefined) {
+    sets.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.description !== undefined) {
+    sets.push('description = ?');
+    values.push(updates.description);
+  }
+  if (updates.eventType !== undefined) {
+    sets.push('event_type = ?');
+    values.push(updates.eventType);
+  }
+  if (updates.conditions !== undefined) {
+    sets.push('conditions = ?');
+    values.push(JSON.stringify(updates.conditions));
+  }
+  if (updates.actions !== undefined) {
+    sets.push('actions = ?');
+    values.push(JSON.stringify(updates.actions));
+  }
+  if (updates.isActive !== undefined) {
+    sets.push('is_active = ?');
+    values.push(updates.isActive ? 1 : 0);
+  }
+  if (updates.priority !== undefined) {
+    sets.push('priority = ?');
+    values.push(updates.priority);
+  }
   if (sets.length === 0) {
     return (await getAutomationById(db, id, tenantId)) !== null;
   }
@@ -232,7 +264,8 @@ export async function getAutomationLogs(
   tenantId: string,
   limit = 100,
 ): Promise<AutomationLogRow[]> {
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT log.id, log.automation_id, NULL AS friend_id,
            NULL AS event_data, NULL AS actions_result, log.status, log.created_at
       FROM automation_logs AS log
@@ -251,17 +284,28 @@ export async function getAutomationLogs(
        AND automation.line_account_id IS NOT NULL
      ORDER BY log.created_at DESC
      LIMIT ?
-  `).bind(automationId, tenantId, limit).all<AutomationLogRow>();
+  `)
+    .bind(automationId, tenantId, limit)
+    .all<AutomationLogRow>();
   return result.results;
 }
 
 export async function createAutomationLog(
   db: D1Database,
-  input: { automationId: string; friendId?: string; eventData?: string; actionsResult?: string; status: string },
+  input: {
+    automationId: string;
+    friendId?: string;
+    eventData?: string;
+    actionsResult?: string;
+    status: string;
+  },
 ): Promise<void> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  await db.prepare(`INSERT INTO automation_logs (id, automation_id, friend_id, event_data, actions_result, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+  await db
+    .prepare(
+      `INSERT INTO automation_logs (id, automation_id, friend_id, event_data, actions_result, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
     .bind(
       id,
       input.automationId,
@@ -270,12 +314,15 @@ export async function createAutomationLog(
       redactActionsResult(input.actionsResult),
       input.status,
       now,
-    ).run();
+    )
+    .run();
 }
 
 /** イベントタイプに一致するアクティブな自動化ルールを取得（優先度順） */
 export async function getActiveAutomationsByEvent(db: D1Database, eventType: string): Promise<AutomationRow[]> {
-  const result = await db.prepare(`SELECT * FROM automations WHERE event_type = ? AND is_active = 1 ORDER BY priority DESC`)
-    .bind(eventType).all<AutomationRow>();
+  const result = await db
+    .prepare(`SELECT * FROM automations WHERE event_type = ? AND is_active = 1 ORDER BY priority DESC`)
+    .bind(eventType)
+    .all<AutomationRow>();
   return result.results;
 }

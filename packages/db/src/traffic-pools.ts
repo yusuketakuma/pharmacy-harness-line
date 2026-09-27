@@ -59,10 +59,7 @@ export async function getTrafficPoolById(
     .first<TrafficPoolWithAccount>();
 }
 
-export async function getTrafficPoolBySlug(
-  db: D1Database,
-  slug: string,
-): Promise<TrafficPoolWithAccount | null> {
+export async function getTrafficPoolBySlug(db: D1Database, slug: string): Promise<TrafficPoolWithAccount | null> {
   return db
     .prepare(
       `SELECT tp.*, la.name as account_name, la.liff_id, la.login_channel_id, la.login_channel_secret, la.channel_access_token, la.channel_id
@@ -156,15 +153,8 @@ export async function updateTrafficPool(
   return getTrafficPoolById(db, id, tenantId);
 }
 
-export async function deleteTrafficPool(
-  db: D1Database,
-  id: string,
-  tenantId: string | null = null,
-): Promise<boolean> {
-  const result = await db
-    .prepare(`DELETE FROM traffic_pools WHERE id = ? AND tenant_id IS ?`)
-    .bind(id, tenantId)
-    .run();
+export async function deleteTrafficPool(db: D1Database, id: string, tenantId: string | null = null): Promise<boolean> {
+  const result = await db.prepare(`DELETE FROM traffic_pools WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId).run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -244,11 +234,14 @@ export async function removePoolAccount(
   id: string,
   tenantId: string | null = null,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `DELETE FROM pool_accounts
+  const result = await db
+    .prepare(
+      `DELETE FROM pool_accounts
       WHERE id = ? AND pool_id = ?
         AND pool_id IN (SELECT id FROM traffic_pools WHERE tenant_id IS ?)`,
-  ).bind(id, poolId, tenantId).run();
+    )
+    .bind(id, poolId, tenantId)
+    .run();
   return result.meta.changes > 0;
 }
 

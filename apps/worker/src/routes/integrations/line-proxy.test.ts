@@ -79,19 +79,21 @@ const CREDENTIAL_ROOT = 'synthetic-line-credential-root-key-v1';
  * Minimal D1 stub. `friendsByUserId` feeds the IN (...) lookup used by
  * multicast; `broadcastFriendIds` feeds the is_following SELECTs.
  */
-function fakeDb(opts: {
-  friendsByUserId?: Record<string, { id: string; line_user_id: string }>;
-  broadcastFriendIds?: string[];
-  activeAccountCount?: number;
-  pharmacyAccountId?: string;
-  pharmacyNotification?: {
-    id: string;
-    message_id: string;
-    line_user_id: string;
-    idempotency_key?: string;
-  };
-  staffAssigned?: boolean;
-} = {}) {
+function fakeDb(
+  opts: {
+    friendsByUserId?: Record<string, { id: string; line_user_id: string }>;
+    broadcastFriendIds?: string[];
+    activeAccountCount?: number;
+    pharmacyAccountId?: string;
+    pharmacyNotification?: {
+      id: string;
+      message_id: string;
+      line_user_id: string;
+      idempotency_key?: string;
+    };
+    staffAssigned?: boolean;
+  } = {},
+) {
   const executed: Exec[] = [];
   const db = {
     prepare(sql: string) {
@@ -109,9 +111,7 @@ function fakeDb(opts: {
         async all() {
           executed.push({ sql, params: stmt.params });
           if (sql.includes('provider_line_user_id IN')) {
-            const rows = stmt.params
-              .map((p) => opts.friendsByUserId?.[p as string])
-              .filter(Boolean);
+            const rows = stmt.params.map((p) => opts.friendsByUserId?.[p as string]).filter(Boolean);
             return { results: rows };
           }
           return { results: (opts.broadcastFriendIds ?? []).map((id) => ({ id })) };
@@ -122,13 +122,10 @@ function fakeDb(opts: {
           }
           if (sql.includes('FROM pharmacy_account_capabilities')) {
             if (sql.includes('SELECT 1 AS ok')) return opts.pharmacyAccountId ? { ok: 1 } : null;
-            return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId
-              ? { mode: 'pharmacy' }
-              : null;
+            return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId ? { mode: 'pharmacy' } : null;
           }
           if (sql.includes('FROM pharmacy_notification_events')) {
-            return stmt.params[0] === opts.pharmacyNotification?.id &&
-              stmt.params[1] === opts.pharmacyAccountId
+            return stmt.params[0] === opts.pharmacyNotification?.id && stmt.params[1] === opts.pharmacyAccountId
               ? { idempotency_key: PHARMACY_RETRY_KEY, ...opts.pharmacyNotification }
               : null;
           }
@@ -149,9 +146,7 @@ function fakeDb(opts: {
             return opts.pharmacyAccountId ? { id: opts.pharmacyAccountId, channel_id: ACCOUNT.channel_id } : null;
           }
           if (sql.includes('FROM tenant_staff_memberships')) {
-            return opts.staffAssigned && stmt.params[0] === 'tenant-pharmacy'
-              ? { ok: 1 }
-              : null;
+            return opts.staffAssigned && stmt.params[0] === 'tenant-pharmacy' ? { ok: 1 } : null;
           }
           return null;
         },
@@ -168,7 +163,14 @@ function fakeDb(opts: {
 
 /** Flatten multi-row messages_log INSERTs into logical rows (8 params each). */
 function loggedRows(executed: Exec[]) {
-  const rows: { friendId: unknown; messageType: unknown; content: unknown; deliveryType: unknown; source: unknown; lineAccountId: unknown }[] = [];
+  const rows: {
+    friendId: unknown;
+    messageType: unknown;
+    content: unknown;
+    deliveryType: unknown;
+    source: unknown;
+    lineAccountId: unknown;
+  }[] = [];
   for (const e of executed) {
     if (!e.sql.includes('INSERT INTO messages_log')) continue;
     for (let i = 0; i < e.params.length; i += 8) {
@@ -325,11 +327,7 @@ describe('auth', () => {
 
   test('missing credential root key rejects a channel token before upstream', async () => {
     const { db } = fakeDb();
-    const res = await setupApp().request(
-      pushRequest('acc-token'),
-      {},
-      env(db, { LINE_CREDENTIAL_KEY_V1: undefined }),
-    );
+    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db, { LINE_CREDENTIAL_KEY_V1: undefined }));
 
     expect(res.status).toBe(401);
     expect(findLineCredentialByAccessToken).not.toHaveBeenCalled();
@@ -338,10 +336,14 @@ describe('auth', () => {
 
   test('legacy env token cannot proxy non-message APIs in a pharmacy installation', async () => {
     const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
-    const response = await setupApp().request(new Request(
-      'http://worker.test/line-api/v2/bot/richmenu/richmenu-1',
-      { method: 'DELETE', headers: { Authorization: 'Bearer env-token' } },
-    ), {}, env(db));
+    const response = await setupApp().request(
+      new Request('http://worker.test/line-api/v2/bot/richmenu/richmenu-1', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer env-token' },
+      }),
+      {},
+      env(db),
+    );
 
     expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -504,17 +506,18 @@ describe('harness API key auth', () => {
 
   test('cannot use another tenant account for non-message LINE APIs', async () => {
     const { db } = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: false });
-    const response = await setupApp().request(new Request(
-      'http://worker.test/line-api/v2/bot/richmenu/richmenu-1',
-      {
+    const response = await setupApp().request(
+      new Request('http://worker.test/line-api/v2/bot/richmenu/richmenu-1', {
         method: 'DELETE',
         headers: {
           Authorization: 'Bearer harness-key',
           'X-Tenant-Id': 'tenant-a',
           'X-Line-Account-Id': 'acc-1',
         },
-      },
-    ), {}, env(db));
+      }),
+      {},
+      env(db),
+    );
 
     expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -540,28 +543,38 @@ describe('push', () => {
     });
     const { db, executed } = fakeDb({
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: eventId, message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
-    });
-    const res = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ type: 'text', text }] },
-      {
-        'X-Pharmacy-Notification-Event-Id': eventId,
-        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+      pharmacyNotification: {
+        id: eventId,
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
       },
-    ), {}, env(db));
+    });
+    const res = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        { to: USER_A, messages: [{ type: 'text', text }] },
+        {
+          'X-Pharmacy-Notification-Event-Id': eventId,
+          'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+        },
+      ),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: PHARMACY_RETRY_KEY,
-      tenantId: 'tenant-a',
-      lineAccountId: 'acc-1',
-      friendId: FRIEND.id,
-      source: 'external',
-      messageType: 'text',
-      content: text,
-    }));
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: PHARMACY_RETRY_KEY,
+        tenantId: 'tenant-a',
+        lineAccountId: 'acc-1',
+        friendId: FRIEND.id,
+        source: 'external',
+        messageType: 'text',
+        content: text,
+      }),
+    );
     const [, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(init.headers['X-Line-Retry-Key']).toBe(PHARMACY_RETRY_KEY);
     expect(init.headers).not.toHaveProperty('X-Pharmacy-Notification-Event-Id');
@@ -576,17 +589,33 @@ describe('push', () => {
     });
     const { db } = fakeDb({
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: 'event-settlement-failure', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+      pharmacyNotification: {
+        id: 'event-settlement-failure',
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
+      },
     });
 
-    const res = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
-      {
-        'X-Pharmacy-Notification-Event-Id': 'event-settlement-failure',
-        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
-      },
-    ), {}, env(db));
+    const res = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        {
+          to: USER_A,
+          messages: [
+            {
+              type: 'text',
+              text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。',
+            },
+          ],
+        },
+        {
+          'X-Pharmacy-Notification-Event-Id': 'event-settlement-failure',
+          'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+        },
+      ),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -595,14 +624,30 @@ describe('push', () => {
   test('approved pharmacy automated push requires a UUID retry key', async () => {
     const { db } = fakeDb({
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: 'event-missing-retry-key', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+      pharmacyNotification: {
+        id: 'event-missing-retry-key',
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
+      },
     });
 
-    const res = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
-      { 'X-Pharmacy-Notification-Event-Id': 'event-missing-retry-key' },
-    ), {}, env(db));
+    const res = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        {
+          to: USER_A,
+          messages: [
+            {
+              type: 'text',
+              text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。',
+            },
+          ],
+        },
+        { 'X-Pharmacy-Notification-Event-Id': 'event-missing-retry-key' },
+      ),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBe(400);
     expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
@@ -620,14 +665,26 @@ describe('push', () => {
       },
     });
 
-    const res = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
-      {
-        'X-Pharmacy-Notification-Event-Id': 'event-key-bound',
-        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
-      },
-    ), {}, env(db));
+    const res = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        {
+          to: USER_A,
+          messages: [
+            {
+              type: 'text',
+              text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。',
+            },
+          ],
+        },
+        {
+          'X-Pharmacy-Notification-Event-Id': 'event-key-bound',
+          'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+        },
+      ),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBe(403);
     expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
@@ -635,20 +692,32 @@ describe('push', () => {
   });
 
   test('rejects an approved pharmacy payload when the staff key belongs to another tenant', async () => {
-    vi.mocked(authenticateApiToken).mockResolvedValue({ id: 'staff-other', name: 'Other', role: 'staff' });
+    vi.mocked(authenticateApiToken).mockResolvedValue({
+      id: 'staff-other',
+      name: 'Other',
+      role: 'staff',
+    });
     const eventId = 'event-cross-tenant';
     const text = '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。';
     const { db } = fakeDb({
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: eventId, message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+      pharmacyNotification: {
+        id: eventId,
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
+      },
       staffAssigned: false,
     });
 
-    const response = await setupApp().request(pushRequest(
-      'harness-key',
-      { to: USER_A, messages: [{ type: 'text', text }] },
-      { 'X-Pharmacy-Notification-Event-Id': eventId },
-    ), {}, env(db));
+    const response = await setupApp().request(
+      pushRequest(
+        'harness-key',
+        { to: USER_A, messages: [{ type: 'text', text }] },
+        { 'X-Pharmacy-Notification-Event-Id': eventId },
+      ),
+      {},
+      env(db),
+    );
 
     expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -657,13 +726,21 @@ describe('push', () => {
   test('rejects a tampered payload even with a valid pharmacy notification event', async () => {
     const { db } = fakeDb({
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: 'event-1', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+      pharmacyNotification: {
+        id: 'event-1',
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
+      },
     });
-    const res = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ type: 'text', text: '任意メッセージ' }] },
-      { 'X-Pharmacy-Notification-Event-Id': 'event-1' },
-    ), {}, env(db));
+    const res = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        { to: USER_A, messages: [{ type: 'text', text: '任意メッセージ' }] },
+        { 'X-Pharmacy-Notification-Event-Id': 'event-1' },
+      ),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -675,52 +752,68 @@ describe('push', () => {
     const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });
     const options = {
       pharmacyAccountId: 'acc-1',
-      pharmacyNotification: { id: eventId, message_id: 'medication_followup_v1', line_user_id: USER_A },
-    };
-    const allowed = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [message] },
-      {
-        'X-Pharmacy-Notification-Event-Id': eventId,
-        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+      pharmacyNotification: {
+        id: eventId,
+        message_id: 'medication_followup_v1',
+        line_user_id: USER_A,
       },
-    ), {}, env(fakeDb(options).db));
+    };
+    const allowed = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        { to: USER_A, messages: [message] },
+        {
+          'X-Pharmacy-Notification-Event-Id': eventId,
+          'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+        },
+      ),
+      {},
+      env(fakeDb(options).db),
+    );
     expect(allowed.status).toBe(200);
 
     fetchMock.mockClear();
-    const rejected = await setupApp().request(pushRequest(
-      'acc-token',
-      { to: USER_A, messages: [{ ...message, quickReply: { items: [] } }] },
-      { 'X-Pharmacy-Notification-Event-Id': eventId },
-    ), {}, env(fakeDb(options).db));
+    const rejected = await setupApp().request(
+      pushRequest(
+        'acc-token',
+        { to: USER_A, messages: [{ ...message, quickReply: { items: [] } }] },
+        { 'X-Pharmacy-Notification-Event-Id': eventId },
+      ),
+      {},
+      env(fakeDb(options).db),
+    );
     expect(rejected.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('requires account assignment for a manual pharmacy send', async () => {
-    vi.mocked(authenticateApiToken).mockResolvedValue({ id: 'staff-a', name: 'Staff', role: 'staff' });
+    vi.mocked(authenticateApiToken).mockResolvedValue({
+      id: 'staff-a',
+      name: 'Staff',
+      role: 'staff',
+    });
     const denied = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: false });
-    const deniedResponse = await setupApp().request(pushRequest(
-      'harness-key', undefined, {
+    const deniedResponse = await setupApp().request(
+      pushRequest('harness-key', undefined, {
         'X-Line-Harness-Source': 'manual',
         'X-Line-Retry-Key': MANUAL_RETRY_KEY,
-      },
-    ), {}, env(denied.db));
+      }),
+      {},
+      env(denied.db),
+    );
     expect(deniedResponse.status).toBe(403);
 
     const allowed = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: true });
-    const allowedResponse = await setupApp().request(pushRequest(
-      'harness-key', undefined, {
+    const allowedResponse = await setupApp().request(
+      pushRequest('harness-key', undefined, {
         'X-Line-Harness-Source': 'manual',
         'X-Line-Retry-Key': MANUAL_RETRY_KEY,
-      },
-    ), {}, env(allowed.db));
-    expect(allowedResponse.status).toBe(200);
-    expect(getFriendByLineUserIdForAccount).toHaveBeenCalledWith(
-      allowed.db,
-      USER_A,
-      'acc-1',
+      }),
+      {},
+      env(allowed.db),
     );
+    expect(allowedResponse.status).toBe(200);
+    expect(getFriendByLineUserIdForAccount).toHaveBeenCalledWith(allowed.db, USER_A, 'acc-1');
   });
 
   test('forwards to api.line.me and logs source=external', async () => {
@@ -774,18 +867,22 @@ describe('push', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'acc-1',
-      friendId: 'friend-1',
-      messageType: 'text',
-      content: 'hello',
-      source: 'manual',
-      request: { to: USER_A, messages: [{ type: 'text', text: 'hello' }] },
-    }));
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'acc-1',
+        friendId: 'friend-1',
+        messageType: 'text',
+        content: 'hello',
+        source: 'manual',
+        request: { to: USER_A, messages: [{ type: 'text', text: 'hello' }] },
+      }),
+    );
     const [, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(init.headers).not.toHaveProperty('X-Line-Harness-Source');
-    const operation = deliveryMocks.deliverTrackedLinePush.mock.calls[0]?.[0] as { operationId: string };
+    const operation = deliveryMocks.deliverTrackedLinePush.mock.calls[0]?.[0] as {
+      operationId: string;
+    };
     expect(init.headers['X-Line-Retry-Key']).toBe(operation.operationId);
   });
 
@@ -805,10 +902,14 @@ describe('push', () => {
     fetchMock.mockResolvedValue(upstreamResponse(409));
     const { db } = fakeDb();
 
-    const res = await setupApp().request(pushRequest('acc-token', undefined, {
-      'X-Line-Harness-Source': 'manual',
-      'X-Line-Retry-Key': MANUAL_RETRY_KEY,
-    }), {}, env(db));
+    const res = await setupApp().request(
+      pushRequest('acc-token', undefined, {
+        'X-Line-Harness-Source': 'manual',
+        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+      }),
+      {},
+      env(db),
+    );
 
     expect(res.status).toBe(200);
     expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
@@ -984,7 +1085,10 @@ describe('multicast', () => {
       new Request('http://worker.test/line-api/v2/bot/message/multicast', {
         method: 'POST',
         headers: { Authorization: 'Bearer acc-token', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: [known, ...strangers], messages: [{ type: 'text', text: 'x' }] }),
+        body: JSON.stringify({
+          to: [known, ...strangers],
+          messages: [{ type: 'text', text: 'x' }],
+        }),
       }),
       {},
       env(db),
@@ -1148,10 +1252,7 @@ describe('reply and passthrough', () => {
       {},
       env(db),
     );
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api-data.line.me/v2/bot/message/m1/content',
-      expect.anything(),
-    );
+    expect(fetchMock).toHaveBeenCalledWith('https://api-data.line.me/v2/bot/message/m1/content', expect.anything());
   });
 
   test('path outside /v2/bot/ → 404, upstream not called', async () => {

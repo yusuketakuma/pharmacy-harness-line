@@ -1,0 +1,4951 @@
+{
+  "sqliteVersion": "3.53.4",
+  "runs": 9,
+  "warmups": 3,
+  "population": "10 friends, total 50/500/5000 mixed-offset messages, 8 actual SELECTs; identical before parameter",
+  "threshold": "W median <= max(2*P median,P median+15ms)",
+  "rowsScanned": "not measured; Python sqlite3 lacks statement scanstatus",
+  "samples": [
+    {
+      "messages": 50,
+      "medianMs": {
+        "P": 1.611958,
+        "W": 1.704042
+      },
+      "ceilingMs": 16.611958,
+      "pass": true,
+      "runsMs": {
+        "P": [
+          3.511125,
+          1.611958,
+          0.9815,
+          0.828833,
+          10.547875,
+          1.952458,
+          1.813666,
+          1.16025,
+          1.202541
+        ],
+        "W": [
+          15.3835,
+          0.836333,
+          0.703333,
+          1.535875,
+          1.97125,
+          4.254625,
+          1.704042,
+          0.822584,
+          1.962
+        ]
+      },
+      "returnedRows": {
+        "P": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ],
+        "W": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ]
+      },
+      "plans": {
+        "P": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              29,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              35,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              143,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              149,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              152,
+              149,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              156,
+              149,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              159,
+              156,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              165,
+              156,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              171,
+              156,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              178,
+              171,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              187,
+              171,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              196,
+              171,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              246,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              249,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              297,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              299,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              306,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              313,
+              306,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              322,
+              306,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              331,
+              306,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              358,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              379,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              388,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              396,
+              388,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              400,
+              388,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              403,
+              400,
+              216,
+              "SCAN page"
+            ],
+            [
+              470,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              472,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              478,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              481,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              487,
+              481,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              515,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              63,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              71,
+              63,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              111,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              114,
+              111,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              118,
+              114,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              143,
+              114,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              167,
+              111,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              219,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              227,
+              219,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              275,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              286,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              295,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              302,
+              295,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              311,
+              295,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              320,
+              295,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              347,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              355,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              374,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              390,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              405,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              425,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              477,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              107,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              115,
+              107,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              155,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              161,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              168,
+              161,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              177,
+              161,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              186,
+              161,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              213,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              241,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              266,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              289,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              35,
+              27,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              39,
+              27,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              42,
+              39,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              145,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              153,
+              145,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              157,
+              145,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              160,
+              157,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              214,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              223,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              241,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              246,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              269,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              302,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              161,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "W": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              31,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              146,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              152,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              155,
+              152,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              159,
+              152,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              162,
+              159,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              168,
+              159,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              174,
+              159,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              181,
+              174,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              190,
+              174,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              199,
+              174,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              249,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              252,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              303,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              305,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              312,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              319,
+              312,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              328,
+              312,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              337,
+              312,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              364,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              386,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              395,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              403,
+              395,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              407,
+              395,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              410,
+              407,
+              216,
+              "SCAN page"
+            ],
+            [
+              478,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              480,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              486,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              489,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              495,
+              489,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              522,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              65,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              73,
+              65,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              116,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              119,
+              116,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              123,
+              119,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              149,
+              119,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              173,
+              116,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              225,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              233,
+              225,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              282,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              293,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              302,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              309,
+              302,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              318,
+              302,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              327,
+              302,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              354,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              362,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              381,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              397,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              412,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              432,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              485,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              110,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              118,
+              110,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              159,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              165,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              172,
+              165,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              181,
+              165,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              190,
+              165,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              217,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              246,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              271,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              294,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              29,
+              27,
+              0,
+              "CO-ROUTINE latest_by_kind"
+            ],
+            [
+              36,
+              29,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              40,
+              29,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              43,
+              40,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              57,
+              29,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              152,
+              27,
+              82,
+              "SCAN latest_by_kind"
+            ],
+            [
+              155,
+              27,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              229,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              237,
+              229,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              241,
+              229,
+              0,
+              "LIST SUBQUERY 5"
+            ],
+            [
+              244,
+              241,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              299,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              310,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              328,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              333,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              356,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              391,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              166,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              164,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "messages": 500,
+      "medianMs": {
+        "P": 3.882459,
+        "W": 5.211333
+      },
+      "ceilingMs": 18.882459,
+      "pass": true,
+      "runsMs": {
+        "P": [
+          6.07625,
+          7.676208,
+          3.811584,
+          2.963083,
+          3.882459,
+          3.544166,
+          12.253083,
+          1.77275,
+          8.894083
+        ],
+        "W": [
+          5.211333,
+          3.333125,
+          3.019625,
+          8.528417,
+          7.264125,
+          4.195167,
+          7.351167,
+          6.012667,
+          3.319625
+        ]
+      },
+      "returnedRows": {
+        "P": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ],
+        "W": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ]
+      },
+      "plans": {
+        "P": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              29,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              35,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              143,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              149,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              152,
+              149,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              156,
+              149,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              159,
+              156,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              165,
+              156,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              171,
+              156,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              178,
+              171,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              187,
+              171,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              196,
+              171,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              246,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              249,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              297,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              299,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              306,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              313,
+              306,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              322,
+              306,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              331,
+              306,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              358,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              379,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              388,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              396,
+              388,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              400,
+              388,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              403,
+              400,
+              216,
+              "SCAN page"
+            ],
+            [
+              470,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              472,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              478,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              481,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              487,
+              481,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              515,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              63,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              71,
+              63,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              111,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              114,
+              111,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              118,
+              114,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              143,
+              114,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              167,
+              111,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              219,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              227,
+              219,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              275,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              286,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              295,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              302,
+              295,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              311,
+              295,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              320,
+              295,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              347,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              355,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              374,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              390,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              405,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              425,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              477,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              107,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              115,
+              107,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              155,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              161,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              168,
+              161,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              177,
+              161,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              186,
+              161,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              213,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              241,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              266,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              289,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              35,
+              27,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              39,
+              27,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              42,
+              39,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              145,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              153,
+              145,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              157,
+              145,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              160,
+              157,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              214,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              223,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              241,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              246,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              269,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              302,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              161,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "W": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              31,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              146,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              152,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              155,
+              152,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              159,
+              152,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              162,
+              159,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              168,
+              159,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              174,
+              159,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              181,
+              174,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              190,
+              174,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              199,
+              174,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              249,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              252,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              303,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              305,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              312,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              319,
+              312,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              328,
+              312,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              337,
+              312,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              364,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              386,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              395,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              403,
+              395,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              407,
+              395,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              410,
+              407,
+              216,
+              "SCAN page"
+            ],
+            [
+              478,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              480,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              486,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              489,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              495,
+              489,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              522,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              65,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              73,
+              65,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              116,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              119,
+              116,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              123,
+              119,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              149,
+              119,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              173,
+              116,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              225,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              233,
+              225,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              282,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              293,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              302,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              309,
+              302,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              318,
+              302,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              327,
+              302,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              354,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              362,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              381,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              397,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              412,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              432,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              485,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              110,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              118,
+              110,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              159,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              165,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              172,
+              165,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              181,
+              165,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              190,
+              165,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              217,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              246,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              271,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              294,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              29,
+              27,
+              0,
+              "CO-ROUTINE latest_by_kind"
+            ],
+            [
+              36,
+              29,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              40,
+              29,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              43,
+              40,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              57,
+              29,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              152,
+              27,
+              82,
+              "SCAN latest_by_kind"
+            ],
+            [
+              155,
+              27,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              229,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              237,
+              229,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              241,
+              229,
+              0,
+              "LIST SUBQUERY 5"
+            ],
+            [
+              244,
+              241,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              299,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              310,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              328,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              333,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              356,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              391,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              166,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              164,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "messages": 5000,
+      "medianMs": {
+        "P": 12.473792,
+        "W": 12.63825
+      },
+      "ceilingMs": 27.473792,
+      "pass": true,
+      "runsMs": {
+        "P": [
+          12.330167,
+          12.749084,
+          12.374333,
+          12.386417,
+          12.473792,
+          12.45175,
+          12.674,
+          12.6685,
+          12.477542
+        ],
+        "W": [
+          12.614958,
+          14.222333,
+          12.899833,
+          12.617042,
+          12.551083,
+          12.807208,
+          12.63825,
+          12.534666,
+          12.705
+        ]
+      },
+      "returnedRows": {
+        "P": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ],
+        "W": [
+          2,
+          1,
+          10,
+          7,
+          1,
+          7,
+          10,
+          0
+        ]
+      },
+      "plans": {
+        "P": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              29,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              35,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              143,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              149,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              152,
+              149,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              156,
+              149,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              159,
+              156,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              165,
+              156,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              171,
+              156,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              178,
+              171,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              187,
+              171,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              196,
+              171,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              246,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              249,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              297,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              299,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              306,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              313,
+              306,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              322,
+              306,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              331,
+              306,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              358,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              379,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              388,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              396,
+              388,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              400,
+              388,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              403,
+              400,
+              216,
+              "SCAN page"
+            ],
+            [
+              470,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              472,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              478,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              481,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              487,
+              481,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              515,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              63,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              71,
+              63,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              111,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              114,
+              111,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              118,
+              114,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              143,
+              114,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              167,
+              111,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              219,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              227,
+              219,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              275,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              286,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              295,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              302,
+              295,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              311,
+              295,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              320,
+              295,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              347,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              355,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              374,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              390,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              405,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              425,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              477,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              107,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              115,
+              107,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              155,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              161,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              168,
+              161,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              177,
+              161,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              186,
+              161,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              213,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              241,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              266,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              289,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              35,
+              27,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              39,
+              27,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              42,
+              39,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              145,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              153,
+              145,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              157,
+              145,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              160,
+              157,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              214,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              223,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              241,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              246,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              269,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              302,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              161,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              94,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              98,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              101,
+              98,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              131,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "W": [
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              31,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              61,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE page"
+            ],
+            [
+              6,
+              3,
+              0,
+              "MATERIALIZE deduped"
+            ],
+            [
+              8,
+              6,
+              0,
+              "CO-ROUTINE (subquery-7)"
+            ],
+            [
+              9,
+              8,
+              0,
+              "COMPOUND QUERY"
+            ],
+            [
+              10,
+              9,
+              0,
+              "LEFT-MOST SUBQUERY"
+            ],
+            [
+              13,
+              10,
+              0,
+              "MATERIALIZE last_any"
+            ],
+            [
+              21,
+              13,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              25,
+              13,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              28,
+              25,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              34,
+              25,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              40,
+              25,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              47,
+              40,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              56,
+              40,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              65,
+              40,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              146,
+              10,
+              82,
+              "SCAN last_any"
+            ],
+            [
+              152,
+              9,
+              0,
+              "UNION ALL"
+            ],
+            [
+              155,
+              152,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              159,
+              152,
+              0,
+              "LIST SUBQUERY 6"
+            ],
+            [
+              162,
+              159,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              168,
+              159,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              174,
+              159,
+              0,
+              "CORRELATED SCALAR SUBQUERY 5"
+            ],
+            [
+              181,
+              174,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              190,
+              174,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              199,
+              174,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              249,
+              6,
+              85,
+              "SCAN (subquery-7)"
+            ],
+            [
+              252,
+              6,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              303,
+              3,
+              82,
+              "SCAN d"
+            ],
+            [
+              305,
+              3,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              312,
+              3,
+              0,
+              "CORRELATED SCALAR SUBQUERY 9"
+            ],
+            [
+              319,
+              312,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              328,
+              312,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              337,
+              312,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              364,
+              3,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              386,
+              3,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            [
+              395,
+              0,
+              0,
+              "MATERIALIZE any_agg"
+            ],
+            [
+              403,
+              395,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              407,
+              395,
+              0,
+              "LIST SUBQUERY 11"
+            ],
+            [
+              410,
+              407,
+              216,
+              "SCAN page"
+            ],
+            [
+              478,
+              0,
+              82,
+              "SCAN d"
+            ],
+            [
+              480,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              486,
+              0,
+              46,
+              "SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              489,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 14"
+            ],
+            [
+              495,
+              489,
+              39,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              522,
+              0,
+              47,
+              "SEARCH any_agg USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_incoming"
+            ],
+            [
+              11,
+              3,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              65,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              73,
+              65,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              116,
+              0,
+              0,
+              "MATERIALIZE ranked"
+            ],
+            [
+              119,
+              116,
+              0,
+              "CO-ROUTINE (subquery-8)"
+            ],
+            [
+              123,
+              119,
+              216,
+              "SCAN ml USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              149,
+              119,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ],
+            [
+              173,
+              116,
+              196,
+              "SCAN (subquery-8)"
+            ],
+            [
+              225,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              233,
+              225,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              282,
+              0,
+              82,
+              "SCAN li"
+            ],
+            [
+              293,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              302,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 6"
+            ],
+            [
+              309,
+              302,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              318,
+              302,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              327,
+              302,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              354,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              362,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              381,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              397,
+              0,
+              0,
+              "BLOOM FILTER ON ranked (row_number=? AND friend_id=?)"
+            ],
+            [
+              412,
+              0,
+              53,
+              "SEARCH ranked USING AUTOMATIC PARTIAL COVERING INDEX (row_number=? AND friend_id=?) LEFT-JOIN"
+            ],
+            [
+              432,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              485,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE last_incoming"
+            ],
+            [
+              9,
+              2,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              59,
+              0,
+              0,
+              "MATERIALIZE last_human"
+            ],
+            [
+              67,
+              59,
+              216,
+              "SCAN messages_log USING INDEX idx_messages_log_friend_direction_created"
+            ],
+            [
+              110,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              118,
+              110,
+              223,
+              "SCAN chats USING INDEX idx_chats_friend_unique"
+            ],
+            [
+              159,
+              0,
+              61,
+              "SEARCH f USING INDEX idx_friends_follow_tenure (is_following=?)"
+            ],
+            [
+              165,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 4"
+            ],
+            [
+              172,
+              165,
+              46,
+              "SEARCH staff USING INDEX sqlite_autoindex_staff_members_1 (id=?)"
+            ],
+            [
+              181,
+              165,
+              53,
+              "SEARCH membership USING COVERING INDEX idx_tenant_staff_memberships_staff (staff_id=? AND is_active=? AND tenant_id=?)"
+            ],
+            [
+              190,
+              165,
+              53,
+              "SEARCH assignment USING COVERING INDEX idx_pharmacy_staff_accounts_staff (staff_id=? AND is_active=? AND line_account_id=?) LEFT-JOIN"
+            ],
+            [
+              217,
+              0,
+              45,
+              "SEARCH tenant_mapping USING COVERING INDEX sqlite_autoindex_tenant_line_accounts_2 (tenant_id=? AND line_account_id=?)"
+            ],
+            [
+              246,
+              0,
+              47,
+              "SEARCH li USING AUTOMATIC PARTIAL COVERING INDEX (friend_id=?)"
+            ],
+            [
+              271,
+              0,
+              47,
+              "SEARCH lh USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              294,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              7,
+              3,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              13,
+              3,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              27,
+              0,
+              0,
+              "MATERIALIZE agg"
+            ],
+            [
+              29,
+              27,
+              0,
+              "CO-ROUTINE latest_by_kind"
+            ],
+            [
+              36,
+              29,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_id (friend_id=?)"
+            ],
+            [
+              40,
+              29,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              43,
+              40,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              57,
+              29,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              152,
+              27,
+              82,
+              "SCAN latest_by_kind"
+            ],
+            [
+              155,
+              27,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              229,
+              0,
+              0,
+              "MATERIALIZE latest_chat"
+            ],
+            [
+              237,
+              229,
+              92,
+              "SEARCH chats USING INDEX idx_chats_friend_unique (friend_id=?)"
+            ],
+            [
+              241,
+              229,
+              0,
+              "LIST SUBQUERY 5"
+            ],
+            [
+              244,
+              241,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              299,
+              0,
+              82,
+              "SCAN agg"
+            ],
+            [
+              310,
+              0,
+              46,
+              "SEARCH f USING INDEX sqlite_autoindex_friends_1 (id=?)"
+            ],
+            [
+              328,
+              0,
+              54,
+              "SEARCH tf USING AUTOMATIC COVERING INDEX (id=?)"
+            ],
+            [
+              333,
+              0,
+              46,
+              "SEARCH la USING INDEX sqlite_autoindex_line_accounts_1 (id=?) LEFT-JOIN"
+            ],
+            [
+              356,
+              0,
+              47,
+              "SEARCH lc USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              391,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_direction_created (friend_id=? AND direction=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              166,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ],
+          [
+            [
+              3,
+              0,
+              0,
+              "MATERIALIZE last_manual"
+            ],
+            [
+              11,
+              3,
+              107,
+              "SEARCH messages_log USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              15,
+              3,
+              0,
+              "LIST SUBQUERY 2"
+            ],
+            [
+              18,
+              15,
+              0,
+              "MATERIALIZE tenant_friends"
+            ],
+            [
+              22,
+              18,
+              55,
+              "SEARCH mapping USING COVERING INDEX idx_tenant_line_accounts_tenant (tenant_id=?)"
+            ],
+            [
+              28,
+              18,
+              210,
+              "SCAN friend USING COVERING INDEX idx_friends_id_line_account"
+            ],
+            [
+              42,
+              15,
+              249,
+              "SCAN tenant_friends"
+            ],
+            [
+              95,
+              0,
+              107,
+              "SEARCH ml USING INDEX idx_messages_log_friend_source (friend_id=? AND source=?)"
+            ],
+            [
+              99,
+              0,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              102,
+              99,
+              216,
+              "SCAN tenant_friends"
+            ],
+            [
+              132,
+              0,
+              47,
+              "SEARCH lm USING AUTOMATIC COVERING INDEX (friend_id=?) LEFT-JOIN"
+            ],
+            [
+              164,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# F31 FIX — scenario step mutationの親・tenant拘束
+P=6751d6edcb164dd8e4ac59fc53824a438bfac13d、primary/dev、RUNNING。tenantScenarioResourceGuardはURL親scenarioのtenantを確認するが、PUTの非schedule/condition更新とDELETEはstepIdだけでDB mutationする。別tenant/別parentのstepIdが混入可能。genericCRM経路、薬局genericfeatureguardによる拒否は別の防御層であり本番到達は未主張。
+書込予定: packages/db/src/scenarios.ts、apps/worker/src/routes/messaging/scenarios.ts、新scenario-step-scope.test.ts。公開DB helperの既存引数は維持し任意scopeを追加、routeはserver tenant+URLparentを必須伝播、mutation/return SELECT双方をSQLで拘束。DELETEのidempotent200/nullは維持、foreign PUTは404。既存emptyupdate/validownmutation/legacyhelper callers/nulltenant互換を検証。schema/migrationは不変。
+Acceptance: actualSQLite+actualHono guard/routes/DB helpersで旧Pのforeign-child update/delete/no-opread RED。tenant mismatchをDB実行時に拒否、既存引数/同parent契約保全。近傍→db/worker requiredchecks、compiledworker合成D1可能範囲、limitedreview、isolatedpatch。実外部/本番/secretなし。
+
+CONFIRMED_BUG/P1(component generic境界)。RED4FAIL2PASS→GREEN10new+既存22=32PASS、fullverify0、ViteWorkerbuild/copiedruntime0、合成identityのcompiledguard+routeをnativeD1実行0。追加scopeはUPDATE/DELETE/空update含むreturnSELECTを一律拘束。初期native harness esbuild解決失敗はmainFields指定で修正し製品ソース不変。旧publichelper引数/NULLtenant/DELETE200保全。F31-result.jsonに制約。限定review親全文確認済。
+
+INTEGRATED da40c463db40423af8bbc32ce2ade603949bcffb、3pathisolatedpatch/stagedhash/diffcheck0。全体goal未完、F-DIST-01はユーザー参照先不明回答により待機でなく未解決。

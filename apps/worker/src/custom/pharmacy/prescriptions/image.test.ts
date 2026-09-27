@@ -12,27 +12,24 @@ describe('inspectPrescriptionImage', () => {
   });
 
   it('rejects a declared type that does not match the bytes', async () => {
-    await expect(
-      inspectPrescriptionImage('image/png', new Uint8Array([0xff, 0xd8, 0xff])),
-    ).rejects.toThrow('content type does not match image bytes');
+    await expect(inspectPrescriptionImage('image/png', new Uint8Array([0xff, 0xd8, 0xff]))).rejects.toThrow(
+      'content type does not match image bytes',
+    );
   });
 
   it('rejects unsupported and empty images', async () => {
-    await expect(
-      inspectPrescriptionImage('image/gif', new Uint8Array([0x47, 0x49, 0x46])),
-    ).rejects.toThrow('unsupported image content type');
-    await expect(
-      inspectPrescriptionImage('image/png', new Uint8Array()),
-    ).rejects.toThrow('image is empty');
+    await expect(inspectPrescriptionImage('image/gif', new Uint8Array([0x47, 0x49, 0x46]))).rejects.toThrow(
+      'unsupported image content type',
+    );
+    await expect(inspectPrescriptionImage('image/png', new Uint8Array())).rejects.toThrow('image is empty');
   });
 
   it('rejects images over 10 MiB', async () => {
-    await expect(
-      inspectPrescriptionImage('image/jpeg', new Uint8Array(10 * 1024 * 1024 + 1)),
-    ).rejects.toThrow('image exceeds 10 MiB');
+    await expect(inspectPrescriptionImage('image/jpeg', new Uint8Array(10 * 1024 * 1024 + 1))).rejects.toThrow(
+      'image exceeds 10 MiB',
+    );
   });
 });
-
 
 describe('readPrescriptionImageBody', () => {
   it('preserves bytes split across chunks up to the exact limit', async () => {
@@ -59,7 +56,11 @@ describe('readPrescriptionImageBody', () => {
   it('preserves empty input and propagates stream failure while releasing the lock', async () => {
     expect(await readPrescriptionImageBody(null)).toEqual(new Uint8Array());
     const failure = new Error('synthetic read failure');
-    const body = new ReadableStream<Uint8Array>({ pull(controller) { controller.error(failure); } });
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(failure);
+      },
+    });
     await expect(readPrescriptionImageBody(body)).rejects.toBe(failure);
     expect(body.locked).toBe(false);
   });

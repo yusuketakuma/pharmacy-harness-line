@@ -2,10 +2,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite } from '../test-sqlite.js';
-import { createRecoveryApproval, assertRecoveryExecution, claimRecoveryOperation,
-  completeRecoveryOperation, getRecoveryOperation, preflightRecoveryOperation, approveRecoveryOperation,
+import {
+  createRecoveryApproval,
+  assertRecoveryExecution,
+  claimRecoveryOperation,
+  completeRecoveryOperation,
+  getRecoveryOperation,
+  preflightRecoveryOperation,
+  approveRecoveryOperation,
   markRecoveryProgress,
-  type RecoveryPreflight, type RecoveryPrincipal, type RecoveryScope } from './operations.js';
+  type RecoveryPreflight,
+  type RecoveryPrincipal,
+  type RecoveryScope,
+} from './operations.js';
 
 const d1From = d1FromSqlite;
 const NOW = '2026-08-24T00:00:00.000Z';
@@ -14,26 +23,34 @@ function seed(): { db: D1Database; sqlite: InstanceType<typeof Sqlite> } {
   const sqlite = new Sqlite(':memory:');
   sqlite.pragma('foreign_keys = ON');
   sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
-  sqlite.prepare(`INSERT INTO tenants
+  sqlite
+    .prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
-    VALUES ('tenant-a', 'a', 'A', 'active', ?, ?)`).run(NOW, NOW);
-  sqlite.prepare(`INSERT INTO line_accounts
+    VALUES ('tenant-a', 'a', 'A', 'active', ?, ?)`)
+    .run(NOW, NOW);
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
-    VALUES ('account-a', 'channel-a', 'A', 'token', 'secret', ?, ?)`).run(NOW, NOW);
-  sqlite.prepare(`INSERT INTO tenant_line_accounts
+    VALUES ('account-a', 'channel-a', 'A', 'token', 'secret', ?, ?)`)
+    .run(NOW, NOW);
+  sqlite
+    .prepare(`INSERT INTO tenant_line_accounts
     (tenant_id, line_account_id, created_at, updated_at)
-    VALUES ('tenant-a', 'account-a', ?, ?)`).run(NOW, NOW);
-  sqlite.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+    VALUES ('tenant-a', 'account-a', ?, ?)`)
+    .run(NOW, NOW);
+  sqlite
+    .prepare(`INSERT INTO pharmacy_recovery_backup_generations
     (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
      expected_row_count, expected_object_count, verified_at, created_at)
-    VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`).run(
-    'a'.repeat(64), NOW, NOW,
-  );
+    VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`)
+    .run('a'.repeat(64), NOW, NOW);
   return { db: d1From(sqlite), sqlite };
 }
 
 const scope: RecoveryScope = {
-  tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'test',
+  tenantId: 'tenant-a',
+  lineAccountId: 'account-a',
+  environment: 'test',
 };
 const approver: RecoveryPrincipal = { issuer: 'platform-admin', subject: 'admin-a' };
 const executor: RecoveryPrincipal = { issuer: 'platform-admin', subject: 'admin-b' };
@@ -55,23 +72,37 @@ const preflight: RecoveryPreflight = {
 
 async function runningRecovery(db: D1Database) {
   const created = await createRecoveryApproval(db, {
-    scope, operation: 'plaintext_scrub', requestedBy: approver,
+    scope,
+    operation: 'plaintext_scrub',
+    requestedBy: approver,
     approvalExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     idempotencyKey: 'concurrent-recovery',
   });
   await preflightRecoveryOperation(db, {
-    operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
+    operationId: created.id,
+    scope,
+    operation: 'plaintext_scrub',
+    preflight,
   });
   await approveRecoveryOperation(db, {
-    operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
+    operationId: created.id,
+    scope,
+    operation: 'plaintext_scrub',
+    principal: approver,
   });
   const claimed = await claimRecoveryOperation(db, {
-    operationId: created.id, scope, operation: 'plaintext_scrub', executor,
+    operationId: created.id,
+    scope,
+    operation: 'plaintext_scrub',
+    executor,
   });
   return {
-    operation: 'plaintext_scrub' as const, operationId: claimed.id,
-    executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
-    executorSubject: executor.subject, ...scope,
+    operation: 'plaintext_scrub' as const,
+    operationId: claimed.id,
+    executionId: claimed.executionId!,
+    fenceToken: claimed.fenceToken!,
+    executorSubject: executor.subject,
+    ...scope,
   };
 }
 
@@ -79,16 +110,28 @@ async function runningRecovery(db: D1Database) {
 // this request's first write. No timers or mocked SQL results are involved.
 function beforeWrite(db: D1Database, effect: () => void | Promise<void>): D1Database {
   let pending = true;
-  const before = async () => { if (pending) { pending = false; await effect(); } };
-  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => ({
-    ...statement,
-    bind: (...values: unknown[]) => wrap(statement.bind(...values)),
-    run: async () => { await before(); return statement.run(); },
-  }) as D1PreparedStatement;
+  const before = async () => {
+    if (pending) {
+      pending = false;
+      await effect();
+    }
+  };
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+    ({
+      ...statement,
+      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      run: async () => {
+        await before();
+        return statement.run();
+      },
+    }) as D1PreparedStatement;
   return {
     ...db,
     prepare: (sql: string) => wrap(db.prepare(sql)),
-    batch: async (statements: D1PreparedStatement[]) => { await before(); return db.batch(statements); },
+    batch: async (statements: D1PreparedStatement[]) => {
+      await before();
+      return db.batch(statements);
+    },
   } as D1Database;
 }
 
@@ -99,18 +142,31 @@ describe('pharmacy recovery operation state machine', () => {
       const execution = await runningRecovery(db);
       const delayed = beforeWrite(db, async () => {
         await markRecoveryProgress(db, {
-          ...execution, batchId: 'winner', cursor: 'cursor-new',
-          processedRowCount: 1, processedObjectCount: 0,
+          ...execution,
+          batchId: 'winner',
+          cursor: 'cursor-new',
+          processedRowCount: 1,
+          processedObjectCount: 0,
         });
       });
-      await expect(markRecoveryProgress(delayed, {
-        ...execution, batchId: 'late', cursor: 'cursor-old',
-        processedRowCount: 0, processedObjectCount: 0,
-      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      await expect(
+        markRecoveryProgress(delayed, {
+          ...execution,
+          batchId: 'late',
+          cursor: 'cursor-old',
+          processedRowCount: 0,
+          processedObjectCount: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
       expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({
-        status: 'running', lastBatchId: 'winner', cursor: 'cursor-new', processedRowCount: 1,
+        status: 'running',
+        lastBatchId: 'winner',
+        cursor: 'cursor-new',
+        processedRowCount: 1,
       });
-    } finally { sqlite.close(); }
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('rejects progress if the execution fence expires after authorization', async () => {
@@ -120,12 +176,21 @@ describe('pharmacy recovery operation state machine', () => {
       const expired = beforeWrite(db, () => {
         sqlite.prepare('UPDATE pharmacy_recovery_execution_fences SET expires_at = ?').run(NOW);
       });
-      await expect(markRecoveryProgress(expired, {
-        ...execution, batchId: 'late', cursor: 'cursor-old',
-        processedRowCount: 1, processedObjectCount: 0,
-      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
-      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ processedRowCount: 0 });
-    } finally { sqlite.close(); }
+      await expect(
+        markRecoveryProgress(expired, {
+          ...execution,
+          batchId: 'late',
+          cursor: 'cursor-old',
+          processedRowCount: 1,
+          processedObjectCount: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({
+        processedRowCount: 0,
+      });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('rejects a batch computed from an older snapshot even if its counts are equal', async () => {
@@ -133,82 +198,156 @@ describe('pharmacy recovery operation state machine', () => {
     try {
       const execution = await runningRecovery(db);
       const winner = {
-        ...execution, batchId: 'winner', cursor: 'cursor-new', expectedLastBatchId: null,
-        processedRowCount: 1, processedObjectCount: 0,
+        ...execution,
+        batchId: 'winner',
+        cursor: 'cursor-new',
+        expectedLastBatchId: null,
+        processedRowCount: 1,
+        processedObjectCount: 0,
       };
       await markRecoveryProgress(db, winner);
-      await expect(markRecoveryProgress(db, winner)).resolves.toMatchObject({ lastBatchId: 'winner' });
-      await expect(markRecoveryProgress(db, {
-        ...winner, batchId: 'late', cursor: 'cursor-old',
-      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
-      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ cursor: 'cursor-new' });
-    } finally { sqlite.close(); }
+      await expect(markRecoveryProgress(db, winner)).resolves.toMatchObject({
+        lastBatchId: 'winner',
+      });
+      await expect(
+        markRecoveryProgress(db, {
+          ...winner,
+          batchId: 'late',
+          cursor: 'cursor-old',
+        }),
+      ).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({
+        cursor: 'cursor-new',
+      });
+    } finally {
+      sqlite.close();
+    }
   });
 
-  it.each(['progress', 'fence'])('does not complete or release the fence when %s changes after authorization', async (change) => {
-    const { db, sqlite } = seed();
-    try {
-      const execution = await runningRecovery(db);
-      await markRecoveryProgress(db, {
-        ...execution, batchId: 'done', cursor: null, processedRowCount: 1, processedObjectCount: 0,
-      });
-      const changed = beforeWrite(db, () => {
-        if (change === 'progress') sqlite.exec('UPDATE pharmacy_recovery_operations SET processed_row_count = 0');
-        else sqlite.prepare('UPDATE pharmacy_recovery_execution_fences SET expires_at = ?').run(NOW);
-      });
-      await expect(completeRecoveryOperation(changed, execution)).rejects.toMatchObject({ code: 'COMPLETE_CONFLICT' });
-      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ status: 'running' });
-      expect(sqlite.prepare('SELECT status FROM pharmacy_recovery_execution_fences').get()).toEqual({ status: 'active' });
-    } finally { sqlite.close(); }
-  });
+  it.each(['progress', 'fence'])(
+    'does not complete or release the fence when %s changes after authorization',
+    async (change) => {
+      const { db, sqlite } = seed();
+      try {
+        const execution = await runningRecovery(db);
+        await markRecoveryProgress(db, {
+          ...execution,
+          batchId: 'done',
+          cursor: null,
+          processedRowCount: 1,
+          processedObjectCount: 0,
+        });
+        const changed = beforeWrite(db, () => {
+          if (change === 'progress') sqlite.exec('UPDATE pharmacy_recovery_operations SET processed_row_count = 0');
+          else sqlite.prepare('UPDATE pharmacy_recovery_execution_fences SET expires_at = ?').run(NOW);
+        });
+        await expect(completeRecoveryOperation(changed, execution)).rejects.toMatchObject({
+          code: 'COMPLETE_CONFLICT',
+        });
+        expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({
+          status: 'running',
+        });
+        expect(sqlite.prepare('SELECT status FROM pharmacy_recovery_execution_fences').get()).toEqual({
+          status: 'active',
+        });
+      } finally {
+        sqlite.close();
+      }
+    },
+  );
   it('requires a verified preflight, independent executor, and one CAS claim', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'recovery-a',
     });
-    await expect(preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
-    })).resolves.toMatchObject({ status: 'preflighted' });
-    await expect(approveRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
-    })).resolves.toMatchObject({ status: 'approved', approverSubject: 'admin-a' });
-    await expect(claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', executor,
-    })).resolves.toMatchObject({ status: 'running', executorSubject: 'admin-b' });
-    await expect(claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', executor,
-    })).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
-    await expect(assertRecoveryExecution(db, {
-      operation: 'plaintext_scrub', operationId: created.id, executionId: created.id,
-      fenceToken: 'w'.repeat(32), executorSubject: 'admin-b', ...scope,
-    })).rejects.toMatchObject({ code: 'EXECUTION_NOT_FOUND' });
+    await expect(
+      preflightRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        preflight,
+      }),
+    ).resolves.toMatchObject({ status: 'preflighted' });
+    await expect(
+      approveRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        principal: approver,
+      }),
+    ).resolves.toMatchObject({ status: 'approved', approverSubject: 'admin-a' });
+    await expect(
+      claimRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        executor,
+      }),
+    ).resolves.toMatchObject({ status: 'running', executorSubject: 'admin-b' });
+    await expect(
+      claimRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        executor,
+      }),
+    ).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
+    await expect(
+      assertRecoveryExecution(db, {
+        operation: 'plaintext_scrub',
+        operationId: created.id,
+        executionId: created.id,
+        fenceToken: 'w'.repeat(32),
+        executorSubject: 'admin-b',
+        ...scope,
+      }),
+    ).rejects.toMatchObject({ code: 'EXECUTION_NOT_FOUND' });
   });
 
   it('returns a safe validation code for malformed execution proof values', async () => {
     const { db } = seed();
-    await expect(assertRecoveryExecution(db, {
-      operation: 'retention_delete', operationId: 'operation-a', executionId: 'execution-a',
-      fenceToken: 7 as unknown as string, executorSubject: 'admin-b', ...scope,
-    })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(
+      assertRecoveryExecution(db, {
+        operation: 'retention_delete',
+        operationId: 'operation-a',
+        executionId: 'execution-a',
+        fenceToken: 7 as unknown as string,
+        executorSubject: 'admin-b',
+        ...scope,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 
   it('keeps cursor resume bound to the same execution fence and completes once', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'recovery-resume',
     });
     await preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      principal: approver,
     });
     const claimed = await claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', executor,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      executor,
     });
     const execution = {
       operation: 'plaintext_scrub' as const,
@@ -218,211 +357,370 @@ describe('pharmacy recovery operation state machine', () => {
       executorSubject: executor.subject,
       ...scope,
     };
-    await expect(markRecoveryProgress(db, {
-      ...execution, batchId: 'batch-a', cursor: 'cursor-a',
-      processedRowCount: 1, processedObjectCount: 0,
-    })).resolves.toMatchObject({ cursor: 'cursor-a', lastBatchId: 'batch-a' });
-    await expect(markRecoveryProgress(db, {
-      ...execution, batchId: 'batch-a', cursor: 'cursor-a',
-      processedRowCount: 1, processedObjectCount: 0,
-    })).resolves.toMatchObject({ cursor: 'cursor-a', lastBatchId: 'batch-a' });
-    await expect(markRecoveryProgress(db, {
-      ...execution, fenceToken: 'x'.repeat(32), batchId: 'batch-b', cursor: 'cursor-b',
-      processedRowCount: 2, processedObjectCount: 0,
-    })).rejects.toMatchObject({ code: 'EXECUTION_NOT_FOUND' });
-    await expect(completeRecoveryOperation(db, execution))
-      .resolves.toMatchObject({ status: 'completed' });
-    await expect(assertRecoveryExecution(db, execution))
-      .rejects.toMatchObject({ code: 'EXECUTION_NOT_FOUND' });
+    await expect(
+      markRecoveryProgress(db, {
+        ...execution,
+        batchId: 'batch-a',
+        cursor: 'cursor-a',
+        processedRowCount: 1,
+        processedObjectCount: 0,
+      }),
+    ).resolves.toMatchObject({ cursor: 'cursor-a', lastBatchId: 'batch-a' });
+    await expect(
+      markRecoveryProgress(db, {
+        ...execution,
+        batchId: 'batch-a',
+        cursor: 'cursor-a',
+        processedRowCount: 1,
+        processedObjectCount: 0,
+      }),
+    ).resolves.toMatchObject({ cursor: 'cursor-a', lastBatchId: 'batch-a' });
+    await expect(
+      markRecoveryProgress(db, {
+        ...execution,
+        fenceToken: 'x'.repeat(32),
+        batchId: 'batch-b',
+        cursor: 'cursor-b',
+        processedRowCount: 2,
+        processedObjectCount: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'EXECUTION_NOT_FOUND' });
+    await expect(completeRecoveryOperation(db, execution)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    await expect(assertRecoveryExecution(db, execution)).rejects.toMatchObject({
+      code: 'EXECUTION_NOT_FOUND',
+    });
   });
 
   it('rejects an executor that is the authenticated approver principal', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'recovery-same-principal',
     });
     await preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      principal: approver,
     });
-    await expect(claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', executor: approver,
-    })).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
+    await expect(
+      claimRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        executor: approver,
+      }),
+    ).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
   });
 
   it('rejects an already-expired approval before creating durable state', async () => {
     const { db, sqlite } = seed();
-    await expect(createRecoveryApproval(db, {
-      scope, operation: 'retention_delete', requestedBy: approver,
-      approvalExpiresAt: new Date(Date.now() - 1000).toISOString(),
-      idempotencyKey: 'recovery-expired',
-    })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
-    expect((sqlite.prepare('SELECT COUNT(*) AS count FROM pharmacy_recovery_operations').get() as { count: number }).count)
-      .toBe(0);
+    await expect(
+      createRecoveryApproval(db, {
+        scope,
+        operation: 'retention_delete',
+        requestedBy: approver,
+        approvalExpiresAt: new Date(Date.now() - 1000).toISOString(),
+        idempotencyKey: 'recovery-expired',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(
+      (
+        sqlite.prepare('SELECT COUNT(*) AS count FROM pharmacy_recovery_operations').get() as {
+          count: number;
+        }
+      ).count,
+    ).toBe(0);
   });
 
   it('marks the execution stale when the backup manifest digest drifts at the same counts', async () => {
     const { db, sqlite } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'recovery-backup-drift',
     });
     await preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      principal: approver,
     });
     const claimed = await claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', executor,
+      operationId: created.id,
+      scope,
+      operation: 'plaintext_scrub',
+      executor,
     });
-    sqlite.prepare(`UPDATE pharmacy_recovery_backup_generations
+    sqlite
+      .prepare(`UPDATE pharmacy_recovery_backup_generations
       SET manifest_digest = ? WHERE generation_id = 'backup-a' AND environment = 'test'`)
       .run('f'.repeat(64));
 
-    await expect(preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
-      executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
-    })).rejects.toMatchObject({ code: 'PREFLIGHT_BLOCKED' });
+    await expect(
+      preflightRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'plaintext_scrub',
+        preflight,
+        executionId: claimed.executionId!,
+        fenceToken: claimed.fenceToken!,
+      }),
+    ).rejects.toMatchObject({ code: 'PREFLIGHT_BLOCKED' });
     await expect(getRecoveryOperation(db, created.id)).resolves.toMatchObject({ status: 'stale' });
-    expect((sqlite.prepare(`SELECT status FROM pharmacy_recovery_execution_fences
-      WHERE operation_id = ?`).get(created.id) as { status: string }).status).toBe('released');
+    expect(
+      (
+        sqlite
+          .prepare(`SELECT status FROM pharmacy_recovery_execution_fences
+      WHERE operation_id = ?`)
+          .get(created.id) as { status: string }
+      ).status,
+    ).toBe('released');
   });
 
   it('releases an expired scope fence before claiming a newly approved operation', async () => {
     const { db, sqlite } = seed();
     const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const first = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
-      approvalExpiresAt, idempotencyKey: 'expired-fence-first',
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
+      approvalExpiresAt,
+      idempotencyKey: 'expired-fence-first',
     });
     await preflightRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', preflight,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', principal: approver,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      principal: approver,
     });
     const firstClaim = await claimRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', executor,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      executor,
     });
-    sqlite.prepare(`UPDATE pharmacy_recovery_execution_fences SET expires_at = ?
-      WHERE fence_id = ?`).run(new Date(Date.now() - 1000).toISOString(), firstClaim.fenceId);
+    sqlite
+      .prepare(`UPDATE pharmacy_recovery_execution_fences SET expires_at = ?
+      WHERE fence_id = ?`)
+      .run(new Date(Date.now() - 1000).toISOString(), firstClaim.fenceId);
 
     const second = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_restore', requestedBy: approver,
-      approvalExpiresAt, idempotencyKey: 'expired-fence-second',
+      scope,
+      operation: 'plaintext_restore',
+      requestedBy: approver,
+      approvalExpiresAt,
+      idempotencyKey: 'expired-fence-second',
     });
     await preflightRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', preflight,
+      operationId: second.id,
+      scope,
+      operation: 'plaintext_restore',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', principal: approver,
+      operationId: second.id,
+      scope,
+      operation: 'plaintext_restore',
+      principal: approver,
     });
 
-    await expect(claimRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', executor,
-    })).resolves.toMatchObject({ status: 'running', executorSubject: executor.subject });
+    await expect(
+      claimRecoveryOperation(db, {
+        operationId: second.id,
+        scope,
+        operation: 'plaintext_restore',
+        executor,
+      }),
+    ).resolves.toMatchObject({ status: 'running', executorSubject: executor.subject });
     await expect(getRecoveryOperation(db, first.id)).resolves.toMatchObject({
-      status: 'stale', errorCode: 'FENCE_EXPIRED',
+      status: 'stale',
+      errorCode: 'FENCE_EXPIRED',
     });
-    expect(sqlite.prepare(`SELECT status FROM pharmacy_recovery_execution_fences
-      WHERE fence_id = ?`).get(firstClaim.fenceId)).toEqual({ status: 'released' });
+    expect(
+      sqlite
+        .prepare(`SELECT status FROM pharmacy_recovery_execution_fences
+      WHERE fence_id = ?`)
+        .get(firstClaim.fenceId),
+    ).toEqual({ status: 'released' });
   });
 
   it('keeps a second approved operation out while the scope fence is live', async () => {
     const { db } = seed();
     const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const first = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_scrub', requestedBy: approver,
-      approvalExpiresAt, idempotencyKey: 'live-fence-first',
+      scope,
+      operation: 'plaintext_scrub',
+      requestedBy: approver,
+      approvalExpiresAt,
+      idempotencyKey: 'live-fence-first',
     });
     await preflightRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', preflight,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', principal: approver,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      principal: approver,
     });
     await claimRecoveryOperation(db, {
-      operationId: first.id, scope, operation: 'plaintext_scrub', executor,
+      operationId: first.id,
+      scope,
+      operation: 'plaintext_scrub',
+      executor,
     });
     const second = await createRecoveryApproval(db, {
-      scope, operation: 'plaintext_restore', requestedBy: approver,
-      approvalExpiresAt, idempotencyKey: 'live-fence-second',
+      scope,
+      operation: 'plaintext_restore',
+      requestedBy: approver,
+      approvalExpiresAt,
+      idempotencyKey: 'live-fence-second',
     });
     await preflightRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', preflight,
+      operationId: second.id,
+      scope,
+      operation: 'plaintext_restore',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', principal: approver,
+      operationId: second.id,
+      scope,
+      operation: 'plaintext_restore',
+      principal: approver,
     });
 
-    await expect(claimRecoveryOperation(db, {
-      operationId: second.id, scope, operation: 'plaintext_restore', executor,
-    })).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
+    await expect(
+      claimRecoveryOperation(db, {
+        operationId: second.id,
+        scope,
+        operation: 'plaintext_restore',
+        executor,
+      }),
+    ).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
     await expect(getRecoveryOperation(db, first.id)).resolves.toMatchObject({ status: 'running' });
-    await expect(getRecoveryOperation(db, second.id)).resolves.toMatchObject({ status: 'approved' });
+    await expect(getRecoveryOperation(db, second.id)).resolves.toMatchObject({
+      status: 'approved',
+    });
   });
 
   it('exposes the same execution proof contract for retention_delete', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'retention_delete', requestedBy: approver,
+      scope,
+      operation: 'retention_delete',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'retention-execution-contract',
     });
     await preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'retention_delete', preflight,
+      operationId: created.id,
+      scope,
+      operation: 'retention_delete',
+      preflight,
     });
     await approveRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'retention_delete', principal: approver,
+      operationId: created.id,
+      scope,
+      operation: 'retention_delete',
+      principal: approver,
     });
     const claimed = await claimRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'retention_delete', executor,
+      operationId: created.id,
+      scope,
+      operation: 'retention_delete',
+      executor,
     });
-    await expect(assertRecoveryExecution(db, {
-      operation: 'retention_delete', operationId: claimed.id,
-      executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
-      executorSubject: executor.subject, ...scope,
-    })).resolves.toMatchObject({ operation: { operation: 'retention_delete' }, fence: { status: 'active' } });
+    await expect(
+      assertRecoveryExecution(db, {
+        operation: 'retention_delete',
+        operationId: claimed.id,
+        executionId: claimed.executionId!,
+        fenceToken: claimed.fenceToken!,
+        executorSubject: executor.subject,
+        ...scope,
+      }),
+    ).resolves.toMatchObject({
+      operation: { operation: 'retention_delete' },
+      fence: { status: 'active' },
+    });
   });
 
   it('accepts retention target counts that differ from the verified backup inventory', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'retention_delete', requestedBy: approver,
+      scope,
+      operation: 'retention_delete',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'retention-target-counts',
     });
 
-    await expect(preflightRecoveryOperation(db, {
-      operationId: created.id,
-      scope,
-      operation: 'retention_delete',
-      preflight: { ...preflight, expectedRowCount: 0, expectedObjectCount: 1 },
-    })).resolves.toMatchObject({ status: 'preflighted' });
+    await expect(
+      preflightRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'retention_delete',
+        preflight: { ...preflight, expectedRowCount: 0, expectedObjectCount: 1 },
+      }),
+    ).resolves.toMatchObject({ status: 'preflighted' });
   });
 
   it('blocks retention when its verified backup manifest changes', async () => {
     const { db, sqlite } = seed();
     const created = await createRecoveryApproval(db, {
-      scope, operation: 'retention_delete', requestedBy: approver,
+      scope,
+      operation: 'retention_delete',
+      requestedBy: approver,
       approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       idempotencyKey: 'retention-backup-drift',
     });
     await preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'retention_delete', preflight,
+      operationId: created.id,
+      scope,
+      operation: 'retention_delete',
+      preflight,
     });
-    sqlite.prepare(`UPDATE pharmacy_recovery_backup_generations
+    sqlite
+      .prepare(`UPDATE pharmacy_recovery_backup_generations
       SET manifest_digest = ? WHERE generation_id = 'backup-a' AND environment = 'test'`)
       .run('f'.repeat(64));
 
-    await expect(preflightRecoveryOperation(db, {
-      operationId: created.id, scope, operation: 'retention_delete', preflight,
-    })).rejects.toMatchObject({ code: 'PREFLIGHT_BLOCKED' });
+    await expect(
+      preflightRecoveryOperation(db, {
+        operationId: created.id,
+        scope,
+        operation: 'retention_delete',
+        preflight,
+      }),
+    ).rejects.toMatchObject({ code: 'PREFLIGHT_BLOCKED' });
   });
 });

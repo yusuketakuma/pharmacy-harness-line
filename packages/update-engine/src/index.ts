@@ -1,19 +1,8 @@
 import { Readable } from 'node:stream';
 import type { UpdateContext, UpdateEvent } from './types.js';
-import {
-  parseBundleStream,
-  verifyBundleHashes,
-  verifyBundleIntegrity,
-} from './bundle.js';
+import { parseBundleStream, verifyBundleHashes, verifyBundleIntegrity } from './bundle.js';
 import { getRollbackPagesDeployment } from './cf-api/rollback-target.js';
-import {
-  createSnapshot,
-  getSnapshot,
-  updateStatus,
-  appendEvent,
-  setError,
-  type D1Like,
-} from './snapshot.js';
+import { createSnapshot, getSnapshot, updateStatus, appendEvent, setError, type D1Like } from './snapshot.js';
 import { createEventEmitter, type EventEmitter } from './events.js';
 import { runPreflight } from './phases/preflight.js';
 import { runApply } from './phases/apply.js';
@@ -192,16 +181,12 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
       // Step 5: bundle download → parse → hash check.
       const res = await fetch(ctx.target.bundle_url);
       if (!res.ok) {
-        throw new Error(
-          `failed to fetch bundle from ${ctx.target.bundle_url}: HTTP ${res.status}`,
-        );
+        throw new Error(`failed to fetch bundle from ${ctx.target.bundle_url}: HTTP ${res.status}`);
       }
       if (!res.body) {
         throw new Error('bundle response has no body');
       }
-      const bundle = await parseBundleStream(
-        Readable.fromWeb(res.body as any),
-      );
+      const bundle = await parseBundleStream(Readable.fromWeb(res.body as any));
       const computed = verifyBundleHashes(bundle);
       // Byte-verify against worker_bundle_hash (detached final-artifact
       // hash). Releases without it shipped undeployable worker stubs and
@@ -254,10 +239,7 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
         // snapshot_liff_deployment is intentionally NOT required — it is
         // empty for worker-assets installs, whose LIFF is restored by the
         // Worker script rollback itself.
-        if (
-          snap?.snapshot_worker_url &&
-          snap.snapshot_admin_deployment
-        ) {
+        if (snap?.snapshot_worker_url && snap.snapshot_admin_deployment) {
           await runRollback(
             ctx,
             {
@@ -267,9 +249,7 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
             },
             recoveryEvents,
           );
-          const statusSaved = await bestEffort(() =>
-            updateStatus(d1, updateId, 'rolled_back'),
-          );
+          const statusSaved = await bestEffort(() => updateStatus(d1, updateId, 'rolled_back'));
           if (!statusSaved) {
             await bestEffort(() => updateStatus(d1, updateId, 'failed'));
           }
@@ -279,11 +259,7 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
         }
       } catch (rbErr) {
         const rbMessage = rbErr instanceof Error ? rbErr.message : String(rbErr);
-        await bestEffort(() => setError(
-          d1,
-          updateId,
-          `original: ${original.message}\nrollback: ${rbMessage}`,
-        ));
+        await bestEffort(() => setError(d1, updateId, `original: ${original.message}\nrollback: ${rbMessage}`));
         await bestEffort(() => updateStatus(d1, updateId, 'failed'));
       }
       // Rethrow original so callers learn the update failed.

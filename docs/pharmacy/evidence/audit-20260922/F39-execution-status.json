@@ -1,0 +1,35 @@
+{
+  "near": {
+    "session": 97093,
+    "exit": 0,
+    "tests": 51
+  },
+  "native": {
+    "session": 8506,
+    "exit": 0,
+    "tests": 3
+  },
+  "consumersNative": {
+    "session": 51764,
+    "exit": 0
+  },
+  "typecheck": {
+    "session": 35208,
+    "exit": 0
+  },
+  "verifyCi": {
+    "session": 24764,
+    "exit": 0
+  },
+  "oldConsumers": [
+    {
+      "mode": "emergency",
+      "exitCode": 1
+    },
+    {
+      "mode": "prescription",
+      "exitCode": 1
+    }
+  ],
+  "diffCheck": 0
+}

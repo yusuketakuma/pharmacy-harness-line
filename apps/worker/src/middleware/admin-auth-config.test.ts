@@ -19,9 +19,7 @@ describe('registrableDomain', () => {
     // 実環境のドメイン実値は使わない: OSS sync の secret redaction (sed) が
     // テストリテラルを書き換えて input/expected の整合が壊れるため、中立な例で書く。
     expect(registrableDomain('my-admin.pages.dev')).toBe('my-admin.pages.dev');
-    expect(registrableDomain('my-worker.my-subdomain.workers.dev')).toBe(
-      'my-subdomain.workers.dev',
-    );
+    expect(registrableDomain('my-worker.my-subdomain.workers.dev')).toBe('my-subdomain.workers.dev');
   });
 
   test('falls back to the last two labels for ordinary domains', () => {
@@ -45,10 +43,7 @@ describe('parseAllowedOrigins', () => {
     const env: AdminAuthEnv = {
       ADMIN_ORIGIN: 'https://admin.example.com/ , https://staff.example.com',
     };
-    expect(parseAllowedOrigins(env)).toEqual([
-      'https://admin.example.com',
-      'https://staff.example.com',
-    ]);
+    expect(parseAllowedOrigins(env)).toEqual(['https://admin.example.com', 'https://staff.example.com']);
   });
 
   test('returns [] when unset', () => {
@@ -125,10 +120,7 @@ describe('resolveAdminAuthConfig — topology guard', () => {
   test('with WORKER_URL unset, the request origin is used for cross-site detection', () => {
     // Production installer never sets WORKER_URL; the request origin is the
     // Worker's own origin and must still flag the cross-site blocker.
-    const cfg = resolveAdminAuthConfig(
-      { ADMIN_ORIGIN: PAGES },
-      { requestOrigin: WORKERS },
-    );
+    const cfg = resolveAdminAuthConfig({ ADMIN_ORIGIN: PAGES }, { requestOrigin: WORKERS });
     expect(cfg.crossSite).toBe(true);
     expect(cfg.misconfigured).toMatch(/cross-site/i);
   });
@@ -185,32 +177,20 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
       WORKER_URL: WORKERS,
       ADMIN_ALLOW_CROSS_SITE: 'true',
     };
-    expect(
-      resolveCorsOrigin(liffEnv, LIFF, `${WORKERS}/api/liff/booking/menus`),
-    ).toBe(LIFF);
+    expect(resolveCorsOrigin(liffEnv, LIFF, `${WORKERS}/api/liff/booking/menus`)).toBe(LIFF);
     expect(resolveAdminAuthConfig(liffEnv).allowedOrigins).toEqual([PAGES]);
   });
 
   test('blocks a LIFF origin from the admin session endpoint', () => {
-    expect(
-      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/auth/session`),
-    ).toBe('');
+    expect(resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/auth/session`)).toBe('');
   });
 
   test('blocks a LIFF origin from platform-admin APIs', () => {
-    expect(
-      resolveCorsOrigin(
-        { ...env, LIFF_ORIGIN: LIFF },
-        LIFF,
-        `${WORKERS}/api/platform-admin/session`,
-      ),
-    ).toBe('');
+    expect(resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/platform-admin/session`)).toBe('');
   });
 
   test('blocks a LIFF origin from ordinary admin APIs', () => {
-    expect(
-      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/friends`),
-    ).toBe('');
+    expect(resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/friends`)).toBe('');
   });
 
   test('blocks a LIFF origin when it is not explicitly configured', () => {
@@ -219,13 +199,7 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
 
   test('does not widen the LIFF allowlist to Pages preview origins', () => {
     const preview = 'https://preview.your-liff.pages.dev';
-    expect(
-      resolveCorsOrigin(
-        { ...env, LIFF_ORIGIN: LIFF },
-        preview,
-        `${WORKERS}/api/liff/booking/menus`,
-      ),
-    ).toBe('');
+    expect(resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, preview, `${WORKERS}/api/liff/booking/menus`)).toBe('');
   });
 });
 
@@ -237,9 +211,7 @@ describe('isAllowedAdminOrigin — exact production allowlist', () => {
   });
 
   test('does not widen custom domains to arbitrary subdomains', () => {
-    expect(
-      isAllowedAdminOrigin('https://preview.admin.example.com', 'https://admin.example.com'),
-    ).toBe(false);
+    expect(isAllowedAdminOrigin('https://preview.admin.example.com', 'https://admin.example.com')).toBe(false);
   });
 });
 
@@ -253,13 +225,11 @@ describe('isAllowedAdminRequestOrigin — production browser entry', () => {
   test('accepts only the explicit admin origin, not preview or Worker origins', () => {
     const requestUrl = `${WORKERS}/api/auth/login`;
     expect(isAllowedAdminRequestOrigin(env, PAGES, requestUrl)).toBe(true);
-    expect(isAllowedAdminRequestOrigin(
-      env, 'https://preview.your-admin.pages.dev', requestUrl,
-    )).toBe(false);
+    expect(isAllowedAdminRequestOrigin(env, 'https://preview.your-admin.pages.dev', requestUrl)).toBe(false);
     expect(isAllowedAdminRequestOrigin(env, WORKERS, requestUrl)).toBe(false);
-    expect(isAllowedAdminRequestOrigin(
-      { ADMIN_ORIGIN: 'not-an-origin', WORKER_URL: WORKERS }, WORKERS, requestUrl,
-    )).toBe(false);
+    expect(
+      isAllowedAdminRequestOrigin({ ADMIN_ORIGIN: 'not-an-origin', WORKER_URL: WORKERS }, WORKERS, requestUrl),
+    ).toBe(false);
   });
 });
 
@@ -267,14 +237,12 @@ describe('resolveCorsOrigin — local development', () => {
   test('allows a loopback admin origin when the Worker runs on loopback', () => {
     // `pnpm dev:web` (localhost:3001) → `wrangler dev` (localhost:8787),
     // with no ADMIN_ORIGIN configured.
-    expect(
-      resolveCorsOrigin({}, 'http://localhost:3001', 'http://localhost:8787/api/friends'),
-    ).toBe('http://localhost:3001');
+    expect(resolveCorsOrigin({}, 'http://localhost:3001', 'http://localhost:8787/api/friends')).toBe(
+      'http://localhost:3001',
+    );
   });
 
   test('does NOT allow loopback origins when the Worker is deployed (production)', () => {
-    expect(
-      resolveCorsOrigin({ ADMIN_ORIGIN: PAGES }, 'http://localhost:3001', `${WORKERS}/api/friends`),
-    ).toBe('');
+    expect(resolveCorsOrigin({ ADMIN_ORIGIN: PAGES }, 'http://localhost:3001', `${WORKERS}/api/friends`)).toBe('');
   });
 });

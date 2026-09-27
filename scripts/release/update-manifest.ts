@@ -88,9 +88,7 @@ function requireArg<T extends keyof CliArgs>(args: CliArgs, key: T): NonNullable
   const v = args[key];
   if (v === undefined) {
     stderr.write(`update-manifest: --${String(key)} is required\n`);
-    stderr.write(
-      'Usage: tsx scripts/release/update-manifest.ts --manifest <file> --release <file>\n',
-    );
+    stderr.write('Usage: tsx scripts/release/update-manifest.ts --manifest <file> --release <file>\n');
     exit(2);
   }
   return v as NonNullable<CliArgs[T]>;

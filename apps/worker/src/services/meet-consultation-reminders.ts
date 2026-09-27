@@ -1,13 +1,8 @@
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
-import {
-  isPharmacyModeAccount,
-} from '../custom/pharmacy/growth-loop/access.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
-import {
-  sendPharmacyAutomatedPush,
-  type PharmacyPushResult,
-} from '../custom/pharmacy/growth-loop/sender.js';
+import { sendPharmacyAutomatedPush, type PharmacyPushResult } from '../custom/pharmacy/growth-loop/sender.js';
 import type { PharmacyMessageVars } from '../custom/pharmacy/growth-loop/policy.js';
 
 export type MeetReminderKind = 'day_before' | 'hour_before';
@@ -62,10 +57,7 @@ function normalizeDate(value: string, field: string): Date {
   return date;
 }
 
-export function calculateMeetReminderSchedule(
-  startsAt: string,
-  now: Date,
-): MeetReminderSchedule[] {
+export function calculateMeetReminderSchedule(startsAt: string, now: Date): MeetReminderSchedule[] {
   const start = normalizeDate(startsAt, 'startsAt');
   const startMs = start.getTime();
   const nowMs = now.getTime();
@@ -89,7 +81,12 @@ export function calculateMeetReminderSchedule(
   return schedules;
 }
 
-export function renderMeetReminderText(kind: MeetReminderKind, startsAt: string, meetUrl: string, now = new Date()): string {
+export function renderMeetReminderText(
+  kind: MeetReminderKind,
+  startsAt: string,
+  meetUrl: string,
+  now = new Date(),
+): string {
   const start = normalizeDate(startsAt, 'startsAt');
   const jst = new Date(start.getTime() + 9 * HOUR_MS);
   const todayJst = new Date(now.getTime() + 9 * HOUR_MS);
@@ -113,8 +110,9 @@ export async function listMeetConsultations(
   lineAccountId: string,
   status: MeetConsultationStatus,
 ): Promise<unknown[]> {
-  const result = await db.prepare(
-    `SELECT c.id, c.external_event_id, c.friend_id, c.title, c.starts_at, c.ends_at,
+  const result = await db
+    .prepare(
+      `SELECT c.id, c.external_event_id, c.friend_id, c.title, c.starts_at, c.ends_at,
             c.meet_url, c.status, c.created_at, c.updated_at,
             f.display_name,
             SUM(CASE WHEN r.status='pending' THEN 1 ELSE 0 END) AS pending_reminders,
@@ -128,7 +126,9 @@ export async function listMeetConsultations(
         AND f.line_account_id = ?
       GROUP BY c.id
       ORDER BY c.starts_at ASC`,
-  ).bind(status, status, tenantId, lineAccountId).all();
+    )
+    .bind(status, status, tenantId, lineAccountId)
+    .all();
   return result.results ?? [];
 }
 
@@ -165,8 +165,9 @@ export async function registerMeetConsultation(
     // Compare against the persisted schedule inside this batch, before replacing
     // it. A duplicate request that read an older schedule must not reset a
     // generation another request has already registered or delivered.
-    db.prepare(
-      `UPDATE meet_consultation_reminders
+    db
+      .prepare(
+        `UPDATE meet_consultation_reminders
           SET status='cancelled', updated_at=?
         WHERE kind IN (${schedules.map(() => '?').join(',')})
           AND consultation_id IN (
@@ -176,10 +177,20 @@ export async function registerMeetConsultation(
               AND (consultation.friend_id <> ? OR consultation.starts_at <> ?
                 OR consultation.ends_at <> ? OR consultation.meet_url <> ?)
           )`,
-    ).bind(nowIso, ...schedules.map((item) => item.kind), input.externalEventId,
-      lineAccountId, input.friendId, normalizedStart, normalizedEnd, input.meetUrl),
-    db.prepare(
-      `INSERT INTO meet_consultations
+      )
+      .bind(
+        nowIso,
+        ...schedules.map((item) => item.kind),
+        input.externalEventId,
+        lineAccountId,
+        input.friendId,
+        normalizedStart,
+        normalizedEnd,
+        input.meetUrl,
+      ),
+    db
+      .prepare(
+        `INSERT INTO meet_consultations
         (id, external_event_id, friend_id, title, starts_at, ends_at, meet_url, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)
        ON CONFLICT(external_event_id) DO UPDATE SET
@@ -195,26 +206,28 @@ export async function registerMeetConsultation(
           WHERE scoped_friend.id = meet_consultations.friend_id
             AND scoped_friend.line_account_id = ?
        )`,
-    )
-    .bind(
-      consultationId,
-      input.externalEventId,
-      input.friendId,
-      input.title,
-      normalizedStart,
-      normalizedEnd,
-      input.meetUrl,
-      nowIso,
-      nowIso,
-      lineAccountId,
-    ),
+      )
+      .bind(
+        consultationId,
+        input.externalEventId,
+        input.friendId,
+        input.title,
+        normalizedStart,
+        normalizedEnd,
+        input.meetUrl,
+        nowIso,
+        nowIso,
+        lineAccountId,
+      ),
   ];
   for (const item of schedules) {
     // 再スケジュールは新しい配送世代: delivery_id を採番し直して、LINE proxy の
     // 送信済みledgerが前世代のretry keyを再利用して新通知を握り潰すのを防ぐ。
     // 同世代のretryや同日時の再登録ではdelivery_idが変わらずdedupeが効く。
-    statements.push(db.prepare(
-      `INSERT INTO meet_consultation_reminders
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO meet_consultation_reminders
         (id, consultation_id, kind, scheduled_at, status, retry_count, delivery_id, created_at, updated_at)
        SELECT ?, consultation.id, ?, ?, 'pending', 0, ?, ?, ?
          FROM meet_consultations AS consultation
@@ -225,33 +238,46 @@ export async function registerMeetConsultation(
          delivery_id=excluded.delivery_id,
          sent_at=NULL, last_error=NULL, updated_at=excluded.updated_at
        WHERE meet_consultation_reminders.status = 'cancelled'`,
-    ).bind(
-      crypto.randomUUID(), item.kind, item.scheduledAt, crypto.randomUUID(), nowIso, nowIso,
-      input.externalEventId, lineAccountId,
-    ));
+        )
+        .bind(
+          crypto.randomUUID(),
+          item.kind,
+          item.scheduledAt,
+          crypto.randomUUID(),
+          nowIso,
+          nowIso,
+          input.externalEventId,
+          lineAccountId,
+        ),
+    );
   }
 
   // 直前への日程変更などで不要になった種類は送らない。
   for (const kind of ['day_before', 'hour_before'] as const) {
     if (expectedKinds.has(kind)) continue;
-    statements.push(db.prepare(
-        `UPDATE meet_consultation_reminders
+    statements.push(
+      db
+        .prepare(
+          `UPDATE meet_consultation_reminders
             SET status='cancelled', updated_at=?
           WHERE consultation_id = (
             SELECT consultation.id FROM meet_consultations AS consultation
             INNER JOIN friends AS friend ON friend.id = consultation.friend_id
             WHERE consultation.external_event_id = ? AND friend.line_account_id = ?
           ) AND kind=? AND status IN ('pending','failed','processing')`,
-      )
-      .bind(nowIso, input.externalEventId, lineAccountId, kind));
+        )
+        .bind(nowIso, input.externalEventId, lineAccountId, kind),
+    );
   }
 
   const results = await db.batch(statements);
   if (results[1]?.meta?.changes !== 1) throw new Error('consultation account scope conflict');
-  const registered = await db.prepare(`SELECT consultation.id FROM meet_consultations consultation
+  const registered = await db
+    .prepare(`SELECT consultation.id FROM meet_consultations consultation
     INNER JOIN friends friend ON friend.id = consultation.friend_id
     WHERE consultation.external_event_id = ? AND friend.line_account_id = ?`)
-    .bind(input.externalEventId, lineAccountId).first<{ id: string }>();
+    .bind(input.externalEventId, lineAccountId)
+    .first<{ id: string }>();
   if (!registered) throw new Error('consultation account scope conflict');
 
   return { id: registered.id, startsAt: normalizedStart, reminders: schedules };
@@ -272,14 +298,17 @@ export async function cancelMeetConsultation(
   if (!consultation) return false;
   const nowIso = now.toISOString();
   const results = await db.batch([
-    db.prepare(`UPDATE meet_consultations AS consultation
+    db
+      .prepare(`UPDATE meet_consultations AS consultation
       SET status='cancelled', updated_at=?
       WHERE consultation.id=? AND EXISTS (
         SELECT 1 FROM friends friend
          WHERE friend.id = consultation.friend_id AND friend.line_account_id = ?
-      )`).bind(nowIso, consultation.id, lineAccountId),
-    db.prepare(
-      `UPDATE meet_consultation_reminders
+      )`)
+      .bind(nowIso, consultation.id, lineAccountId),
+    db
+      .prepare(
+        `UPDATE meet_consultation_reminders
           SET status='cancelled', updated_at=?
         WHERE consultation_id=? AND status IN ('pending','failed')
           AND EXISTS (
@@ -288,7 +317,8 @@ export async function cancelMeetConsultation(
             WHERE scoped_consultation.id = meet_consultation_reminders.consultation_id
               AND scoped_friend.line_account_id = ?
           )`,
-    ).bind(nowIso, consultation.id, lineAccountId),
+      )
+      .bind(nowIso, consultation.id, lineAccountId),
   ]);
   return results[0]?.meta?.changes === 1;
 }
@@ -309,17 +339,21 @@ async function dispatchMeetReminder(
   options: MeetReminderDeliveryOptions,
 ): Promise<void> {
   if (await isPharmacyModeAccount(db, row.line_account_id)) {
-    const tenant = await db.prepare(
-      `SELECT mapping.tenant_id FROM tenant_line_accounts AS mapping
+    const tenant = await db
+      .prepare(
+        `SELECT mapping.tenant_id FROM tenant_line_accounts AS mapping
         WHERE mapping.line_account_id = ? LIMIT 1`,
-    ).bind(row.line_account_id).first<{ tenant_id: string }>();
-    const accessToken = options.lineCredentialKey && tenant
-      ? await readLineCredential(db, options.lineCredentialKey, {
-          tenantId: tenant.tenant_id,
-          lineAccountId: row.line_account_id,
-          kind: 'channel_access_token',
-        })
-      : null;
+      )
+      .bind(row.line_account_id)
+      .first<{ tenant_id: string }>();
+    const accessToken =
+      options.lineCredentialKey && tenant
+        ? await readLineCredential(db, options.lineCredentialKey, {
+            tenantId: tenant.tenant_id,
+            lineAccountId: row.line_account_id,
+            kind: 'channel_access_token',
+          })
+        : null;
     if (!accessToken) throw new Error('meet reminder channel credential unavailable');
     const { genericDate, genericTime } = meetJstDateTime(row.starts_at);
     const vars: PharmacyMessageVars = {
@@ -385,20 +419,16 @@ export async function processDueMeetConsultationReminders(
         ORDER BY r.scheduled_at ASC
         LIMIT 100`,
     )
-    .bind(
-      MAX_RETRY,
-      new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(),
-      nowIso,
-      nowIso,
-    )
+    .bind(MAX_RETRY, new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(), nowIso, nowIso)
     .all<DueMeetReminderRow>();
 
   let sent = 0;
   let failed = 0;
   for (const row of due.results ?? []) {
     const attempt = row.retry_count + 1;
-    const claim = await db.prepare(
-      `UPDATE meet_consultation_reminders
+    const claim = await db
+      .prepare(
+        `UPDATE meet_consultation_reminders
           SET status='processing', retry_count=?, last_error=NULL, updated_at=?
         WHERE id=? AND retry_count=? AND delivery_id IS ?
           AND (status IN ('pending','failed')
@@ -411,15 +441,17 @@ export async function processDueMeetConsultationReminders(
               AND c.status = 'confirmed' AND c.starts_at > ?
               AND f.is_following = 1 AND la.is_active = 1
           )`,
-    ).bind(
-      attempt,
-      nowIso,
-      row.id,
-      row.retry_count,
-      row.delivery_id,
-      new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(),
-      nowIso,
-    ).run();
+      )
+      .bind(
+        attempt,
+        nowIso,
+        row.id,
+        row.retry_count,
+        row.delivery_id,
+        new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(),
+        nowIso,
+      )
+      .run();
     if ((claim.meta?.changes ?? 0) !== 1) continue;
 
     try {

@@ -9,13 +9,7 @@ export type TimelineDomain =
   | 'medication_follow_up'
   | 'patient_intake'
   | 'manual_chat';
-export type TimelineStatus =
-  | 'pending'
-  | 'action_required'
-  | 'in_progress'
-  | 'completed'
-  | 'cancelled'
-  | 'unknown';
+export type TimelineStatus = 'pending' | 'action_required' | 'in_progress' | 'completed' | 'cancelled' | 'unknown';
 export type TimelineNextAction = 'open_detail' | 'wait' | 'review_required' | 'none';
 
 export type PatientTimelineItem = {
@@ -94,8 +88,9 @@ export async function listPatientTimeline(
   const now = new Date().toISOString();
   const linkedAuthorityPredicate = await linkedPatientAuthorityPredicate(db, 's');
   const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  const result = await db.prepare(
-    `WITH scope AS (
+  const result = await db
+    .prepare(
+      `WITH scope AS (
        SELECT ? AS line_account_id, ? AS friend_id
      ), timeline AS (
        SELECT 'prescription' AS domain, s.status AS source_status,
@@ -190,20 +185,22 @@ export async function listPatientTimeline(
        FROM timeline
       ORDER BY occurred_at DESC, domain ASC, record_id ASC
       LIMIT 50`,
-  ).bind(
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-    patient.friendId,
-    now,
-    patient.friendId,
-    now,
-    patient.friendId,
-    now,
-    patient.friendId,
-    now,
-  ).all<TimelineRow>();
+    )
+    .bind(
+      patient.lineAccountId,
+      patient.friendId,
+      patient.friendId,
+      now,
+      patient.friendId,
+      now,
+      patient.friendId,
+      now,
+      patient.friendId,
+      now,
+      patient.friendId,
+      now,
+    )
+    .all<TimelineRow>();
 
   // ponytail: EC existence is sensitive; add it only after a human-approved neutral destination exists.
   return result.results.map((row) => {

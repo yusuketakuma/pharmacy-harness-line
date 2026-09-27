@@ -2,23 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } 
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
-import {
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  mkdtempSync,
-} from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { runUpdate } from '../src/index.js';
-import {
-  parseBundleStream,
-  verifyBundleHashes,
-} from '../src/bundle.js';
+import { parseBundleStream, verifyBundleHashes } from '../src/bundle.js';
 import { getSnapshot, type D1Like, type SnapshotRow } from '../src/snapshot.js';
 import { decodeWorkerSnapshot } from '../src/phases/rollback.js';
 import type { UpdateContext, ReleaseEntry, CurrentVersion, CfApiCreds } from '../src/types.js';
@@ -65,8 +55,7 @@ function makeD1Adapter(db: Database.Database): D1Like {
     prepare: (sql: string) => ({
       bind: (...args: any[]) => ({
         run: async () => db.prepare(sql).run(...args),
-        first: async <T>() =>
-          (db.prepare(sql).get(...args) as T | undefined) ?? null,
+        first: async <T>() => (db.prepare(sql).get(...args) as T | undefined) ?? null,
         all: async <T>() => ({
           results: db.prepare(sql).all(...args) as T[],
         }),
@@ -100,9 +89,7 @@ function buildFixture(): Fixture {
   mkdirSync(liffDir);
   mkdirSync(migrationsDir);
 
-  const workerBytes = Buffer.from(
-    'export default { fetch() { return new Response("hi"); } }\n',
-  );
+  const workerBytes = Buffer.from('export default { fetch() { return new Response("hi"); } }\n');
   const adminIndex = Buffer.from('<html>admin</html>\n');
   const liffIndex = Buffer.from('<html>liff</html>\n');
   const migration = Buffer.from('CREATE TABLE foo (id INTEGER);\n');
@@ -149,10 +136,7 @@ function buildFixture(): Fixture {
 
 // ─── Sample data ──────────────────────────────────────────────────────────────
 
-const sampleRelease = (
-  fixture: Fixture,
-  overrides: Partial<ReleaseEntry> = {},
-): ReleaseEntry => ({
+const sampleRelease = (fixture: Fixture, overrides: Partial<ReleaseEntry> = {}): ReleaseEntry => ({
   version: '0.8.0',
   released_at: '2026-05-01T00:00:00Z',
   worker_hash: fixture.workerHash,
@@ -178,10 +162,7 @@ const sampleCurrent = (): CurrentVersion => ({
   liff_hash: '',
 });
 
-const sampleCtx = (
-  fixture: Fixture,
-  overrides: Partial<UpdateContext> = {},
-): UpdateContext => ({
+const sampleCtx = (fixture: Fixture, overrides: Partial<UpdateContext> = {}): UpdateContext => ({
   creds,
   workerName: WORKER_NAME,
   adminPagesProject: ADMIN_PROJECT,
@@ -226,24 +207,15 @@ interface RouteOverrides {
   liffRollback?: { ok: boolean; status: number; body?: unknown };
 }
 
-function makeResponse(cfg: {
-  ok: boolean;
-  status: number;
-  body?: unknown;
-  bytes?: Buffer;
-}): Response {
+function makeResponse(cfg: { ok: boolean; status: number; body?: unknown; bytes?: Buffer }): Response {
   const ab = cfg.bytes
-    ? cfg.bytes.buffer.slice(
-        cfg.bytes.byteOffset,
-        cfg.bytes.byteOffset + cfg.bytes.byteLength,
-      )
+    ? cfg.bytes.buffer.slice(cfg.bytes.byteOffset, cfg.bytes.byteOffset + cfg.bytes.byteLength)
     : new ArrayBuffer(0);
   return {
     ok: cfg.ok,
     status: cfg.status,
     json: async () => cfg.body ?? {},
-    text: async () =>
-      cfg.body === undefined ? '' : JSON.stringify(cfg.body),
+    text: async () => (cfg.body === undefined ? '' : JSON.stringify(cfg.body)),
     arrayBuffer: async () => ab,
     // body is a ReadableStream — used by Readable.fromWeb in the orchestrator
     // for the bundle fetch path. We build it from bytes when present.
@@ -258,10 +230,7 @@ function makeResponse(cfg: {
   } as unknown as Response;
 }
 
-function makeFetch(
-  fixture: Fixture,
-  overrides: RouteOverrides = {},
-): ReturnType<typeof vi.fn> {
+function makeFetch(fixture: Fixture, overrides: RouteOverrides = {}): ReturnType<typeof vi.fn> {
   let pagesGetCalls = 0;
   let adminDeploymentCalls = 0;
 
@@ -311,22 +280,24 @@ function makeFetch(
     // CF API: D1 query (preflight, migration, verify).
     if (url.includes(D1_QUERY_SUBSTR)) {
       const sql = JSON.parse(String(init?.body ?? '{}')).sql as string | undefined;
-      const o = overrides.d1Query ?? (sql?.includes('sqlite_master')
-        ? {
-            ok: true,
-            status: 200,
-            body: {
-              success: true,
-              result: [{ results: [{ name: '_line_harness_migrations' }] }],
-            },
-          }
-        : sql?.includes('SELECT checksum')
-          ? { ok: true, status: 200, body: { success: true, result: [{ results: [] }] } }
-          : {
+      const o =
+        overrides.d1Query ??
+        (sql?.includes('sqlite_master')
+          ? {
               ok: true,
               status: 200,
-              body: { success: true, result: [{ results: [{ ok: 1 }] }] },
-            });
+              body: {
+                success: true,
+                result: [{ results: [{ name: '_line_harness_migrations' }] }],
+              },
+            }
+          : sql?.includes('SELECT checksum')
+            ? { ok: true, status: 200, body: { success: true, result: [{ results: [] }] } }
+            : {
+                ok: true,
+                status: 200,
+                body: { success: true, result: [{ results: [{ ok: 1 }] }] },
+              });
       return makeResponse(o);
     }
 
@@ -471,17 +442,37 @@ function makeFetch(
     if (url.includes(`/pages/projects/${ADMIN_PROJECT}`)) {
       pagesGetCalls++;
       const o = overrides.adminCheck ?? { ok: true, status: 200 };
-      return makeResponse({ ...o, body: o.body ?? { success: true, result: {
-        canonical_deployment: { id: OLD_ADMIN_DEPLOY, environment: 'production', is_skipped: false,
-          latest_stage: { name: 'deploy', status: 'success' } },
-      } } });
+      return makeResponse({
+        ...o,
+        body: o.body ?? {
+          success: true,
+          result: {
+            canonical_deployment: {
+              id: OLD_ADMIN_DEPLOY,
+              environment: 'production',
+              is_skipped: false,
+              latest_stage: { name: 'deploy', status: 'success' },
+            },
+          },
+        },
+      });
     }
     if (url.includes(`/pages/projects/${LIFF_PROJECT}`)) {
       const o = overrides.liffCheck ?? { ok: true, status: 200 };
-      return makeResponse({ ...o, body: o.body ?? { success: true, result: {
-        canonical_deployment: { id: OLD_LIFF_DEPLOY, environment: 'production', is_skipped: false,
-          latest_stage: { name: 'deploy', status: 'success' } },
-      } } });
+      return makeResponse({
+        ...o,
+        body: o.body ?? {
+          success: true,
+          result: {
+            canonical_deployment: {
+              id: OLD_LIFF_DEPLOY,
+              environment: 'production',
+              is_skipped: false,
+              latest_stage: { name: 'deploy', status: 'success' },
+            },
+          },
+        },
+      });
     }
 
     throw new Error(`unrouted: ${method} ${url}`);
@@ -591,9 +582,7 @@ describe('runUpdate orchestrator', () => {
     // Rollback events emitted.
     expect(events.some((e) => e.step === 'rollback' && e.status === 'running')).toBe(true);
     expect(events.some((e) => e.step === 'rollback' && e.status === 'done')).toBe(true);
-    const rollbackRun = events.find(
-      (e) => e.step === 'rollback' && e.status === 'running',
-    );
+    const rollbackRun = events.find((e) => e.step === 'rollback' && e.status === 'running');
     expect(rollbackRun.error).toBeDefined();
   });
 
@@ -788,9 +777,7 @@ describe('runUpdate orchestrator', () => {
       currentWorkerBundleUrl: SNAPSHOT_WORKER_URL,
       onEvent: (e) => events.push(e),
     });
-    await expect(handle.done).rejects.toThrow(
-      /bundle worker hash mismatch|tampered/i,
-    );
+    await expect(handle.done).rejects.toThrow(/bundle worker hash mismatch|tampered/i);
 
     const rows = rawDb.prepare('SELECT id FROM update_history').all() as Array<{ id: string }>;
     const row = (await getSnapshot(d1, rows[0].id)) as SnapshotRow;
@@ -808,8 +795,7 @@ describe('runUpdate orchestrator', () => {
       const method = (init?.method ?? 'GET').toUpperCase();
       if (
         method === 'GET' &&
-        (url.endsWith(`/pages/projects/${ADMIN_PROJECT}`) ||
-          url.endsWith(`/pages/projects/${LIFF_PROJECT}`))
+        (url.endsWith(`/pages/projects/${ADMIN_PROJECT}`) || url.endsWith(`/pages/projects/${LIFF_PROJECT}`))
       ) {
         return makeResponse({
           ok: false,

@@ -9,7 +9,7 @@ describe('generateBulkSlots', () => {
   test('weekly Mon/Wed 10:00-12:00 over a 2-week window', () => {
     const slots = generateBulkSlots({
       start_date: '2099-06-01', // Monday
-      end_date: '2099-06-14',   // Sunday (2 weeks)
+      end_date: '2099-06-14', // Sunday (2 weeks)
       weekdays: [1, 3],
       time_patterns: [{ start: '10:00', end: '12:00' }],
       capacity: 5,

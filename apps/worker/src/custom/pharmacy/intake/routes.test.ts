@@ -91,23 +91,34 @@ function adminApp() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.verify.mockResolvedValue({
-    lineUserId: 'U1', loginChannelId: 'login-1', tenantId: 'tenant-1', lineAccountId: 'account-1',
+    lineUserId: 'U1',
+    loginChannelId: 'login-1',
+    tenantId: 'tenant-1',
+    lineAccountId: 'account-1',
   });
   mocks.resolvePatient.mockResolvedValue(owner);
   mocks.listPatients.mockResolvedValue([{ id: 'patient-1', relationship: 'self' }]);
   mocks.listAdminPatients.mockResolvedValue([{ id: 'patient-1', relationship: 'self' }]);
   mocks.getAdminPatient.mockResolvedValue({ id: 'patient-1', relationship: 'self' });
   mocks.getLatestAdminIntake.mockResolvedValue({
-    id: 'response-1', patient_id: 'patient-1', revision: 1, schema_version: 2,
+    id: 'response-1',
+    patient_id: 'patient-1',
+    revision: 1,
+    schema_version: 2,
     representative_consent_at: '2026-08-17T00:00:00Z',
-    privacy_consent_at: '2026-08-17T00:00:00Z', created_at: '2026-08-17T00:00:00Z',
+    privacy_consent_at: '2026-08-17T00:00:00Z',
+    created_at: '2026-08-17T00:00:00Z',
     answers: { allergiesStatus: 'none' },
   });
   mocks.createPatient.mockResolvedValue({ id: 'patient-2', relationship: 'child' });
   mocks.getPatient.mockResolvedValue({ id: 'patient-1', relationship: 'self' });
   mocks.getPatientAccess.mockResolvedValue({
-    access: 'self', permission: null, proxyExpiresAt: null,
-    privacy: 'active', notifications: 'enabled', controlVersion: 0,
+    access: 'self',
+    permission: null,
+    proxyExpiresAt: null,
+    privacy: 'active',
+    notifications: 'enabled',
+    controlVersion: 0,
   });
   mocks.createIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.getLatestIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
@@ -117,32 +128,41 @@ beforeEach(() => {
   mocks.setNotificationPreference.mockResolvedValue({ status: 'stopped', version: 1 });
   mocks.revokeProxy.mockResolvedValue({ status: 'revoked' });
   mocks.suspendBinding.mockResolvedValue({
-    status: 'suspended', controlVersion: 1,
+    status: 'suspended',
+    controlVersion: 1,
     nextAction: 'recreate_under_verified_owner',
   });
-  mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
+  mocks.history.mockResolvedValue({
+    patient: { id: 'patient-1' },
+    intakes: [],
+    prescriptions: [],
+    quotes: [],
+    continuity: [],
+    timeline: [],
+  });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
   mocks.betaParticipant.mockResolvedValue(true);
 });
 
 describe('LIFF pharmacy patient and intake routes', () => {
-  const request = (path: string, method = 'GET', body?: unknown) => pharmacyIntakeRoutes.request(
-    `${path}${path.includes('?') ? '&' : '?'}liffId=liff-1`,
-    {
-      method,
-      headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-    env,
-  );
+  const request = (path: string, method = 'GET', body?: unknown) =>
+    pharmacyIntakeRoutes.request(
+      `${path}${path.includes('?') ? '&' : '?'}liffId=liff-1`,
+      {
+        method,
+        headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+      env,
+    );
 
   it('lists only the verified LINE owner patients', async () => {
     const response = await request('/api/liff/pharmacy/patients');
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ patients: [
-      { id: 'patient-1', relationship: 'self' },
-    ] });
+    await expect(response.json()).resolves.toEqual({
+      patients: [{ id: 'patient-1', relationship: 'self' }],
+    });
     expect(mocks.listPatients).toHaveBeenCalledWith(env.DB, owner, false);
   });
 
@@ -157,16 +177,16 @@ describe('LIFF pharmacy patient and intake routes', () => {
     mocks.betaParticipant.mockResolvedValue(false);
     const response = await request('/api/liff/pharmacy/patients');
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    await expect(response.json()).resolves.toEqual({
+      error: 'Pharmacy beta participation required',
+    });
     expect(mocks.listPatients).not.toHaveBeenCalled();
   });
 
   it('keeps withdrawal control paths available to a non-participant', async () => {
     mocks.betaParticipant.mockResolvedValue(false);
     const body = { action: 'withdraw', expectedControlVersion: 0 };
-    const response = await request(
-      '/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body,
-    );
+    const response = await request('/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
     expect(mocks.setPrivacyConsent).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
@@ -174,14 +194,25 @@ describe('LIFF pharmacy patient and intake routes', () => {
 
   it('creates a minor child only with explicit current proxy terms consent', async () => {
     mocks.getPatientAccess.mockResolvedValueOnce({
-      access: 'proxy', permission: 'patient_intake_v1',
-      proxyExpiresAt: '2026-12-01T00:00:00.000Z', privacy: 'active',
-      notifications: 'enabled', controlVersion: 0,
+      access: 'proxy',
+      permission: 'patient_intake_v1',
+      proxyExpiresAt: '2026-12-01T00:00:00.000Z',
+      privacy: 'active',
+      notifications: 'enabled',
+      controlVersion: 0,
     });
     const body = {
-      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
-      addressLine1: null, addressLine2: null,
+      relationship: 'child',
+      name: '子',
+      nameKana: 'コ',
+      birthDate: '2018-04-01',
+      sex: null,
+      contactPhone: null,
+      postalCode: null,
+      prefecture: null,
+      city: null,
+      addressLine1: null,
+      addressLine2: null,
       proxyConsent: {
         accepted: true,
         termsVersion: 1,
@@ -196,17 +227,27 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, body);
     await expect(response.json()).resolves.toMatchObject({
       proxyGrant: {
-        permission: 'patient_intake_v1', basis: 'self_attested_guardian',
-        expiresAt: '2026-12-01T00:00:00.000Z', termsVersion: 1,
+        permission: 'patient_intake_v1',
+        basis: 'self_attested_guardian',
+        expiresAt: '2026-12-01T00:00:00.000Z',
+        termsVersion: 1,
       },
     });
   });
 
   it('keeps the previous 403 contract for family requests from an older LIFF', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
-      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
-      addressLine1: null, addressLine2: null,
+      relationship: 'child',
+      name: '子',
+      nameKana: 'コ',
+      birthDate: '2018-04-01',
+      sex: null,
+      contactPhone: null,
+      postalCode: null,
+      prefecture: null,
+      city: null,
+      addressLine1: null,
+      addressLine2: null,
     });
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
@@ -224,7 +265,10 @@ describe('LIFF pharmacy patient and intake routes', () => {
   it('blocks only new patient admission when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
-      relationship: 'self', name: '本人', nameKana: 'ホンニン', birthDate: '2000-01-01',
+      relationship: 'self',
+      name: '本人',
+      nameKana: 'ホンニン',
+      birthDate: '2000-01-01',
     });
     expect(response.status).toBe(409);
     expect(mocks.createPatient).not.toHaveBeenCalled();
@@ -234,19 +278,27 @@ describe('LIFF pharmacy patient and intake routes', () => {
     const body = {
       idempotencyKey: 'intake-123',
       answers: {
-        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
-        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
-        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+        allergiesStatus: 'none',
+        adverseReactionStatus: 'none',
+        medicationStatus: 'none',
+        medicalHistoryStatus: 'none',
+        medicalHistoryTags: [],
+        medicationNotebook: 'unknown',
+        smokingStatus: 'never',
+        alcoholStatus: 'none',
+        medicationAdherence: 'none',
       },
-      representativeConsent: true, privacyConsent: true,
-      privacyPolicyVersion: 1, privacyPolicyHash: 'a'.repeat(64),
+      representativeConsent: true,
+      privacyConsent: true,
+      privacyPolicyVersion: 1,
+      privacyPolicyHash: 'a'.repeat(64),
     };
     const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', body);
     expect(response.status).toBe(201);
-    expect(mocks.createIntake).toHaveBeenCalledWith(
-      env.DB, owner, 'patient-1', body,
-      { tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1 },
-    );
+    expect(mocks.createIntake).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body, {
+      tenantId: 'tenant-1',
+      rootSecret: env.PHARMACY_PHI_KEY_V1,
+    });
   });
 
   it('maps a missing privacy policy to a state conflict', async () => {
@@ -254,11 +306,18 @@ describe('LIFF pharmacy patient and intake routes', () => {
     const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', {
       idempotencyKey: 'intake-123',
       answers: {
-        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
-        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
-        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+        allergiesStatus: 'none',
+        adverseReactionStatus: 'none',
+        medicationStatus: 'none',
+        medicalHistoryStatus: 'none',
+        medicalHistoryTags: [],
+        medicationNotebook: 'unknown',
+        smokingStatus: 'never',
+        alcoholStatus: 'none',
+        medicationAdherence: 'none',
       },
-      representativeConsent: true, privacyConsent: true,
+      representativeConsent: true,
+      privacyConsent: true,
     });
 
     expect(response.status).toBe(409);
@@ -285,9 +344,7 @@ describe('LIFF pharmacy patient and intake routes', () => {
 
   it('withdraws patient privacy consent with an expected control version', async () => {
     const body = { action: 'withdraw', expectedControlVersion: 0 };
-    const response = await request(
-      '/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body,
-    );
+    const response = await request('/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
@@ -296,32 +353,38 @@ describe('LIFF pharmacy patient and intake routes', () => {
 
   it('stops patient notifications with an expected control version', async () => {
     const body = { action: 'stop', expectedControlVersion: 0 };
-    const response = await request(
-      '/api/liff/pharmacy/patients/patient-1/notification-preference', 'POST', body,
-    );
+    const response = await request('/api/liff/pharmacy/patients/patient-1/notification-preference', 'POST', body);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: 'stopped', version: 1 });
-    expect(mocks.setNotificationPreference).toHaveBeenCalledWith(
-      env.DB, owner, 'patient-1', body,
-    );
+    expect(mocks.setNotificationPreference).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
   });
 
   it('returns caller-useful patient access state without actor identifiers', async () => {
     const response = await request('/api/liff/pharmacy/patients/patient-1/access');
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ access: {
-      access: 'self', permission: null, proxyExpiresAt: null,
-      privacy: 'active', notifications: 'enabled', controlVersion: 0,
-    } });
+    await expect(response.json()).resolves.toEqual({
+      access: {
+        access: 'self',
+        permission: null,
+        proxyExpiresAt: null,
+        privacy: 'active',
+        notifications: 'enabled',
+        controlVersion: 0,
+      },
+    });
     expect(mocks.getPatientAccess).toHaveBeenCalledWith(env.DB, owner, 'patient-1');
   });
 
   it('fails before intake storage when the PHI key is unavailable', async () => {
     const response = await pharmacyIntakeRoutes.request(
       '/api/liff/pharmacy/patients/patient-1/intake?liffId=liff-1',
-      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: '{}' },
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
       { DB: env.DB },
     );
     expect(response.status).toBe(503);
@@ -330,14 +393,27 @@ describe('LIFF pharmacy patient and intake routes', () => {
 
   it('updates a patient profile with an expected version', async () => {
     const body = {
-      expectedUpdatedAt: '2026-08-17T00:00:00.000Z', relationship: 'child', name: '子',
-      nameKana: 'コ', birthDate: '2018-04-01', sex: null, contactPhone: null,
-      postalCode: null, prefecture: null, city: null, addressLine1: null, addressLine2: null,
+      expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+      relationship: 'child',
+      name: '子',
+      nameKana: 'コ',
+      birthDate: '2018-04-01',
+      sex: null,
+      contactPhone: null,
+      postalCode: null,
+      prefecture: null,
+      city: null,
+      addressLine1: null,
+      addressLine2: null,
     };
     const response = await request('/api/liff/pharmacy/patients/patient-1', 'PATCH', body);
     expect(response.status).toBe(200);
     expect(mocks.updatePatient).toHaveBeenCalledWith(
-      env.DB, owner, 'patient-1', body.expectedUpdatedAt, expect.objectContaining({ relationship: 'child' }),
+      env.DB,
+      owner,
+      'patient-1',
+      body.expectedUpdatedAt,
+      expect.objectContaining({ relationship: 'child' }),
     );
   });
 
@@ -363,11 +439,16 @@ describe('admin pharmacy patient routes', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      status: 'suspended', controlVersion: 1,
+      status: 'suspended',
+      controlVersion: 1,
       nextAction: 'recreate_under_verified_owner',
     });
     expect(mocks.suspendBinding).toHaveBeenCalledWith(
-      env.DB, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+      env.DB,
+      'account-1',
+      'patient-1',
+      'staff-1',
+      'wrong_line_binding',
     );
   });
 
@@ -404,21 +485,15 @@ describe('admin pharmacy patient routes', () => {
 
   it('rejects a staff member outside the requested account', async () => {
     mocks.access.mockResolvedValue(false);
-    const response = await adminApp().request(
-      '/api/custom/pharmacy/patients?line_account_id=account-b', {}, env,
-    );
+    const response = await adminApp().request('/api/custom/pharmacy/patients?line_account_id=account-b', {}, env);
     expect(response.status).toBe(403);
     expect(mocks.listAdminPatients).not.toHaveBeenCalled();
   });
 
   it('requires an account scope and returns the staff-visible patient list', async () => {
-    const response = await adminApp().request(
-      '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,
-    );
+    const response = await adminApp().request('/api/custom/pharmacy/patients?line_account_id=account-1', {}, env);
     expect(response.status).toBe(200);
-    expect(mocks.listAdminPatients).toHaveBeenCalledWith(
-      env.DB, 'account-1', true,
-    );
+    expect(mocks.listAdminPatients).toHaveBeenCalledWith(env.DB, 'account-1', true);
   });
 
   it('rejects a missing account scope', async () => {
@@ -429,18 +504,24 @@ describe('admin pharmacy patient routes', () => {
 
   it('returns account-scoped patient history only after server-side account authorization', async () => {
     const response = await adminApp().request(
-      '/api/custom/pharmacy/patients/patient-1/history?line_account_id=account-1', {}, env,
+      '/api/custom/pharmacy/patients/patient-1/history?line_account_id=account-1',
+      {},
+      env,
     );
     expect(response.status).toBe(200);
     expect(mocks.history).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1', {
-      tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1,
+      tenantId: 'tenant-1',
+      rootSecret: env.PHARMACY_PHI_KEY_V1,
     });
   });
 
   it('audits staff PHI views with ids only', async () => {
     const audit = (resourceId: string, action: string) => ({
-      lineAccountId: 'account-1', actorStaffId: 'staff-1', action,
-      resourceType: 'pharmacy_patient', resourceId,
+      lineAccountId: 'account-1',
+      actorStaffId: 'staff-1',
+      action,
+      resourceType: 'pharmacy_patient',
+      resourceId,
     });
     for (const [path, action] of [
       ['/api/custom/pharmacy/patients/patient-1/history', 'phi.intake_history_viewed'],
@@ -458,7 +539,9 @@ describe('admin pharmacy patient routes', () => {
   it('denies a staff member attempting another account history', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await adminApp().request(
-      '/api/custom/pharmacy/patients/patient-1/history?line_account_id=account-2', {}, env,
+      '/api/custom/pharmacy/patients/patient-1/history?line_account_id=account-2',
+      {},
+      env,
     );
     expect(response.status).toBe(403);
     expect(mocks.history).not.toHaveBeenCalled();
@@ -466,24 +549,25 @@ describe('admin pharmacy patient routes', () => {
 
   it('returns the curated latest intake without storage-only fields', async () => {
     const response = await adminApp().request(
-      '/api/custom/pharmacy/patients/patient-1/intake?line_account_id=account-1', {}, env,
+      '/api/custom/pharmacy/patients/patient-1/intake?line_account_id=account-1',
+      {},
+      env,
     );
-    const payload = await response.json() as { intake: Record<string, unknown> };
+    const payload = (await response.json()) as { intake: Record<string, unknown> };
 
     expect(response.status).toBe(200);
     expect(payload.intake).toMatchObject({ answers: { allergiesStatus: 'none' } });
     expect(payload.intake).not.toHaveProperty('patient_snapshot_json');
     expect(payload.intake).not.toHaveProperty('idempotency_key');
     expect(mocks.getLatestAdminIntake).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1', {
-      tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1,
+      tenantId: 'tenant-1',
+      rootSecret: env.PHARMACY_PHI_KEY_V1,
     });
   });
 
   it('keeps existing admin patient records readable when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
-    const response = await adminApp().request(
-      '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,
-    );
+    const response = await adminApp().request('/api/custom/pharmacy/patients?line_account_id=account-1', {}, env);
     expect(response.status).toBe(200);
     expect(mocks.listAdminPatients).toHaveBeenCalled();
   });

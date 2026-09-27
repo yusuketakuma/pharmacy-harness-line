@@ -7,7 +7,7 @@ const betaEnabled = vi.hoisted(() => vi.fn());
 const betaDeliveryState = vi.hoisted(() => vi.fn());
 const betaSchemaState = vi.hoisted(() => vi.fn());
 vi.mock('../../../services/line-proxy-send.js', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../../../services/line-proxy-send.js')>(),
+  ...(await importOriginal<typeof import('../../../services/line-proxy-send.js')>()),
   pushViaHarnessProxy: push,
 }));
 vi.mock('./repository.js', () => ({ getPharmacyCapabilityConfig: config }));
@@ -21,7 +21,13 @@ vi.mock('../beta-membership/repository.js', () => ({
 import { LineHarnessUnknownOutcomeError } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
 
-type Step = { match: string; run?: { changes: number }; first?: unknown; error?: Error; check?: (values: unknown[]) => void };
+type Step = {
+  match: string;
+  run?: { changes: number };
+  first?: unknown;
+  error?: Error;
+  check?: (values: unknown[]) => void;
+};
 type FinalScope = {
   destination_line_user_id?: string | null;
   is_following?: number;
@@ -50,17 +56,20 @@ function scriptedDb(
         if (sql.includes('final pharmacy dispatch scope')) {
           return {
             bind: () => ({
-              first: async () => finalScope === null ? null : {
-                destination_line_user_id: 'U1',
-                is_following: 1,
-                account_active: 1,
-                tenant_status: 'active',
-                outbound_messaging_paused_at: null,
-                capability_enabled: 1,
-                followup_status: 'due',
-                followup_operations_enabled: 1,
-                ...finalScope,
-              },
+              first: async () =>
+                finalScope === null
+                  ? null
+                  : {
+                      destination_line_user_id: 'U1',
+                      is_following: 1,
+                      account_active: 1,
+                      tenant_status: 'active',
+                      outbound_messaging_paused_at: null,
+                      capability_enabled: 1,
+                      followup_status: 'due',
+                      followup_operations_enabled: 1,
+                      ...finalScope,
+                    },
               run: async () => ({ meta: { changes: 0 } }),
             }),
           };
@@ -75,9 +84,12 @@ function scriptedDb(
       if (sql.includes('pharmacy_medication_followup_operations')) {
         return {
           bind: () => ({
-            first: async () => finalScope === null ? null : {
-              enabled: initialOperationsEnabled ?? finalScope?.followup_operations_enabled ?? 1,
-            },
+            first: async () =>
+              finalScope === null
+                ? null
+                : {
+                    enabled: initialOperationsEnabled ?? finalScope?.followup_operations_enabled ?? 1,
+                  },
             run: async () => ({ meta: { changes: 0 } }),
           }),
         };
@@ -101,9 +113,14 @@ function scriptedDb(
 }
 
 const base = {
-  proxyBaseUrl: 'https://worker.example', accessToken: 'token', to: 'U1',
-  lineAccountId: 'account-a', friendId: 'friend-a', messageId: 'prescription_status_v1' as const,
-  category: 'transactional_care' as const, retryKey: 'prescription:submission-1:received',
+  proxyBaseUrl: 'https://worker.example',
+  accessToken: 'token',
+  to: 'U1',
+  lineAccountId: 'account-a',
+  friendId: 'friend-a',
+  messageId: 'prescription_status_v1' as const,
+  category: 'transactional_care' as const,
+  retryKey: 'prescription:submission-1:received',
 };
 
 beforeEach(() => {
@@ -118,21 +135,26 @@ beforeEach(() => {
 
 describe('pharmacy automated sender', () => {
   it('does not reach LINE when the rendered payload fails policy validation', async () => {
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db: {} as D1Database,
-      messageId: 'prescription_validity_reminder_v1',
-      vars: { genericDate: 'さくら病院' } as never,
-    })).rejects.toThrow(/variable rejected/);
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db: {} as D1Database,
+        messageId: 'prescription_validity_reminder_v1',
+        vars: { genericDate: 'さくら病院' } as never,
+      }),
+    ).rejects.toThrow(/variable rejected/);
     expect(config).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
   });
 
   it('fails closed when the account does not allow the message capability', async () => {
     config.mockResolvedValue({ capabilities: ['continuity'], proactive_monthly_limit: 1 });
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db: {} as D1Database,
-    })).rejects.toThrow(/capability/);
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db: {} as D1Database,
+      }),
+    ).rejects.toThrow(/capability/);
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -143,14 +165,16 @@ describe('pharmacy automated sender', () => {
       category: 'followup_care' as const,
       vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' },
     };
-    await expect(sendPharmacyAutomatedPush({ ...followUp, db: {} as D1Database }))
-      .rejects.toThrow(/capability/);
+    await expect(sendPharmacyAutomatedPush({ ...followUp, db: {} as D1Database })).rejects.toThrow(/capability/);
     config.mockResolvedValue({ capabilities: ['medication_followup'], proactive_monthly_limit: 1 });
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      seen,
+    );
     await expect(sendPharmacyAutomatedPush({ ...followUp, db })).resolves.toBe('sent');
     expect(push).toHaveBeenCalledOnce();
   });
@@ -165,8 +189,7 @@ describe('pharmacy automated sender', () => {
     config.mockResolvedValue({ capabilities: ['medication_followup'], proactive_monthly_limit: 1 });
     const db = scriptedDb([], [], null, { followup_operations_enabled: 0 });
 
-    await expect(sendPharmacyAutomatedPush({ ...followUp, db }))
-      .resolves.toBe('operations_blocked');
+    await expect(sendPharmacyAutomatedPush({ ...followUp, db })).resolves.toBe('operations_blocked');
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -178,13 +201,18 @@ describe('pharmacy automated sender', () => {
       vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' },
     };
     config.mockResolvedValue({ capabilities: ['medication_followup'], proactive_monthly_limit: 1 });
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], [], null, { followup_operations_enabled: 0 }, 1);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      [],
+      null,
+      { followup_operations_enabled: 0 },
+      1,
+    );
 
-    await expect(sendPharmacyAutomatedPush({ ...followUp, db }))
-      .resolves.toBe('operations_blocked');
+    await expect(sendPharmacyAutomatedPush({ ...followUp, db })).resolves.toBe('operations_blocked');
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -194,9 +222,11 @@ describe('pharmacy automated sender', () => {
       messageId: 'appointment_reminder_v1' as const,
       retryKey: 'a'.repeat(64),
     };
-    await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database }))
-      .rejects.toThrow(/capability/u);
-    config.mockResolvedValue({ capabilities: ['emergency_contraception'], proactive_monthly_limit: 1 });
+    await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database })).rejects.toThrow(/capability/u);
+    config.mockResolvedValue({
+      capabilities: ['emergency_contraception'],
+      proactive_monthly_limit: 1,
+    });
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
@@ -218,15 +248,10 @@ describe('pharmacy automated sender', () => {
       retryKey: 'meet-reminder:delivery-1',
     };
     // No capability — not even emergency_contraception — substitutes.
-    for (const capabilities of [
-      ['prescription_intake'],
-      ['emergency_contraception'],
-      ['meet_consultation'],
-    ]) {
+    for (const capabilities of [['prescription_intake'], ['emergency_contraception'], ['meet_consultation']]) {
       config.mockResolvedValue({ capabilities, proactive_monthly_limit: 1 });
       if (!capabilities.includes('meet_consultation')) {
-        await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database }))
-          .rejects.toThrow(/capability/u);
+        await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database })).rejects.toThrow(/capability/u);
         expect(push).not.toHaveBeenCalled();
         continue;
       }
@@ -244,9 +269,14 @@ describe('pharmacy automated sender', () => {
   });
 
   it('requires account, friend, and database context at runtime', async () => {
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db: undefined, lineAccountId: undefined, friendId: undefined,
-    } as unknown as Parameters<typeof sendPharmacyAutomatedPush>[0])).rejects.toThrow(/account context/);
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db: undefined,
+        lineAccountId: undefined,
+        friendId: undefined,
+      } as unknown as Parameters<typeof sendPharmacyAutomatedPush>[0]),
+    ).rejects.toThrow(/account context/);
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -255,7 +285,10 @@ describe('pharmacy automated sender', () => {
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'sent', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      {
+        match: 'SELECT id, outcome',
+        first: { id: 'event-1', outcome: 'sent', occurred_at: '2026-08-18T00:00:00.000Z' },
+      },
     ]);
 
     await sendPharmacyAutomatedPush({ ...base, db });
@@ -272,30 +305,40 @@ describe('pharmacy automated sender', () => {
   it('does not push while another invocation owns a recent attempt', async () => {
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      {
+        match: 'SELECT id, outcome',
+        first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' },
+      },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db,
-      now: new Date('2026-08-18T00:05:00.000Z'),
-    })).resolves.toBe('in_progress');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        now: new Date('2026-08-18T00:05:00.000Z'),
+      }),
+    ).resolves.toBe('in_progress');
     expect(push).not.toHaveBeenCalled();
   });
 
   it('reclaims a stale attempt using the same LINE retry key', async () => {
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-17T23:00:00.000Z' } },
+      {
+        match: 'SELECT id, outcome',
+        first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-17T23:00:00.000Z' },
+      },
       { match: "outcome = 'attempted' AND occurred_at < ?", run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db,
-      now: new Date('2026-08-18T00:05:00.000Z'),
-    })).resolves.toBe('sent');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        now: new Date('2026-08-18T00:05:00.000Z'),
+      }),
+    ).resolves.toBe('sent');
     expect(push).toHaveBeenCalledTimes(1);
   });
 
@@ -304,7 +347,10 @@ describe('pharmacy automated sender', () => {
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'failed', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      {
+        match: 'SELECT id, outcome',
+        first: { id: 'event-1', outcome: 'failed', occurred_at: '2026-08-18T00:00:00.000Z' },
+      },
       { match: "SET outcome = 'attempted'", run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
@@ -318,45 +364,57 @@ describe('pharmacy automated sender', () => {
 
   it('does not rewrite an accepted send as failed when sent finalization fails', async () => {
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', error: new Error('D1 sent finalization failed') },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        {
+          match: 'UPDATE pharmacy_notification_events',
+          error: new Error('D1 sent finalization failed'),
+        },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      seen,
+    );
 
-    await expect(sendPharmacyAutomatedPush({ ...base, db }))
-      .rejects.toThrow('D1 sent finalization failed');
+    await expect(sendPharmacyAutomatedPush({ ...base, db })).rejects.toThrow('D1 sent finalization failed');
 
     expect(push).toHaveBeenCalledOnce();
-    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events')))
-      .toHaveLength(1);
+    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events'))).toHaveLength(1);
   });
 
   it('leaves an unknown LINE result attempted, then reclaims it with the same retry key', async () => {
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' } },
-      { match: "outcome = 'attempted' AND occurred_at < ?", run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+        {
+          match: 'SELECT id, outcome',
+          first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' },
+        },
+        { match: "outcome = 'attempted' AND occurred_at < ?", run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      seen,
+    );
     push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('LINE push result is unknown'));
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db,
-      now: new Date('2026-08-18T00:00:00.000Z'),
-    }))
-      .rejects.toThrow('LINE push result is unknown');
-    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events')))
-      .toHaveLength(0);
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        now: new Date('2026-08-18T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow('LINE push result is unknown');
+    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events'))).toHaveLength(0);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db,
-      now: new Date('2026-08-18T00:16:00.000Z'),
-    })).resolves.toBe('sent');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        now: new Date('2026-08-18T00:16:00.000Z'),
+      }),
+    ).resolves.toBe('sent');
 
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[0][4]).toBe(push.mock.calls[1][4]);
@@ -364,21 +422,31 @@ describe('pharmacy automated sender', () => {
 
   it('never retries an unknown outcome after the LINE retry-key horizon', async () => {
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: {
-        id: 'event-1', outcome: 'attempted',
-        occurred_at: '2026-08-16T23:00:00.000Z', created_at: '2026-08-16T23:00:00.000Z',
-      } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+        {
+          match: 'SELECT id, outcome',
+          first: {
+            id: 'event-1',
+            outcome: 'attempted',
+            occurred_at: '2026-08-16T23:00:00.000Z',
+            created_at: '2026-08-16T23:00:00.000Z',
+          },
+        },
+      ],
+      seen,
+    );
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base,
-      db,
-      now: new Date('2026-08-18T00:05:00.000Z'),
-    })).resolves.toBe('reconciliation_required');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        now: new Date('2026-08-18T00:05:00.000Z'),
+      }),
+    ).resolves.toBe('reconciliation_required');
     expect(push).not.toHaveBeenCalled();
-    expect(seen.some((sql) => sql.includes("SET occurred_at ="))).toBe(false);
+    expect(seen.some((sql) => sql.includes('SET occurred_at ='))).toBe(false);
   });
 
   it('does not send while the tenant has outbound messaging paused', async () => {
@@ -399,30 +467,44 @@ describe('pharmacy automated sender', () => {
   });
 
   it('sends normally when the tenant is not paused', async () => {
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], [], null);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      [],
+      null,
+    );
 
     await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('sent');
     expect(push).toHaveBeenCalledOnce();
   });
 
   it('rechecks the final destination and blocks an unfollowed or rebound recipient', async () => {
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], [], null, { is_following: 0 });
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      [],
+      null,
+      { is_following: 0 },
+    );
 
     await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('patient_blocked');
     expect(push).not.toHaveBeenCalled();
   });
 
   it('keeps a claim retryable when outbound messaging pauses after the claim', async () => {
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], [], null, { outbound_messaging_paused_at: '2026-09-14T00:00:00.000+09:00' });
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      [],
+      null,
+      { outbound_messaging_paused_at: '2026-09-14T00:00:00.000+09:00' },
+    );
 
     await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('paused');
     expect(push).not.toHaveBeenCalled();
@@ -437,12 +519,21 @@ describe('pharmacy automated sender', () => {
         { match: "outcome = 'failed'", run: { changes: 0 } },
       ]);
 
-      await expect(sendPharmacyAutomatedPush({
-        ...base, db, patientId: 'patient-a',
-      })).resolves.toBe('patient_blocked');
-      expect(patientAccess).toHaveBeenCalledWith(db, {
-        lineAccountId: 'account-a', friendId: 'friend-a',
-      }, 'patient-a');
+      await expect(
+        sendPharmacyAutomatedPush({
+          ...base,
+          db,
+          patientId: 'patient-a',
+        }),
+      ).resolves.toBe('patient_blocked');
+      expect(patientAccess).toHaveBeenCalledWith(
+        db,
+        {
+          lineAccountId: 'account-a',
+          friendId: 'friend-a',
+        },
+        'patient-a',
+      );
       expect(push).not.toHaveBeenCalled();
     },
   );
@@ -454,9 +545,13 @@ describe('pharmacy automated sender', () => {
       { match: "outcome = 'failed'", run: { changes: 1 } },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a',
-    })).resolves.toBe('patient_blocked');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        patientId: 'patient-a',
+      }),
+    ).resolves.toBe('patient_blocked');
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -469,9 +564,13 @@ describe('pharmacy automated sender', () => {
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a',
-    })).resolves.toBe('patient_blocked');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        patientId: 'patient-a',
+      }),
+    ).resolves.toBe('patient_blocked');
     expect(patientAccess).toHaveBeenCalledTimes(2);
     expect(push).not.toHaveBeenCalled();
   });
@@ -485,8 +584,7 @@ describe('pharmacy automated sender', () => {
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({ ...base, db, patientId: 'patient-a' }))
-      .resolves.toBe('patient_blocked');
+    await expect(sendPharmacyAutomatedPush({ ...base, db, patientId: 'patient-a' })).resolves.toBe('patient_blocked');
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -498,13 +596,20 @@ describe('pharmacy automated sender', () => {
       { match: "outcome = 'failed'", run: { changes: 0 } },
     ]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
-      now: new Date('2026-09-14T00:00:00.000Z'),
-    })).resolves.toBe('patient_blocked');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        patientId: 'patient-a',
+        betaMembershipId: 'membership-a',
+        now: new Date('2026-09-14T00:00:00.000Z'),
+      }),
+    ).resolves.toBe('patient_blocked');
     expect(betaDeliveryState).toHaveBeenCalledWith(expect.anything(), {
-      lineAccountId: 'account-a', participantFriendId: 'friend-a',
-      subjectPatientId: 'patient-a', membershipId: 'membership-a',
+      lineAccountId: 'account-a',
+      participantFriendId: 'friend-a',
+      subjectPatientId: 'patient-a',
+      membershipId: 'membership-a',
       now: new Date('2026-09-14T00:00:00.000Z'),
     });
     expect(push).not.toHaveBeenCalled();
@@ -515,35 +620,49 @@ describe('pharmacy automated sender', () => {
     betaDeliveryState.mockResolvedValue('suspended');
     const db = scriptedDb([]);
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
-      now: new Date('2026-09-14T00:00:00.000Z'),
-    })).resolves.toBe('patient_blocked');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        patientId: 'patient-a',
+        betaMembershipId: 'membership-a',
+        now: new Date('2026-09-14T00:00:00.000Z'),
+      }),
+    ).resolves.toBe('patient_blocked');
     expect(push).not.toHaveBeenCalled();
     expect(db).toBeDefined();
   });
 
   it('preserves a stale result-unknown attempt when membership becomes suspended', async () => {
     betaEnabled.mockResolvedValue(true);
-    betaDeliveryState
-      .mockResolvedValueOnce('active')
-      .mockResolvedValueOnce('suspended');
+    betaDeliveryState.mockResolvedValueOnce('active').mockResolvedValueOnce('suspended');
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: {
-        id: 'notification-1',
-        outcome: 'attempted',
-        occurred_at: '2026-09-13T23:00:00.000Z',
-        created_at: '2026-09-13T23:00:00.000Z',
-      } },
-      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+        {
+          match: 'SELECT id, outcome',
+          first: {
+            id: 'notification-1',
+            outcome: 'attempted',
+            occurred_at: '2026-09-13T23:00:00.000Z',
+            created_at: '2026-09-13T23:00:00.000Z',
+          },
+        },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ],
+      seen,
+    );
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
-      now: new Date('2026-09-14T00:00:00.000Z'),
-    })).resolves.toBe('patient_blocked');
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        patientId: 'patient-a',
+        betaMembershipId: 'membership-a',
+        now: new Date('2026-09-14T00:00:00.000Z'),
+      }),
+    ).resolves.toBe('patient_blocked');
     expect(push).not.toHaveBeenCalled();
     expect(seen.some((sql) => sql.includes("SET outcome = 'failed'"))).toBe(false);
     expect(db).toBeDefined();
@@ -551,16 +670,24 @@ describe('pharmacy automated sender', () => {
 
   it('applies the proactive monthly cap per friend with an atomic claim', async () => {
     const seen: string[] = [];
-    const db = scriptedDb([
-      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT id, outcome', first: null },
-      { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
-      { match: "outcome = 'failed'", run: { changes: 0 } },
-    ], seen);
+    const db = scriptedDb(
+      [
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+        { match: 'SELECT id, outcome', first: null },
+        { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
+        { match: "outcome = 'failed'", run: { changes: 0 } },
+      ],
+      seen,
+    );
 
-    await expect(sendPharmacyAutomatedPush({
-      ...base, db, category: 'proactive_noncare', now: new Date('2026-08-31T15:30:00.000Z'),
-    })).rejects.toThrow(/frequency cap/);
+    await expect(
+      sendPharmacyAutomatedPush({
+        ...base,
+        db,
+        category: 'proactive_noncare',
+        now: new Date('2026-08-31T15:30:00.000Z'),
+      }),
+    ).rejects.toThrow(/frequency cap/);
     const claim = seen.find((sql) => sql.includes('INSERT OR IGNORE')) ?? '';
     expect(claim).toContain('friend_id = ?');
     expect(claim).toContain("outcome IN ('attempted','sent')");
@@ -568,30 +695,73 @@ describe('pharmacy automated sender', () => {
   });
 });
 
-
 it.each(['post_claim', 'final_patient', 'final_scope', 'operations'] as const)(
-  'records known-unsent deferral at %s and preserves an earlier unknown result', async phase => {
+  'records known-unsent deferral at %s and preserves an earlier unknown result',
+  async (phase) => {
     for (const unknown of [false, true]) {
       push.mockClear();
       betaEnabled.mockResolvedValue(phase !== 'operations');
       betaDeliveryState.mockReset().mockResolvedValue('active');
       if (phase === 'post_claim') betaDeliveryState.mockResolvedValueOnce('active').mockResolvedValueOnce('suspended');
-      if (phase === 'final_patient') betaDeliveryState.mockResolvedValueOnce('active').mockResolvedValueOnce('active').mockResolvedValueOnce('suspended');
-      config.mockResolvedValue({ capabilities: ['prescription_intake', 'medication_followup'], proactive_monthly_limit: 1 });
-      const steps: Step[] = [{ match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: unknown ? 0 : 1 } }];
-      if (unknown) steps.push(
-        { match: 'SELECT id, outcome', first: { id: 'notification-1', outcome: 'attempted', occurred_at: '2026-09-13T23:00:00.000Z', created_at: '2026-09-13T23:00:00.000Z' } },
-        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      if (phase === 'final_patient')
+        betaDeliveryState
+          .mockResolvedValueOnce('active')
+          .mockResolvedValueOnce('active')
+          .mockResolvedValueOnce('suspended');
+      config.mockResolvedValue({
+        capabilities: ['prescription_intake', 'medication_followup'],
+        proactive_monthly_limit: 1,
+      });
+      const steps: Step[] = [
+        {
+          match: 'INSERT OR IGNORE INTO pharmacy_notification_events',
+          run: { changes: unknown ? 0 : 1 },
+        },
+      ];
+      if (unknown)
+        steps.push(
+          {
+            match: 'SELECT id, outcome',
+            first: {
+              id: 'notification-1',
+              outcome: 'attempted',
+              occurred_at: '2026-09-13T23:00:00.000Z',
+              created_at: '2026-09-13T23:00:00.000Z',
+            },
+          },
+          { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+        );
+      else
+        steps.push({
+          match: 'UPDATE pharmacy_notification_events',
+          run: { changes: 1 },
+          check: (values) => expect(values[0]).toBe('failed'),
+        });
+      const db = scriptedDb(
+        steps,
+        [],
+        null,
+        phase === 'operations' ? { followup_operations_enabled: 0 } : { beta_membership_status: 'suspended' },
+        1,
       );
-      else steps.push({ match: 'UPDATE pharmacy_notification_events', run: { changes: 1 }, check: values => expect(values[0]).toBe('failed') });
-      const db = scriptedDb(steps, [], null, phase === 'operations'
-        ? { followup_operations_enabled: 0 }
-        : { beta_membership_status: 'suspended' }, 1);
-      const message = phase === 'operations'
-        ? { messageId: 'medication_followup_v1' as const, category: 'followup_care' as const, vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' } }
-        : {};
-      expect(await sendPharmacyAutomatedPush({ ...base, ...message, db, patientId: 'patient-a', betaMembershipId: 'membership-a', now: new Date('2026-09-14T00:00:00.000Z') }))
-        .toBe(phase === 'operations' ? 'operations_blocked' : 'patient_blocked');
+      const message =
+        phase === 'operations'
+          ? {
+              messageId: 'medication_followup_v1' as const,
+              category: 'followup_care' as const,
+              vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' },
+            }
+          : {};
+      expect(
+        await sendPharmacyAutomatedPush({
+          ...base,
+          ...message,
+          db,
+          patientId: 'patient-a',
+          betaMembershipId: 'membership-a',
+          now: new Date('2026-09-14T00:00:00.000Z'),
+        }),
+      ).toBe(phase === 'operations' ? 'operations_blocked' : 'patient_blocked');
       expect(steps).toEqual([]);
       expect(push).not.toHaveBeenCalled();
     }

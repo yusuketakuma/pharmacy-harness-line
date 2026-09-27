@@ -82,11 +82,21 @@ function app(withStaff = true) {
 
 const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
 const handoff = {
-  id: 'handoff-1', line_account_id: 'account-1', friend_id: 'friend-1', patient_id: null,
-  expectation_id: 'expectation-1', method: 'E_PRESCRIPTION', status: 'CREATED', source: 'LIFF',
-  correlation_id: 'corr-1234', launched_at: null, patient_reported_at: null,
-  expires_at: '2099-08-17T10:00:00.000Z', closed_at: null,
-  created_at: '2026-08-17T09:00:00.000Z', updated_at: '2026-08-17T09:00:00.000Z',
+  id: 'handoff-1',
+  line_account_id: 'account-1',
+  friend_id: 'friend-1',
+  patient_id: null,
+  expectation_id: 'expectation-1',
+  method: 'E_PRESCRIPTION',
+  status: 'CREATED',
+  source: 'LIFF',
+  correlation_id: 'corr-1234',
+  launched_at: null,
+  patient_reported_at: null,
+  expires_at: '2099-08-17T10:00:00.000Z',
+  closed_at: null,
+  created_at: '2026-08-17T09:00:00.000Z',
+  updated_at: '2026-08-17T09:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -94,16 +104,21 @@ beforeEach(() => {
   mocks.verifyIdentity.mockResolvedValue({ userId: 'line-user-1' });
   mocks.resolvePatient.mockResolvedValue(patient);
   mocks.active.mockResolvedValue({
-    line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
+    line_account_id: 'account-1',
+    tenant_alias: 'pharmacy-a',
     endpoint_url: 'https://myna.example.test/pharmacy/a',
   });
-  mocks.create.mockResolvedValue({ handoff, expectation: { id: 'expectation-1', receipt_status: 'EXPECTED' } });
+  mocks.create.mockResolvedValue({
+    handoff,
+    expectation: { id: 'expectation-1', receipt_status: 'EXPECTED' },
+  });
   mocks.launch.mockResolvedValue({ ...handoff, status: 'LAUNCH_REQUESTED' });
   mocks.report.mockResolvedValue({ ...handoff, status: 'PATIENT_REPORTED_COMPLETE' });
   mocks.activePatient.mockResolvedValue({ ...handoff, status: 'LAUNCH_REQUESTED' });
   mocks.verify.mockResolvedValue({
     verification: { id: 'verification-1', status: 'E_PRESCRIPTION_RECEIVED' },
-    receiptStatus: 'RECEIVED', shadowSubmissionId: 'submission-1',
+    receiptStatus: 'RECEIVED',
+    shadowSubmissionId: 'submission-1',
     handoff: { ...handoff, status: 'CLOSED' },
   });
   mocks.enqueueActivity.mockResolvedValue(null);
@@ -111,9 +126,13 @@ beforeEach(() => {
   mocks.capability.mockResolvedValue(true);
   mocks.betaParticipant.mockResolvedValue(true);
   mocks.setEndpointEnabled.mockResolvedValue({
-    id: 'endpoint-1', line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
-    endpoint_url_masked: 'https://myna.example.test/…', enabled: false,
-    last_verified_at: null, revision: 1,
+    id: 'endpoint-1',
+    line_account_id: 'account-1',
+    tenant_alias: 'pharmacy-a',
+    endpoint_url_masked: 'https://myna.example.test/…',
+    enabled: false,
+    last_verified_at: null,
+    revision: 1,
   });
   mocks.markEndpointVerified.mockResolvedValue(undefined);
 });
@@ -121,26 +140,28 @@ beforeEach(() => {
 describe('Myna routes', () => {
   it('changes endpoint enabled state without receiving the plaintext URL again', async () => {
     const response = await app().request(
-      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1',
+      {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled: false, expectedRevision: 1 }),
-      }, env,
+      },
+      env,
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.setEndpointEnabled).toHaveBeenCalledWith(
-      env.DB, 'account-1', false, 1, 'staff-1', 'test-secret',
-    );
+    expect(mocks.setEndpointEnabled).toHaveBeenCalledWith(env.DB, 'account-1', false, 1, 'staff-1', 'test-secret');
   });
 
   it('records a manual official-console verification for the assigned account', async () => {
     const response = await app().request(
-      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1',
+      {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ expectedRevision: 1 }),
-      }, env,
+      },
+      env,
     );
 
     expect(response.status).toBe(200);
@@ -149,69 +170,87 @@ describe('Myna routes', () => {
 
   it('requires an endpoint revision and maps stale writes to conflict', async () => {
     const invalid = await app().request(
-      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1',
+      {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled: false }),
-      }, env,
+      },
+      env,
     );
     expect(invalid.status).toBe(400);
     expect(mocks.setEndpointEnabled).not.toHaveBeenCalled();
 
     mocks.markEndpointVerified.mockRejectedValueOnce(new Error('stale Myna endpoint revision'));
     const stale = await app().request(
-      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1',
+      {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ expectedRevision: 1 }),
-      }, env,
+      },
+      env,
     );
     expect(stale.status).toBe(409);
   });
 
   it('rejects an admin handoff read outside the assigned account', async () => {
     mocks.access.mockResolvedValue(false);
-    const response = await app().request(
-      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-b', {}, env,
-    );
+    const response = await app().request('/api/custom/pharmacy/myna-handoffs?line_account_id=account-b', {}, env);
     expect(response.status).toBe(403);
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown handoff status filter before repository access', async () => {
     const response = await app().request(
-      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-1&status=UNKNOWN', {}, env,
+      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-1&status=UNKNOWN',
+      {},
+      env,
     );
     expect(response.status).toBe(400);
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
   it('creates a handoff for the authenticated LINE contact', async () => {
-    const response = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
-    }, env);
+    const response = await app().request(
+      '/api/liff/pharmacy/myna-handoffs?liffId=123-abc',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+      },
+      env,
+    );
     expect(response.status).toBe(201);
-    const body = await response.json() as { launchUrl: string };
+    const body = (await response.json()) as { launchUrl: string };
     expect(body.launchUrl).toMatch(/^https:\/\/pharmacy\.example\.test\/r\/myna\/[^/?]+\?openExternalBrowser=1$/);
     expect(body.launchUrl).not.toContain('patient');
     expect(body.launchUrl).not.toContain('pharmacy-a');
     expect(body.launchUrl).not.toContain('account-1');
     expect(mocks.active).toHaveBeenCalledTimes(1);
-    expect(mocks.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION', source: 'LIFF',
-    }));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        method: 'E_PRESCRIPTION',
+        source: 'LIFF',
+      }),
+    );
     expect(mocks.capability).toHaveBeenCalledWith(env.DB, 'account-1', 'electronic_prescription');
   });
 
   it('blocks only new electronic admission when its capability is off', async () => {
     mocks.capability.mockResolvedValue(false);
-    const blocked = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
-    }, env);
+    const blocked = await app().request(
+      '/api/liff/pharmacy/myna-handoffs?liffId=123-abc',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+      },
+      env,
+    );
     expect(blocked.status).toBe(409);
     await expect(blocked.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
     expect(mocks.create).not.toHaveBeenCalled();
@@ -228,12 +267,16 @@ describe('Myna routes', () => {
   it('rejects a non-participant before reading the active handoff', async () => {
     mocks.betaParticipant.mockResolvedValue(false);
     const response = await app().request(
-      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc', {
+      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc',
+      {
         headers: { Authorization: 'Bearer token' },
-      }, env,
+      },
+      env,
     );
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    await expect(response.json()).resolves.toEqual({
+      error: 'Pharmacy beta participation required',
+    });
     expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
     expect(mocks.activePatient).not.toHaveBeenCalled();
   });
@@ -252,23 +295,31 @@ describe('Myna routes', () => {
   });
 
   it('records patient completion without treating it as official receipt', async () => {
-    const response = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/patient-report?liffId=123-abc', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result: 'COMPLETED' }),
-    }, env);
+    const response = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/handoff-1/patient-report?liffId=123-abc',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result: 'COMPLETED' }),
+      },
+      env,
+    );
     expect(response.status).toBe(200);
     expect(mocks.report).toHaveBeenCalled();
     expect(mocks.verify).not.toHaveBeenCalled();
   });
 
   async function issuedLaunchPath(): Promise<string> {
-    const response = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
-    }, env);
-    const body = await response.json() as { launchUrl: string };
+    const response = await app().request(
+      '/api/liff/pharmacy/myna-handoffs?liffId=123-abc',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+      },
+      env,
+    );
+    const body = (await response.json()) as { launchUrl: string };
     return new URL(body.launchUrl).pathname + new URL(body.launchUrl).search;
   }
 
@@ -320,13 +371,24 @@ describe('Myna routes', () => {
   });
 
   it('requires pharmacist-level role for sensitive verification outcomes', async () => {
-    const root = new Hono<{ Bindings: typeof env; Variables: { staff: { id: string; name: string; role: 'staff' } } }>();
-    root.use('*', async (c, next) => { c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' }); await next(); });
+    const root = new Hono<{
+      Bindings: typeof env;
+      Variables: { staff: { id: string; name: string; role: 'staff' } };
+    }>();
+    root.use('*', async (c, next) => {
+      c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
+      await next();
+    });
     root.route('/', mynaRoutes);
-    const response = await root.request('/api/custom/pharmacy/myna-handoffs/handoff-1/verifications?line_account_id=account-1', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'SUBMITTED_TO_OTHER_PHARMACY', sourceSystem: 'terminal' }),
-    }, env);
+    const response = await root.request(
+      '/api/custom/pharmacy/myna-handoffs/handoff-1/verifications?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'SUBMITTED_TO_OTHER_PHARMACY', sourceSystem: 'terminal' }),
+      },
+      env,
+    );
     expect(response.status).toBe(403);
     expect(mocks.verify).not.toHaveBeenCalled();
   });

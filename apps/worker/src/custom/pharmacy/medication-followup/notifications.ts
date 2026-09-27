@@ -24,21 +24,26 @@ export async function processDueMedicationFollowUps(
   for (const row of rows) {
     let current = row;
     try {
-      if ('notification_checked_at' in current &&
-          !await markMedicationFollowUpNotificationChecked(db, current, now)) {
+      if (
+        'notification_checked_at' in current &&
+        !(await markMedicationFollowUpNotificationChecked(db, current, now))
+      ) {
         result.skipped++;
         continue;
       }
       if (current.status === 'scheduled') {
-        current = { ...current, ...await transitionMedicationFollowUp(db, {
-          lineAccountId: current.line_account_id,
-          followUpId: current.id,
-          toStatus: 'due',
-          expectedVersion: current.version,
-          actorType: 'system',
-          actorId: 'medication-followup-cron',
-          now,
-        }) };
+        current = {
+          ...current,
+          ...(await transitionMedicationFollowUp(db, {
+            lineAccountId: current.line_account_id,
+            followUpId: current.id,
+            toStatus: 'due',
+            expectedVersion: current.version,
+            actorType: 'system',
+            actorId: 'medication-followup-cron',
+            now,
+          })),
+        };
       }
     } catch {
       result.skipped++;
@@ -46,10 +51,10 @@ export async function processDueMedicationFollowUps(
     }
     const accessToken = options.lineCredentialKey
       ? await readLineCredential(db, options.lineCredentialKey, {
-        tenantId: current.tenant_id,
-        lineAccountId: current.line_account_id,
-        kind: 'channel_access_token',
-      }).catch(() => null)
+          tenantId: current.tenant_id,
+          lineAccountId: current.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
       : null;
     if (!current.line_user_id || !accessToken) {
       result.skipped++;

@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/public-profile/PharmacyInfoAdminPage'
+export { default } from '@/custom/pharmacy/public-profile/PharmacyInfoAdminPage';

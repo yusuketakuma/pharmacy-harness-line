@@ -62,10 +62,12 @@ const createInput = {
 };
 
 function auditRows(sqlite: TestSqliteDatabase) {
-  return sqlite.prepare(
-    `SELECT action, actor_staff_id FROM tenant_admin_audit_events
+  return sqlite
+    .prepare(
+      `SELECT action, actor_staff_id FROM tenant_admin_audit_events
       WHERE resource_type = 'chat_template' ORDER BY rowid`,
-  ).all() as Array<{ action: string; actor_staff_id: string }>;
+    )
+    .all() as Array<{ action: string; actor_staff_id: string }>;
 }
 
 describe('chat template repository', () => {
@@ -73,12 +75,13 @@ describe('chat template repository', () => {
     const { sqlite, db } = setup();
     const saved = await createChatTemplate(db, createInput);
     expect(saved).toMatchObject({
-      template_id: 'tpl-00000001', status: 'draft', version: 1,
-      created_by_staff_id: 'staff-a', approved_by_staff_id: null,
+      template_id: 'tpl-00000001',
+      status: 'draft',
+      version: 1,
+      created_by_staff_id: 'staff-a',
+      approved_by_staff_id: null,
     });
-    expect(auditRows(sqlite)).toEqual([
-      { action: 'pharmacy_chat_template_created', actor_staff_id: 'staff-a' },
-    ]);
+    expect(auditRows(sqlite)).toEqual([{ action: 'pharmacy_chat_template_created', actor_staff_id: 'staff-a' }]);
   });
 
   it('keeps templates scoped per account', async () => {
@@ -90,37 +93,57 @@ describe('chat template repository', () => {
 
   it('rejects PHI-like bodies and placeholder syntax', async () => {
     const { db } = setup();
-    await expect(createChatTemplate(db, {
-      ...createInput, templateId: 'tpl-00000002',
-      body: '患者名を確認しました。糖尿病の薬です。',
-    })).rejects.toThrow(/invalid chat template/);
-    await expect(createChatTemplate(db, {
-      ...createInput, templateId: 'tpl-00000003',
-      body: '{{患者名}} 様へご連絡です。',
-    })).rejects.toThrow(/invalid chat template/);
-    await expect(createChatTemplate(db, {
-      ...createInput, templateId: 'tpl-00000004', body: 'a'.repeat(501),
-    })).rejects.toThrow(/invalid chat template/);
+    await expect(
+      createChatTemplate(db, {
+        ...createInput,
+        templateId: 'tpl-00000002',
+        body: '患者名を確認しました。糖尿病の薬です。',
+      }),
+    ).rejects.toThrow(/invalid chat template/);
+    await expect(
+      createChatTemplate(db, {
+        ...createInput,
+        templateId: 'tpl-00000003',
+        body: '{{患者名}} 様へご連絡です。',
+      }),
+    ).rejects.toThrow(/invalid chat template/);
+    await expect(
+      createChatTemplate(db, {
+        ...createInput,
+        templateId: 'tpl-00000004',
+        body: 'a'.repeat(501),
+      }),
+    ).rejects.toThrow(/invalid chat template/);
   });
 
   it('rejects a creator outside the account scope', async () => {
     const { db } = setup();
-    await expect(createChatTemplate(db, {
-      ...createInput, actorStaffId: 'staff-b',
-    })).rejects.toThrow(/invalid chat template staff/);
+    await expect(
+      createChatTemplate(db, {
+        ...createInput,
+        actorStaffId: 'staff-b',
+      }),
+    ).rejects.toThrow(/invalid chat template staff/);
   });
 
   it('updates an approved template back to draft', async () => {
     const { sqlite, db } = setup();
     await createChatTemplate(db, createInput);
     await approveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      expectedVersion: 1, actorStaffId: 'staff-d', now: NOW,
+      lineAccountId: 'account-a',
+      templateId: 'tpl-00000001',
+      expectedVersion: 1,
+      actorStaffId: 'staff-d',
+      now: NOW,
     });
     const edited = await updateChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      title: '受付確認(改)', body: '処方せんを受け付けました。',
-      expectedVersion: 2, actorStaffId: 'staff-a', now: NOW,
+      lineAccountId: 'account-a',
+      templateId: 'tpl-00000001',
+      title: '受付確認(改)',
+      body: '処方せんを受け付けました。',
+      expectedVersion: 2,
+      actorStaffId: 'staff-a',
+      now: NOW,
     });
     expect(edited.status).toBe('draft');
     expect(edited.approved_by_staff_id).toBeNull();
@@ -135,20 +158,35 @@ describe('chat template repository', () => {
   it('requires a fresh approver and matching version', async () => {
     const { db } = setup();
     await createChatTemplate(db, createInput);
-    await expect(approveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      expectedVersion: 1, actorStaffId: 'staff-a', now: NOW,
-    })).rejects.toThrow(/invalid chat template state/);
-    await expect(approveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      expectedVersion: 9, actorStaffId: 'staff-d', now: NOW,
-    })).rejects.toThrow(/conflict/);
+    await expect(
+      approveChatTemplate(db, {
+        lineAccountId: 'account-a',
+        templateId: 'tpl-00000001',
+        expectedVersion: 1,
+        actorStaffId: 'staff-a',
+        now: NOW,
+      }),
+    ).rejects.toThrow(/invalid chat template state/);
+    await expect(
+      approveChatTemplate(db, {
+        lineAccountId: 'account-a',
+        templateId: 'tpl-00000001',
+        expectedVersion: 9,
+        actorStaffId: 'staff-d',
+        now: NOW,
+      }),
+    ).rejects.toThrow(/conflict/);
     const approved = await approveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      expectedVersion: 1, actorStaffId: 'staff-d', now: NOW,
+      lineAccountId: 'account-a',
+      templateId: 'tpl-00000001',
+      expectedVersion: 1,
+      actorStaffId: 'staff-d',
+      now: NOW,
     });
     expect(approved).toMatchObject({
-      status: 'approved', version: 2, approved_by_staff_id: 'staff-d',
+      status: 'approved',
+      version: 2,
+      approved_by_staff_id: 'staff-d',
     });
   });
 
@@ -156,22 +194,36 @@ describe('chat template repository', () => {
     const { db } = setup();
     await createChatTemplate(db, createInput);
     const archived = await archiveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      expectedVersion: 1, actorStaffId: 'staff-a', now: NOW,
+      lineAccountId: 'account-a',
+      templateId: 'tpl-00000001',
+      expectedVersion: 1,
+      actorStaffId: 'staff-a',
+      now: NOW,
     });
     expect(archived.status).toBe('archived');
-    await expect(updateChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-00000001',
-      title: 't', body: '本文', expectedVersion: 2,
-      actorStaffId: 'staff-a', now: NOW,
-    })).rejects.toThrow(/invalid chat template state/);
+    await expect(
+      updateChatTemplate(db, {
+        lineAccountId: 'account-a',
+        templateId: 'tpl-00000001',
+        title: 't',
+        body: '本文',
+        expectedVersion: 2,
+        actorStaffId: 'staff-a',
+        now: NOW,
+      }),
+    ).rejects.toThrow(/invalid chat template state/);
   });
 
   it('returns not found for unknown templates', async () => {
     const { db } = setup();
-    await expect(archiveChatTemplate(db, {
-      lineAccountId: 'account-a', templateId: 'tpl-missing0',
-      expectedVersion: 1, actorStaffId: 'staff-a', now: NOW,
-    })).rejects.toThrow(/not found/);
+    await expect(
+      archiveChatTemplate(db, {
+        lineAccountId: 'account-a',
+        templateId: 'tpl-missing0',
+        expectedVersion: 1,
+        actorStaffId: 'staff-a',
+        now: NOW,
+      }),
+    ).rejects.toThrow(/not found/);
   });
 });

@@ -54,69 +54,96 @@ function insertOperation(
   backupStaffId: string | null = null,
   enabled = 0,
 ): void {
-  sqlite.prepare(`
+  sqlite
+    .prepare(`
     INSERT INTO pharmacy_medication_followup_operations
       (line_account_id, service_hours_text, response_sla_json,
        primary_staff_id, backup_staff_id, after_hours_message_code,
        emergency_message_code, enabled, version, created_at, updated_at)
     VALUES (?, '未定', '{}', ?, ?, 'contact_pharmacy_during_hours',
             'seek_urgent_care', ?, 1, ?, ?)
-  `).run(accountId, primaryStaffId, backupStaffId, enabled, NOW, NOW);
+  `)
+    .run(accountId, primaryStaffId, backupStaffId, enabled, NOW, NOW);
 }
 
 describe('custom_076 pharmacy follow-up operations scope', () => {
   it('rejects cross-tenant primary and backup staff references on insert/update', () => {
     const sqlite = setup();
 
-    expect(() => insertOperation(sqlite, 'account-a', 'staff-b'))
-      .toThrow(/PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/);
+    expect(() => insertOperation(sqlite, 'account-a', 'staff-b')).toThrow(
+      /PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/,
+    );
     insertOperation(sqlite, 'account-a', 'staff-a');
-    expect(() => sqlite.prepare(`
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_medication_followup_operations
          SET backup_staff_id = 'staff-b'
        WHERE line_account_id = 'account-a'
-    `).run()).toThrow(/PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/);
-    expect(() => sqlite.prepare(`
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/);
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_medication_followup_operations
          SET line_account_id = 'account-b'
        WHERE line_account_id = 'account-a'
-    `).run()).toThrow(/PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH/);
   });
 
   it('permits disabled preconfiguration but requires active human staff before enabling', () => {
     const sqlite = setup();
     insertOperation(sqlite, 'account-a', 'staff-c');
 
-    expect(() => sqlite.prepare(`
+    expect(() =>
+      sqlite
+        .prepare(`
       UPDATE pharmacy_medication_followup_operations
          SET enabled = 1
        WHERE line_account_id = 'account-a'
-    `).run()).toThrow(/PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID/);
+    `)
+        .run(),
+    ).toThrow(/PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID/);
 
-    sqlite.prepare(`
+    sqlite
+      .prepare(`
       UPDATE pharmacy_medication_followup_operations
          SET primary_staff_id = 'staff-a', enabled = 1
        WHERE line_account_id = 'account-a'
-    `).run();
-    expect(sqlite.prepare(`
+    `)
+      .run();
+    expect(
+      sqlite
+        .prepare(`
       SELECT enabled FROM pharmacy_medication_followup_operations
        WHERE line_account_id = 'account-a'
-    `).get()).toEqual({ enabled: 1 });
+    `)
+        .get(),
+    ).toEqual({ enabled: 1 });
   });
 
   it('keeps the existing table additive and allows a null backup', () => {
     const sqlite = setup();
     insertOperation(sqlite, 'account-a', 'staff-a');
-    expect(sqlite.prepare(`
+    expect(
+      sqlite
+        .prepare(`
       SELECT primary_staff_id, backup_staff_id FROM pharmacy_medication_followup_operations
        WHERE line_account_id = 'account-a'
-    `).get()).toEqual({ primary_staff_id: 'staff-a', backup_staff_id: null });
+    `)
+        .get(),
+    ).toEqual({ primary_staff_id: 'staff-a', backup_staff_id: null });
 
-    const triggers = sqlite.prepare(`
+    const triggers = sqlite
+      .prepare(`
       SELECT name FROM sqlite_master
        WHERE type = 'trigger' AND name LIKE 'pharmacy_followup_operations_%'
        ORDER BY name
-    `).all() as Array<{ name: string }>;
+    `)
+      .all() as Array<{ name: string }>;
     expect(triggers.map(({ name }) => name)).toEqual([
       'pharmacy_followup_operations_enabled_staff_insert',
       'pharmacy_followup_operations_enabled_staff_update',

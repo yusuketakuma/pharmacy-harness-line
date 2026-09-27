@@ -5,11 +5,13 @@ import type { Env } from '../../index.js';
 const availabilityMocks = {
   computeSlots: vi.fn(() => [] as { start: string; end: string }[]),
   getAvailability: vi.fn(async (_db: unknown, params: { from: string }) => ({
-    by_staff: [{
-      staff_id: 's1',
-      display_name: 'A',
-      slots: availabilityMocks.computeSlots().map((slot) => ({ date: params.from, ...slot })),
-    }],
+    by_staff: [
+      {
+        staff_id: 's1',
+        display_name: 'A',
+        slots: availabilityMocks.computeSlots().map((slot) => ({ date: params.from, ...slot })),
+      },
+    ],
   })),
 };
 vi.mock('../../services/availability.js', () => availabilityMocks);
@@ -24,7 +26,10 @@ vi.mock('../../services/booking-calendar-sync.js', async () => {
   const actual = await vi.importActual<typeof import('../../services/booking-calendar-sync.js')>(
     '../../services/booking-calendar-sync.js',
   );
-  return { ...actual, verifyStaffCalendarConnection: calendarSyncMocks.verifyStaffCalendarConnection };
+  return {
+    ...actual,
+    verifyStaffCalendarConnection: calendarSyncMocks.verifyStaffCalendarConnection,
+  };
 });
 
 const liffAuthMocks = vi.hoisted(() => ({
@@ -67,12 +72,18 @@ describe('LIFF booking identity scope', () => {
       env: { DB: emptyDb },
     } as never;
     liffAuthMocks.verifyCallerLineIdentity.mockResolvedValueOnce({
-      lineUserId: 'U-a', loginChannelId: 'login-a', lineAccountId: 'account-a', tenantId: 'tenant-a',
+      lineUserId: 'U-a',
+      loginChannelId: 'login-a',
+      lineAccountId: 'account-a',
+      tenantId: 'tenant-a',
     });
     await expect(verifyCallerLineUserId(context, 'account-b')).resolves.toBeNull();
 
     liffAuthMocks.verifyCallerLineIdentity.mockResolvedValueOnce({
-      lineUserId: 'U-a', loginChannelId: 'login-a', lineAccountId: 'account-a', tenantId: 'tenant-a',
+      lineUserId: 'U-a',
+      loginChannelId: 'login-a',
+      lineAccountId: 'account-a',
+      tenantId: 'tenant-a',
     });
     await expect(verifyCallerLineUserId(context, 'account-a')).resolves.toBe('U-a');
   });
@@ -281,13 +292,18 @@ describe('POST /api/booking/admin/bookings', () => {
     const db = scriptedDb([
       ['FROM friends', { first: { id: 'f1', is_following: 1 } }],
       ['FROM staff WHERE', { first: { ok: 1 } }],
-      ['FROM menus m', { first: {
-        duration_minutes: 60,
-        buffer_after_minutes: 10,
-        dur: 60,
-        price: 8000,
-        is_offered: 1,
-      } }],
+      [
+        'FROM menus m',
+        {
+          first: {
+            duration_minutes: 60,
+            buffer_after_minutes: 10,
+            dur: 60,
+            price: 8000,
+            is_offered: 1,
+          },
+        },
+      ],
       ['FROM staff_shifts', { first: { start_time: '10:00', end_time: '19:00' } }],
       ['SELECT starts_at, block_ends_at FROM bookings', { all: { results: [] } }],
       ['INSERT INTO bookings', { run: { meta: { changes: 1 } } }],
@@ -295,7 +311,9 @@ describe('POST /api/booking/admin/bookings', () => {
     ]);
     const pending: Promise<unknown>[] = [];
     const notificationCtx = {
-      waitUntil(promise: Promise<unknown>) { pending.push(promise); },
+      waitUntil(promise: Promise<unknown>) {
+        pending.push(promise);
+      },
       passThroughOnException() {},
     } as unknown as ExecutionContext;
     const { app, env } = makeApp(db);
@@ -435,15 +453,18 @@ describe('legacy Google Calendar admin tenant scope', () => {
   test('tenant A cannot read/update/delete tenant B and new connections store tenant A', async () => {
     const calls: { sql: string; params: unknown[] }[] = [];
     const connections = new Map([
-      ['connection-b', {
-        id: 'connection-b',
-        tenant_id: 'tenant-b',
-        line_account_id: 'account-b',
-        staff_id: 'staff-b',
-        auth_type: 'service_account',
-        access_token: null,
-        refresh_token: null,
-      }],
+      [
+        'connection-b',
+        {
+          id: 'connection-b',
+          tenant_id: 'tenant-b',
+          line_account_id: 'account-b',
+          staff_id: 'staff-b',
+          auth_type: 'service_account',
+          access_token: null,
+          refresh_token: null,
+        },
+      ],
     ]);
     const db = {
       calls,
@@ -461,12 +482,10 @@ describe('legacy Google Calendar admin tenant scope', () => {
             const staffId = params.find((value) => String(value).startsWith('staff-'));
             if (sql.includes('FROM staff')) {
               if (tenantId) {
-                return tenantId === 'tenant-a' && accountId === 'account-a' && staffId === 'staff-a'
-                  ? { ok: 1 }
-                  : null;
+                return tenantId === 'tenant-a' && accountId === 'account-a' && staffId === 'staff-a' ? { ok: 1 } : null;
               }
-              return accountId === 'account-a' && staffId === 'staff-a' ||
-                accountId === 'account-b' && staffId === 'staff-b'
+              return (accountId === 'account-a' && staffId === 'staff-a') ||
+                (accountId === 'account-b' && staffId === 'staff-b')
                 ? { ok: 1 }
                 : null;
             }
@@ -474,15 +493,22 @@ describe('legacy Google Calendar admin tenant scope', () => {
               return tenantId === 'tenant-a' && accountId === 'account-a' ? { ok: 1 } : null;
             }
             if (sql.includes('FROM google_calendar_connections')) {
-              const connection = [...connections.values()].find((candidate) =>
-                candidate.line_account_id === accountId && candidate.staff_id === staffId &&
-                (!tenantId || candidate.tenant_id === tenantId));
+              const connection = [...connections.values()].find(
+                (candidate) =>
+                  candidate.line_account_id === accountId &&
+                  candidate.staff_id === staffId &&
+                  (!tenantId || candidate.tenant_id === tenantId),
+              );
               return connection ?? null;
             }
             return null;
           },
-          async all() { return { results: [] }; },
-          async run() { return { meta: { changes: 1 } }; },
+          async all() {
+            return { results: [] };
+          },
+          async run() {
+            return { meta: { changes: 1 } };
+          },
         };
         return statement;
       },
@@ -490,31 +516,43 @@ describe('legacy Google Calendar admin tenant scope', () => {
     const { app, env } = makeTenantApp(db);
 
     const foreignGet = await app.request(
-      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {}, env,
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b',
+      {},
+      env,
     );
     const foreignPut = await app.request(
-      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b',
+      {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ calendar_id: 'calendar-b' }),
-      }, env);
+      },
+      env,
+    );
     const foreignDelete = await app.request(
-      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b',
+      {
         method: 'DELETE',
-      }, env);
+      },
+      env,
+    );
 
     expect(foreignGet.status).toBe(404);
     expect(foreignPut.status).toBe(404);
     expect(foreignDelete.status).toBe(404);
-    expect(calls.filter(({ sql, params }) =>
-      sql.includes('google_calendar_connections') && params.includes('account-b'))).toHaveLength(0);
+    expect(
+      calls.filter(({ sql, params }) => sql.includes('google_calendar_connections') && params.includes('account-b')),
+    ).toHaveLength(0);
 
     const ownPut = await app.request(
-      '/api/booking/admin/staff/staff-a/google-calendar?account_id=account-a', {
+      '/api/booking/admin/staff/staff-a/google-calendar?account_id=account-a',
+      {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ calendar_id: 'calendar-a' }),
-      }, env);
+      },
+      env,
+    );
 
     expect(ownPut.status).toBe(200);
     const insert = calls.find(({ sql }) => sql.includes('INSERT INTO google_calendar_connections'));

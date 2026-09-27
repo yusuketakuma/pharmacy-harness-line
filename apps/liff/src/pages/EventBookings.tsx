@@ -4,8 +4,12 @@ import { api, type EventBookingMine } from '../lib/api.js';
 
 function formatJp(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
   });
 }
 
@@ -61,10 +65,14 @@ export default function EventBookings() {
       const e = err as { body?: { error?: string } };
       const msg = (() => {
         switch (e.body?.error) {
-          case 'cancel_deadline_passed': return 'キャンセル期限を過ぎています。';
-          case 'cancel_not_allowed': return 'このイベントは LIFF からのキャンセルに対応していません。LINE で運営にご連絡ください。';
-          case 'invalid_state': return 'この予約は既にキャンセル済 / 確定外のためキャンセルできません。';
-          default: return err instanceof Error ? err.message : String(err);
+          case 'cancel_deadline_passed':
+            return 'キャンセル期限を過ぎています。';
+          case 'cancel_not_allowed':
+            return 'このイベントは LIFF からのキャンセルに対応していません。LINE で運営にご連絡ください。';
+          case 'invalid_state':
+            return 'この予約は既にキャンセル済 / 確定外のためキャンセルできません。';
+          default:
+            return err instanceof Error ? err.message : String(err);
         }
       })();
       setError(msg);
@@ -133,7 +141,9 @@ export default function EventBookings() {
         )}
       </div>
       <div className="text-center mt-4">
-        <Link to="/booking" className="text-xs text-gray-500 underline">サロン予約はこちら</Link>
+        <Link to="/booking" className="text-xs text-gray-500 underline">
+          サロン予約はこちら
+        </Link>
       </div>
     </div>
   );

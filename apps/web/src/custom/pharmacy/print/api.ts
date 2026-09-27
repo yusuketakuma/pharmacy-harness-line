@@ -17,18 +17,10 @@ const action = (accountId: string, path: string, operationId?: string) =>
   });
 
 export const pharmacyPrintApi = {
-  prepare: (accountId: string, submissionId: string) => action(
-    accountId,
-    `/api/custom/pharmacy/print/submissions/${encodeURIComponent(submissionId)}/prepare`,
-  ),
-  claim: (accountId: string, taskId: string, operationId: string) => action(
-    accountId,
-    `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/claim`,
-    operationId,
-  ),
-  acknowledge: (accountId: string, taskId: string, operationId: string) => action(
-    accountId,
-    `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/ack`,
-    operationId,
-  ),
+  prepare: (accountId: string, submissionId: string) =>
+    action(accountId, `/api/custom/pharmacy/print/submissions/${encodeURIComponent(submissionId)}/prepare`),
+  claim: (accountId: string, taskId: string, operationId: string) =>
+    action(accountId, `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/claim`, operationId),
+  acknowledge: (accountId: string, taskId: string, operationId: string) =>
+    action(accountId, `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/ack`, operationId),
 };

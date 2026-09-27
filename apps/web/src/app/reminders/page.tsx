@@ -1,68 +1,68 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
-import Header from '@/components/layout/header'
-import CcPromptButton from '@/components/cc-prompt-button'
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
+import Header from '@/components/layout/header';
+import CcPromptButton from '@/components/cc-prompt-button';
 
 interface Reminder {
-  id: string
-  name: string
-  description: string | null
-  isActive: boolean
-  createdAt: string
-  updatedAt: string
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface ReminderStep {
-  id: string
-  reminderId: string
-  offsetMinutes: number
-  messageType: string
-  messageContent: string
-  createdAt: string
+  id: string;
+  reminderId: string;
+  offsetMinutes: number;
+  messageType: string;
+  messageContent: string;
+  createdAt: string;
 }
 
 interface ReminderWithSteps extends Reminder {
-  steps: ReminderStep[]
+  steps: ReminderStep[];
 }
 
 interface CreateFormState {
-  name: string
-  description: string
+  name: string;
+  description: string;
 }
 
 interface StepFormState {
-  offsetMinutes: number
-  messageType: string
-  messageContent: string
+  offsetMinutes: number;
+  messageType: string;
+  messageContent: string;
 }
 
 function formatOffset(minutes: number): string {
-  const abs = Math.abs(minutes)
-  const sign = minutes < 0 ? '' : '+'
-  if (abs === 0) return '基準時刻'
-  if (abs < 60) return `${sign}${minutes}分`
+  const abs = Math.abs(minutes);
+  const sign = minutes < 0 ? '' : '+';
+  if (abs === 0) return '基準時刻';
+  if (abs < 60) return `${sign}${minutes}分`;
   if (abs % 1440 === 0) {
-    const days = abs / 1440
-    return minutes < 0 ? `${days}日前` : `${days}日後`
+    const days = abs / 1440;
+    return minutes < 0 ? `${days}日前` : `${days}日後`;
   }
   if (abs % 60 === 0) {
-    const hours = abs / 60
-    return minutes < 0 ? `${hours}時間前` : `${hours}時間後`
+    const hours = abs / 60;
+    return minutes < 0 ? `${hours}時間前` : `${hours}時間後`;
   }
-  const hours = Math.floor(abs / 60)
-  const mins = abs % 60
-  const prefix = minutes < 0 ? '-' : '+'
-  return `${prefix}${hours}時間${mins}分`
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  const prefix = minutes < 0 ? '-' : '+';
+  return `${prefix}${hours}時間${mins}分`;
 }
 
 const messageTypeLabels: Record<string, string> = {
   text: 'テキスト',
   image: '画像',
   flex: 'Flex',
-}
+};
 
 const ccPrompts = [
   {
@@ -81,179 +81,179 @@ const ccPrompts = [
 3. テキスト・画像・Flexメッセージの使い分けガイド
 手順を示してください。`,
   },
-]
+];
 
 export default function RemindersPage() {
-  const { selectedAccountId } = useAccount()
-  const [reminders, setReminders] = useState<Reminder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState<CreateFormState>({ name: '', description: '' })
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const { selectedAccountId } = useAccount();
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<CreateFormState>({ name: '', description: '' });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // Expanded card state
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedData, setExpandedData] = useState<ReminderWithSteps | null>(null)
-  const [expandLoading, setExpandLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedData, setExpandedData] = useState<ReminderWithSteps | null>(null);
+  const [expandLoading, setExpandLoading] = useState(false);
 
   // Step form state
-  const [showStepForm, setShowStepForm] = useState(false)
+  const [showStepForm, setShowStepForm] = useState(false);
   const [stepForm, setStepForm] = useState<StepFormState>({
     offsetMinutes: -60,
     messageType: 'text',
     messageContent: '',
-  })
-  const [stepSaving, setStepSaving] = useState(false)
-  const [stepFormError, setStepFormError] = useState('')
+  });
+  const [stepSaving, setStepSaving] = useState(false);
+  const [stepFormError, setStepFormError] = useState('');
 
   const loadReminders = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.reminders.list({ accountId: selectedAccountId || undefined })
+      const res = await api.reminders.list({ accountId: selectedAccountId || undefined });
       if (res.success) {
-        setReminders(res.data)
+        setReminders(res.data);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('リマインダーの読み込みに失敗しました。もう一度お試しください。')
+      setError('リマインダーの読み込みに失敗しました。もう一度お試しください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    loadReminders()
-  }, [loadReminders])
+    loadReminders();
+  }, [loadReminders]);
 
   const loadDetail = useCallback(async (id: string) => {
-    setExpandLoading(true)
+    setExpandLoading(true);
     try {
-      const res = await api.reminders.get(id)
+      const res = await api.reminders.get(id);
       if (res.success) {
-        setExpandedData(res.data)
+        setExpandedData(res.data);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('詳細の読み込みに失敗しました')
+      setError('詳細の読み込みに失敗しました');
     } finally {
-      setExpandLoading(false)
+      setExpandLoading(false);
     }
-  }, [])
+  }, []);
 
   const handleExpand = (id: string) => {
     if (expandedId === id) {
-      setExpandedId(null)
-      setExpandedData(null)
-      setShowStepForm(false)
-      return
+      setExpandedId(null);
+      setExpandedData(null);
+      setShowStepForm(false);
+      return;
     }
-    setExpandedId(id)
-    setExpandedData(null)
-    setShowStepForm(false)
-    setStepFormError('')
-    loadDetail(id)
-  }
+    setExpandedId(id);
+    setExpandedData(null);
+    setShowStepForm(false);
+    setStepFormError('');
+    loadDetail(id);
+  };
 
   const handleCreate = async () => {
     if (!form.name.trim()) {
-      setFormError('リマインダー名を入力してください')
-      return
+      setFormError('リマインダー名を入力してください');
+      return;
     }
     if (!selectedAccountId) {
-      setFormError('LINEアカウントを選択してください')
-      return
+      setFormError('LINEアカウントを選択してください');
+      return;
     }
-    setSaving(true)
-    setFormError('')
+    setSaving(true);
+    setFormError('');
     try {
       const res = await api.reminders.create({
         name: form.name,
         description: form.description || undefined,
         lineAccountId: selectedAccountId,
-      })
+      });
       if (res.success) {
-        setShowCreate(false)
-        setForm({ name: '', description: '' })
-        loadReminders()
+        setShowCreate(false);
+        setForm({ name: '', description: '' });
+        loadReminders();
       } else {
-        setFormError(res.error)
+        setFormError(res.error);
       }
     } catch {
-      setFormError('作成に失敗しました')
+      setFormError('作成に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleToggleActive = async (id: string, current: boolean) => {
     try {
-      await api.reminders.update(id, { isActive: !current })
-      loadReminders()
+      await api.reminders.update(id, { isActive: !current });
+      loadReminders();
       if (expandedId === id && expandedData) {
-        setExpandedData({ ...expandedData, isActive: !current })
+        setExpandedData({ ...expandedData, isActive: !current });
       }
     } catch {
-      setError('ステータスの変更に失敗しました')
+      setError('ステータスの変更に失敗しました');
     }
-  }
+  };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このリマインダーを削除してもよいですか？')) return
+    if (!confirm('このリマインダーを削除してもよいですか？')) return;
     try {
-      await api.reminders.delete(id)
+      await api.reminders.delete(id);
       if (expandedId === id) {
-        setExpandedId(null)
-        setExpandedData(null)
+        setExpandedId(null);
+        setExpandedData(null);
       }
-      loadReminders()
+      loadReminders();
     } catch {
-      setError('削除に失敗しました')
+      setError('削除に失敗しました');
     }
-  }
+  };
 
   const handleAddStep = async () => {
-    if (!expandedId) return
+    if (!expandedId) return;
     if (!stepForm.messageContent.trim()) {
-      setStepFormError('メッセージ内容を入力してください')
-      return
+      setStepFormError('メッセージ内容を入力してください');
+      return;
     }
-    setStepSaving(true)
-    setStepFormError('')
+    setStepSaving(true);
+    setStepFormError('');
     try {
       const res = await api.reminders.addStep(expandedId, {
         offsetMinutes: stepForm.offsetMinutes,
         messageType: stepForm.messageType,
         messageContent: stepForm.messageContent,
-      })
+      });
       if (res.success) {
-        setShowStepForm(false)
-        setStepForm({ offsetMinutes: -60, messageType: 'text', messageContent: '' })
-        loadDetail(expandedId)
+        setShowStepForm(false);
+        setStepForm({ offsetMinutes: -60, messageType: 'text', messageContent: '' });
+        loadDetail(expandedId);
       } else {
-        setStepFormError(res.error)
+        setStepFormError(res.error);
       }
     } catch {
-      setStepFormError('ステップの追加に失敗しました')
+      setStepFormError('ステップの追加に失敗しました');
     } finally {
-      setStepSaving(false)
+      setStepSaving(false);
     }
-  }
+  };
 
   const handleDeleteStep = async (stepId: string) => {
-    if (!expandedId) return
-    if (!confirm('このステップを削除してもよいですか？')) return
+    if (!expandedId) return;
+    if (!confirm('このステップを削除してもよいですか？')) return;
     try {
-      await api.reminders.deleteStep(expandedId, stepId)
-      loadDetail(expandedId)
+      await api.reminders.deleteStep(expandedId, stepId);
+      loadDetail(expandedId);
     } catch {
-      setError('ステップの削除に失敗しました')
+      setError('ステップの削除に失敗しました');
     }
-  }
+  };
 
   return (
     <div>
@@ -272,11 +272,7 @@ export default function RemindersPage() {
       />
 
       {/* Error */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {/* Create form */}
       {showCreate && (
@@ -284,7 +280,9 @@ export default function RemindersPage() {
           <h2 className="text-sm font-semibold text-gray-800 mb-4">新規リマインダーを作成</h2>
           <div className="space-y-4 max-w-lg">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">リマインダー名 <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                リマインダー名 <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -316,7 +314,10 @@ export default function RemindersPage() {
                 {saving ? '作成中...' : '作成'}
               </button>
               <button
-                onClick={() => { setShowCreate(false); setFormError('') }}
+                onClick={() => {
+                  setShowCreate(false);
+                  setFormError('');
+                }}
                 className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 キャンセル
@@ -347,7 +348,7 @@ export default function RemindersPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {reminders.map((reminder) => {
-            const isExpanded = expandedId === reminder.id
+            const isExpanded = expandedId === reminder.id;
 
             return (
               <div
@@ -368,9 +369,7 @@ export default function RemindersPage() {
                     </div>
                     <span
                       className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${
-                        reminder.isActive
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-500'
+                        reminder.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                       }`}
                     >
                       {reminder.isActive ? '有効' : '無効'}
@@ -378,9 +377,7 @@ export default function RemindersPage() {
                   </div>
                   <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
                     <span>作成日: {new Date(reminder.createdAt).toLocaleDateString('ja-JP')}</span>
-                    <span className="flex items-center gap-1">
-                      {isExpanded ? '▲ 閉じる' : '▼ 詳細'}
-                    </span>
+                    <span className="flex items-center gap-1">{isExpanded ? '▲ 閉じる' : '▼ 詳細'}</span>
                   </div>
                 </div>
 
@@ -390,7 +387,10 @@ export default function RemindersPage() {
                     {/* Actions */}
                     <div className="flex flex-wrap items-center gap-2 mb-4">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleToggleActive(reminder.id, reminder.isActive) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleActive(reminder.id, reminder.isActive);
+                        }}
                         className={`px-3 py-1.5 min-h-[44px] text-xs font-medium rounded-md transition-colors ${
                           reminder.isActive
                             ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -401,7 +401,10 @@ export default function RemindersPage() {
                         {reminder.isActive ? '無効にする' : '有効にする'}
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(reminder.id) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(reminder.id);
+                        }}
                         className="px-3 py-1.5 min-h-[44px] text-xs font-medium text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
                       >
                         削除
@@ -422,7 +425,10 @@ export default function RemindersPage() {
                             ステップ ({expandedData.steps.length}件)
                           </h4>
                           <button
-                            onClick={() => { setShowStepForm(true); setStepFormError('') }}
+                            onClick={() => {
+                              setShowStepForm(true);
+                              setStepFormError('');
+                            }}
                             className="px-3 py-1 min-h-[44px] text-xs font-medium text-white rounded-md transition-opacity hover:opacity-90"
                             style={{ backgroundColor: '#06C755' }}
                           >
@@ -431,7 +437,9 @@ export default function RemindersPage() {
                         </div>
 
                         {expandedData.steps.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-4 text-center">ステップがありません。「ステップ追加」から作成してください。</p>
+                          <p className="text-xs text-gray-400 py-4 text-center">
+                            ステップがありません。「ステップ追加」から作成してください。
+                          </p>
                         ) : (
                           <div className="space-y-2">
                             {expandedData.steps
@@ -477,7 +485,12 @@ export default function RemindersPage() {
                                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                                   placeholder="例: -60 (1時間前), +30 (30分後)"
                                   value={stepForm.offsetMinutes}
-                                  onChange={(e) => setStepForm({ ...stepForm, offsetMinutes: Number(e.target.value) })}
+                                  onChange={(e) =>
+                                    setStepForm({
+                                      ...stepForm,
+                                      offsetMinutes: Number(e.target.value),
+                                    })
+                                  }
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
                                   現在の値: {formatOffset(stepForm.offsetMinutes)}
@@ -496,7 +509,9 @@ export default function RemindersPage() {
                                 </select>
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">メッセージ内容 <span className="text-red-500">*</span></label>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  メッセージ内容 <span className="text-red-500">*</span>
+                                </label>
                                 <textarea
                                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
                                   rows={3}
@@ -518,7 +533,10 @@ export default function RemindersPage() {
                                   {stepSaving ? '追加中...' : '追加'}
                                 </button>
                                 <button
-                                  onClick={() => { setShowStepForm(false); setStepFormError('') }}
+                                  onClick={() => {
+                                    setShowStepForm(false);
+                                    setStepFormError('');
+                                  }}
                                   className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                 >
                                   キャンセル
@@ -532,11 +550,11 @@ export default function RemindersPage() {
                   </div>
                 )}
               </div>
-            )
+            );
           })}
         </div>
       )}
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

@@ -30,8 +30,10 @@ const tenantDb = {
           return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         }
         if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
-        if (sql.includes('FROM friends AS friend') ||
-            (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))) {
+        if (
+          sql.includes('FROM friends AS friend') ||
+          (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))
+        ) {
           return { ok: 1 };
         }
         return null;
@@ -148,19 +150,17 @@ describe('GET /api/affiliate-offers', () => {
     const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data).toHaveLength(1);
     expect(body.data[0].id).toBe('off-1');
-    expect(dbMocks.listAffiliateOffers).toHaveBeenCalledWith(
-      expect.anything(),
-      { activeOnly: false },
-    );
+    expect(dbMocks.listAffiliateOffers).toHaveBeenCalledWith(expect.anything(), {
+      activeOnly: false,
+    });
   });
 
   it('passes activeOnly=true through', async () => {
     dbMocks.listAffiliateOffers.mockResolvedValue([]);
     await req('GET', '/api/affiliate-offers?activeOnly=true');
-    expect(dbMocks.listAffiliateOffers).toHaveBeenCalledWith(
-      expect.anything(),
-      { activeOnly: true },
-    );
+    expect(dbMocks.listAffiliateOffers).toHaveBeenCalledWith(expect.anything(), {
+      activeOnly: true,
+    });
   });
 });
 

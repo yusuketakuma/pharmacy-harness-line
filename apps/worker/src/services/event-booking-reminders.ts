@@ -1,14 +1,8 @@
 // Event booking reminders: schedule + cron processor.
 // Phase 1 mirrors booking-reminders.ts pattern but on event_booking_reminders.
 
-import {
-  REMINDER_MAX_RETRY,
-  type EventReminderKind,
-} from './event-booking-types.js';
-import type {
-  EventBookingNotificationSender,
-  EventNotificationKind,
-} from './event-booking-notifier.js';
+import { REMINDER_MAX_RETRY, type EventReminderKind } from './event-booking-types.js';
+import type { EventBookingNotificationSender, EventNotificationKind } from './event-booking-notifier.js';
 
 export interface ComputedReminder {
   kind: EventReminderKind;
@@ -82,10 +76,7 @@ export async function insertRemindersForBooking(
 // Cancel pending and retryable failed reminders linked to a booking
 // (cancel/reject/expire flows). The cron retries `failed` rows, so a stale
 // failed row left here would still notify after the booking is gone.
-export async function cancelPendingRemindersFor(
-  db: D1Database,
-  booking_id: string,
-): Promise<void> {
+export async function cancelPendingRemindersFor(db: D1Database, booking_id: string): Promise<void> {
   await db
     .prepare(
       `UPDATE event_booking_reminders
@@ -135,11 +126,14 @@ export async function processDueEventReminders(
   const nowIso = params.now.toISOString();
   const staleClaimAt = new Date(params.now.getTime() - CLAIM_STALE_MS).toISOString();
   const retryHorizonAt = new Date(params.now.getTime() - LINE_RETRY_HORIZON_MS).toISOString();
-  await db.prepare(
-    `UPDATE event_booking_reminders
+  await db
+    .prepare(
+      `UPDATE event_booking_reminders
         SET status='failed_permanent', last_error='LINE_RETRY_HORIZON_EXPIRED'
       WHERE status IN ('processing','failed') AND first_attempted_at <= ?`,
-  ).bind(retryHorizonAt).run();
+    )
+    .bind(retryHorizonAt)
+    .run();
 
   // status: 'pending' or 'failed' (retryable). 'sent' / 'failed_permanent'
   // / 'cancelled' are excluded. Booking must still be confirmed and slot

@@ -15,20 +15,23 @@ export async function recordPlatformAdminAccess(
   resourceId?: string | null,
   detail?: Record<string, unknown>,
 ): Promise<void> {
-  await db.prepare(
-    `INSERT INTO platform_admin_access_events
+  await db
+    .prepare(
+      `INSERT INTO platform_admin_access_events
        (id, platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(),
-    platformAdminId,
-    tenantId,
-    action,
-    resourceType ?? null,
-    resourceId ?? null,
-    detail ? JSON.stringify(detail) : null,
-    new Date().toISOString(),
-  ).run();
+    )
+    .bind(
+      crypto.randomUUID(),
+      platformAdminId,
+      tenantId,
+      action,
+      resourceType ?? null,
+      resourceId ?? null,
+      detail ? JSON.stringify(detail) : null,
+      new Date().toISOString(),
+    )
+    .run();
 }
 
 /** Same insert, shaped for db.batch() alongside a mutation so the audit row and the write commit together. */
@@ -41,18 +44,20 @@ export function platformAdminAccessStatement(
   resourceId?: string | null,
   detail?: Record<string, unknown>,
 ): D1PreparedStatement {
-  return db.prepare(
-    `INSERT INTO platform_admin_access_events
+  return db
+    .prepare(
+      `INSERT INTO platform_admin_access_events
        (id, platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(),
-    platformAdminId,
-    tenantId,
-    action,
-    resourceType ?? null,
-    resourceId ?? null,
-    detail ? JSON.stringify(detail) : null,
-    new Date().toISOString(),
-  );
+    )
+    .bind(
+      crypto.randomUUID(),
+      platformAdminId,
+      tenantId,
+      action,
+      resourceType ?? null,
+      resourceId ?? null,
+      detail ? JSON.stringify(detail) : null,
+      new Date().toISOString(),
+    );
 }

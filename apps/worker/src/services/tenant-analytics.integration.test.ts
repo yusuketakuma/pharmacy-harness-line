@@ -4,14 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
 
-import {
-  _resetCacheForTest as resetDuplicatesCache,
-  computeDuplicatesStats,
-} from './duplicates-stats.js';
-import {
-  _resetCacheForTest as resetUsersCache,
-  computeUsersGrouped,
-} from './users-grouped.js';
+import { _resetCacheForTest as resetDuplicatesCache, computeDuplicatesStats } from './duplicates-stats.js';
+import { _resetCacheForTest as resetUsersCache, computeUsersGrouped } from './users-grouped.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../packages/db');
 const require = createRequire(import.meta.url);
@@ -25,8 +19,7 @@ type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
 };
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => SqliteDatabase;
+const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as new (filename: string) => SqliteDatabase;
 
 function d1From(sqlite: SqliteDatabase): D1Database {
   const statement = (sql: string, values: unknown[] = []) => ({
@@ -39,15 +32,18 @@ function d1From(sqlite: SqliteDatabase): D1Database {
 
 function seedTenant(sqlite: SqliteDatabase, suffix: 'a' | 'b'): void {
   const now = '2026-08-23T00:00:00.000Z';
-  sqlite.prepare(`INSERT INTO line_accounts
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(`account-${suffix}`, `channel-${suffix}`, `Account ${suffix}`, 'token', 'secret', now, now);
-  sqlite.prepare(`INSERT INTO tenants
+  sqlite
+    .prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
     VALUES (?, ?, ?, 'active', ?, ?)`)
     .run(`tenant-${suffix}`, suffix, `Tenant ${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO tenant_line_accounts
+  sqlite
+    .prepare(`INSERT INTO tenant_line_accounts
     (tenant_id, line_account_id, created_at, updated_at) VALUES (?, ?, ?, ?)`)
     .run(`tenant-${suffix}`, `account-${suffix}`, now, now);
 }
@@ -60,12 +56,22 @@ function seedFriend(
   pictureUrl: string | null,
 ): void {
   const now = '2026-08-23T00:00:00.000Z';
-  sqlite.prepare(`INSERT INTO friends
+  sqlite
+    .prepare(`INSERT INTO friends
     (id, line_user_id, provider_line_user_id, user_id, display_name, picture_url,
      line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(id, `legacy-${id}`, `provider-${id}`, `user-${id}`, displayName, pictureUrl,
-      `account-${tenantSuffix}`, now, now);
+    .run(
+      id,
+      `legacy-${id}`,
+      `provider-${id}`,
+      `user-${id}`,
+      displayName,
+      pictureUrl,
+      `account-${tenantSuffix}`,
+      now,
+      now,
+    );
 }
 
 describe('tenant analytics SQL', () => {
@@ -91,8 +97,10 @@ describe('tenant analytics SQL', () => {
     const duplicatesB = await computeDuplicatesStats(db, 'tenant-b');
 
     expect(usersA.rows.map((row) => row.displayName).sort()).toEqual(['A One', 'A Two']);
-    expect(usersA.rows.flatMap((row) => row.accounts.map((account) => account.accountId)))
-      .toEqual(['account-a', 'account-a']);
+    expect(usersA.rows.flatMap((row) => row.accounts.map((account) => account.accountId))).toEqual([
+      'account-a',
+      'account-a',
+    ]);
     expect(usersB.rows.map((row) => row.displayName)).toEqual(['B One']);
     expect(duplicatesA.total_following).toBe(2);
     expect(duplicatesA.per_account.map((row) => row.account_id)).toEqual(['account-a']);

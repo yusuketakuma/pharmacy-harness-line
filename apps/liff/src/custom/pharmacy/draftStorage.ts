@@ -145,7 +145,6 @@ export const newPatientDraftKey = (liffId: string) => `patient-profile:new:${lif
 // Pre-scoping legacy key kept for restore-once compatibility.
 export const NEW_PATIENT_DRAFT_KEY = 'patient-profile:new';
 
-
 // A LIFF app identifies the pharmacy, not the person using a shared browser.
 // Keep these keys outside the legacy intake prefix so an older app cannot
 // sweep a different user's new drafts. Unattributed legacy data stays intact.
@@ -158,8 +157,6 @@ export const userIntakeDraftKey = (liffId: string, lineUserId: string, patientId
 export const userNewPatientDraftKey = (liffId: string, lineUserId: string) =>
   `user-patient-profile:new:${encodeURIComponent(liffId)}:${encodeURIComponent(lineUserId)}`;
 
-export function sweepUserIntakeDrafts(
-  validPatientIds: ReadonlySet<string>, liffId: string, lineUserId: string,
-): void {
+export function sweepUserIntakeDrafts(validPatientIds: ReadonlySet<string>, liffId: string, lineUserId: string): void {
   sweepDrafts(validPatientIds, PREFIX + userIntakePrefix(liffId, lineUserId));
 }

@@ -12,14 +12,9 @@ patientTimelineRoutes.get('/api/liff/pharmacy/timeline', async (c) => {
   c.header('Cache-Control', 'private, no-store');
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
-  const patient = await resolvePrescriptionPatient(
-    c.env.DB,
-    c.req.query('liffId') ?? '',
-    identity,
-  );
+  const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Patient account not found' }, 404);
-  if (!(await canUsePharmacyBetaParticipant(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
+  if (!(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ error: 'Pharmacy beta participation required' }, 403);
   return c.json({ items: await listPatientTimeline(c.env.DB, patient) });
 });

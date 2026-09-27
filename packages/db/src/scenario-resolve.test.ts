@@ -26,14 +26,11 @@ describe('resolveStepContent', () => {
   });
 
   it('template_id がある + テンプレが存在 → テンプレ値を返す', async () => {
-    const result = await resolveStepContent(
-      mockDb({ message_type: 'flex', message_content: '{"foo":"bar"}' }),
-      {
-        template_id: 'tpl-1',
-        message_type: 'text',
-        message_content: 'fallback',
-      },
-    );
+    const result = await resolveStepContent(mockDb({ message_type: 'flex', message_content: '{"foo":"bar"}' }), {
+      template_id: 'tpl-1',
+      message_type: 'text',
+      message_content: 'fallback',
+    });
     expect(result).toEqual({
       messageType: 'flex',
       messageContent: '{"foo":"bar"}',

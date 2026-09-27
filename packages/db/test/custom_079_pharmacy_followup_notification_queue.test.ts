@@ -12,7 +12,9 @@ it('adds scheduling metadata while preserving existing rows and previous-version
   const sqlite = new Database(':memory:');
   sqlite.pragma('foreign_keys = ON');
   try {
-    for (const file of readdirSync(join(root, 'migrations')).filter(name => name.endsWith('.sql') && name < migration).sort()) {
+    for (const file of readdirSync(join(root, 'migrations'))
+      .filter((name) => name.endsWith('.sql') && name < migration)
+      .sort()) {
       for (const statement of splitSqlStatements(readFileSync(join(root, 'migrations', file), 'utf8'))) {
         // Match the bootstrap generator for historical idempotent additions.
         try {
@@ -24,7 +26,7 @@ it('adds scheduling metadata while preserving existing rows and previous-version
     }
     const now = '2026-09-22T00:00:00.000Z';
     for (const x of ['a']) {
-      sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x==='a'?"'2026-09-21T00:00:00.000Z'":'NULL'});
+      sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x === 'a' ? "'2026-09-21T00:00:00.000Z'" : 'NULL'});
  INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES ('account-${x}','channel-${x}','Synthetic','synthetic','synthetic');
  INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES ('tenant-${x}','account-${x}');
  UPDATE pharmacy_account_capabilities SET capabilities_json='["medication_followup"]' WHERE line_account_id='account-${x}';
@@ -41,21 +43,34 @@ it('adds scheduling metadata while preserving existing rows and previous-version
     }
 
     const previous = sqlite.prepare('SELECT * FROM pharmacy_medication_followups').all();
-    const oldColumns = sqlite.prepare('PRAGMA table_info(pharmacy_medication_followups)').all().map((row: any) => row.name);
+    const oldColumns = sqlite
+      .prepare('PRAGMA table_info(pharmacy_medication_followups)')
+      .all()
+      .map((row: any) => row.name);
     expect(oldColumns).not.toContain('notification_checked_at');
     sqlite.exec(readFileSync(join(root, 'migrations', migration), 'utf8'));
     const current = sqlite.prepare('SELECT * FROM pharmacy_medication_followups').all() as Record<string, unknown>[];
     expect(current.map(({ notification_checked_at, ...row }) => row)).toEqual(previous);
-    expect(current.every(row => row.notification_checked_at === null)).toBe(true);
-    sqlite.prepare("UPDATE pharmacy_medication_followups SET status='cancelled', version=version+1 WHERE id=? AND line_account_id=?")
+    expect(current.every((row) => row.notification_checked_at === null)).toBe(true);
+    sqlite
+      .prepare(
+        "UPDATE pharmacy_medication_followups SET status='cancelled', version=version+1 WHERE id=? AND line_account_id=?",
+      )
       .run('followup-000', 'account-a');
-    expect(sqlite.prepare("SELECT status, version, notification_checked_at FROM pharmacy_medication_followups WHERE id='followup-000'").get())
-      .toEqual({ status: 'cancelled', version: 2, notification_checked_at: null });
-    expect(() => sqlite.exec("UPDATE pharmacy_medication_followups SET notification_checked_at='invalid'"))
-      .toThrow(/CHECK constraint/);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT status, version, notification_checked_at FROM pharmacy_medication_followups WHERE id='followup-000'",
+        )
+        .get(),
+    ).toEqual({ status: 'cancelled', version: 2, notification_checked_at: null });
+    expect(() => sqlite.exec("UPDATE pharmacy_medication_followups SET notification_checked_at='invalid'")).toThrow(
+      /CHECK constraint/,
+    );
     expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name='idx_pharmacy_followup_notification_queue'").get())
-      .toEqual({ name: 'idx_pharmacy_followup_notification_queue' });
+    expect(
+      sqlite.prepare("SELECT name FROM sqlite_master WHERE name='idx_pharmacy_followup_notification_queue'").get(),
+    ).toEqual({ name: 'idx_pharmacy_followup_notification_queue' });
   } finally {
     sqlite.close();
   }

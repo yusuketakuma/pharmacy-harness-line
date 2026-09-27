@@ -1,57 +1,50 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { api } from '@/lib/api'
-import { COUNTRY_OPTIONS, countryFlag } from '@/lib/country-flag'
+import { useState } from 'react';
+import { api } from '@/lib/api';
+import { COUNTRY_OPTIONS, countryFlag } from '@/lib/country-flag';
 
 interface Props {
-  accountId: string
-  initialCountry: string | null
-  initialRole: string | null
-  onUpdated: () => void
+  accountId: string;
+  initialCountry: string | null;
+  initialRole: string | null;
+  onUpdated: () => void;
 }
 
-export default function AccountSettingsSection({
-  accountId, initialCountry, initialRole, onUpdated,
-}: Props) {
-  const isPredefined = initialCountry === null
-    || (COUNTRY_OPTIONS as readonly string[]).slice(0, -1).includes(initialCountry)
-  const [select, setSelect] = useState<string>(
-    initialCountry === null
-      ? ''
-      : isPredefined ? initialCountry : 'その他',
-  )
-  const [other, setOther] = useState<string>(
-    isPredefined ? '' : (initialCountry ?? ''),
-  )
-  const [role, setRole] = useState<string>(initialRole ?? '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+export default function AccountSettingsSection({ accountId, initialCountry, initialRole, onUpdated }: Props) {
+  const isPredefined =
+    initialCountry === null || (COUNTRY_OPTIONS as readonly string[]).slice(0, -1).includes(initialCountry);
+  const [select, setSelect] = useState<string>(initialCountry === null ? '' : isPredefined ? initialCountry : 'その他');
+  const [other, setOther] = useState<string>(isPredefined ? '' : (initialCountry ?? ''));
+  const [role, setRole] = useState<string>(initialRole ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const computedCountry = (): string | null => {
-    if (select === '') return null
+    if (select === '') return null;
     if (select === 'その他') {
-      const t = other.trim()
-      return t === '' ? null : t
+      const t = other.trim();
+      return t === '' ? null : t;
     }
-    return select
-  }
+    return select;
+  };
 
   const handleSave = async () => {
-    setSaving(true); setError('')
+    setSaving(true);
+    setError('');
     try {
       const res = await api.lineAccounts.update(accountId, {
         country: computedCountry(),
         role: role.trim() === '' ? null : role.trim(),
-      })
-      if (res.success) onUpdated()
-      else setError(res.error || '保存に失敗しました')
+      });
+      if (res.success) onUpdated();
+      else setError(res.error || '保存に失敗しました');
     } catch {
-      setError('保存に失敗しました')
+      setError('保存に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-3 mt-3 pt-3 border-t border-gray-100">
@@ -67,7 +60,9 @@ export default function AccountSettingsSection({
           >
             <option value="">未設定</option>
             {COUNTRY_OPTIONS.map((c) => (
-              <option key={c} value={c}>{c} {countryFlag(c)}</option>
+              <option key={c} value={c}>
+                {c} {countryFlag(c)}
+              </option>
             ))}
           </select>
           {select === 'その他' && (
@@ -79,9 +74,7 @@ export default function AccountSettingsSection({
               className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm flex-1"
             />
           )}
-          {countryFlag(computedCountry()) && (
-            <span className="text-base">{countryFlag(computedCountry())}</span>
-          )}
+          {countryFlag(computedCountry()) && <span className="text-base">{countryFlag(computedCountry())}</span>}
         </div>
       </div>
 
@@ -106,5 +99,5 @@ export default function AccountSettingsSection({
         {saving ? '保存中...' : '保存'}
       </button>
     </div>
-  )
+  );
 }

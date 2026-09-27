@@ -64,7 +64,10 @@ describe('safeRedirectTarget with an origin allowlist (pharmacy mode)', () => {
 
   it('derives origins from configured URLs', () => {
     expect([...origins].sort()).toEqual([
-      'https://admin.example.com', 'https://admin2.example.com', 'https://liff.line.me', 'https://worker.example.com',
+      'https://admin.example.com',
+      'https://admin2.example.com',
+      'https://liff.line.me',
+      'https://worker.example.com',
     ]);
   });
 

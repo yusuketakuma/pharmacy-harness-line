@@ -53,7 +53,10 @@ function app(role: 'owner' | 'admin' | 'staff' = 'admin') {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.verify.mockResolvedValue({
-    lineUserId: 'U-a', loginChannelId: 'login-a', tenantId: 'tenant-a', lineAccountId: 'account-a',
+    lineUserId: 'U-a',
+    loginChannelId: 'login-a',
+    tenantId: 'tenant-a',
+    lineAccountId: 'account-a',
   });
   mocks.resolve.mockResolvedValue({ lineAccountId: 'account-a', friendId: 'friend-a' });
   mocks.get.mockResolvedValue(POLICY);
@@ -70,34 +73,48 @@ describe('pharmacy tenant privacy policy routes', () => {
   });
 
   it('saves the notice under the acting tenant scope, never a request-supplied one', async () => {
-    const res = await app().request('/api/custom/pharmacy/privacy-policy', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...INPUT, lineAccountId: 'account-b' }),
-    }, env);
+    const res = await app().request(
+      '/api/custom/pharmacy/privacy-policy',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...INPUT, lineAccountId: 'account-b' }),
+      },
+      env,
+    );
     expect(res.status).toBe(204);
     expect(mocks.save).toHaveBeenCalledWith(env.DB, {
-      lineAccountId: 'account-a', staffId: 'staff-a', ...INPUT,
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...INPUT,
     });
   });
 
   it('rejects a non-admin editor', async () => {
-    const res = await app('staff').request('/api/custom/pharmacy/privacy-policy', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(INPUT),
-    }, env);
+    const res = await app('staff').request(
+      '/api/custom/pharmacy/privacy-policy',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(INPUT),
+      },
+      env,
+    );
     expect(res.status).toBe(403);
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it('reports invalid notice content as 400', async () => {
     mocks.save.mockRejectedValue(new Error('invalid privacy policy'));
-    const res = await app().request('/api/custom/pharmacy/privacy-policy', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...INPUT, purposeText: '' }),
-    }, env);
+    const res = await app().request(
+      '/api/custom/pharmacy/privacy-policy',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...INPUT, purposeText: '' }),
+      },
+      env,
+    );
     expect(res.status).toBe(400);
   });
 

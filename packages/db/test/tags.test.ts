@@ -11,7 +11,9 @@ describe('tagBelongsToTenant', () => {
     expect(bind).toHaveBeenCalledWith('tag-1', 'tenant-a');
   });
   it('returns false when no row', async () => {
-    const db = { prepare: () => ({ bind: () => ({ first: async () => null }) }) } as unknown as D1Database;
+    const db = {
+      prepare: () => ({ bind: () => ({ first: async () => null }) }),
+    } as unknown as D1Database;
     await expect(tagBelongsToTenant(db, 'tag-x', 'tenant-a')).resolves.toBe(false);
   });
 });

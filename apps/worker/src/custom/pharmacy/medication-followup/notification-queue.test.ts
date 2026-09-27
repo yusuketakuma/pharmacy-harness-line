@@ -9,7 +9,7 @@ const readCredential = vi.hoisted(() => vi.fn());
 vi.mock('../growth-loop/sender.js', () => ({ sendPharmacyAutomatedPush: send }));
 vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: readCredential }));
 vi.mock('../beta-membership/repository.js', async (original) => ({
-  ...await original<typeof import('../beta-membership/repository.js')>(),
+  ...(await original<typeof import('../beta-membership/repository.js')>()),
   getPharmacyBetaNotificationBinding: vi.fn().mockResolvedValue(null),
 }));
 import { listDueMedicationFollowUps, markMedicationFollowUpNotificationChecked } from './repository.js';
@@ -26,7 +26,8 @@ function setup(legacy = false) {
   try {
     if (legacy) {
       for (const file of readdirSync(join(DB_PACKAGE_ROOT, 'migrations'))
-        .filter(name => name.endsWith('.sql') && name < migration).sort()) {
+        .filter((name) => name.endsWith('.sql') && name < migration)
+        .sort()) {
         for (const statement of splitSqlStatements(readFileSync(join(DB_PACKAGE_ROOT, 'migrations', file), 'utf8'))) {
           try {
             sqlite.exec(statement);
@@ -41,7 +42,7 @@ function setup(legacy = false) {
     }
     const now = NOW.toISOString();
     for (const x of ['a', 'b']) {
-      sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x==='a'?"'2026-09-21T00:00:00.000Z'":'NULL'});
+      sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x === 'a' ? "'2026-09-21T00:00:00.000Z'" : 'NULL'});
  INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES ('account-${x}','channel-${x}','Synthetic','synthetic','synthetic');
  INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES ('tenant-${x}','account-${x}');
  UPDATE pharmacy_account_capabilities SET capabilities_json='["medication_followup"]' WHERE line_account_id='account-${x}';
@@ -71,12 +72,15 @@ beforeEach(() => {
 
 function process(db: D1Database, now = NOW) {
   return processDueMedicationFollowUps(db, {
-    proxyBaseUrl: 'https://synthetic.invalid', lineCredentialKey: 'synthetic', now,
+    proxyBaseUrl: 'https://synthetic.invalid',
+    lineCredentialKey: 'synthetic',
+    now,
   });
 }
 
 it.each(['paused', 'failure', 'credential_missing'])(
-  'advances past fifty %s rows without changing clinical state', async (mode) => {
+  'advances past fifty %s rows without changing clinical state',
+  async (mode) => {
     if (mode === 'failure') send.mockRejectedValue(new Error('synthetic failure'));
     if (mode === 'credential_missing') readCredential.mockResolvedValue(null);
     const { sqlite, db } = setup();
@@ -87,13 +91,17 @@ it.each(['paused', 'failure', 'credential_missing'])(
       const second = await listDueMedicationFollowUps(db, later);
       await process(db, later);
       expect(first).toHaveLength(50);
-      expect(first.map(row => row.id)).not.toContain('followup-050');
+      expect(first.map((row) => row.id)).not.toContain('followup-050');
       expect(second).toHaveLength(50);
-      expect(second.map(row => row.id)).toContain('followup-050');
+      expect(second.map((row) => row.id)).toContain('followup-050');
       if (mode === 'credential_missing') expect(send).not.toHaveBeenCalled();
       else expect(send.mock.calls.some(([input]) => input.lineAccountId === 'account-b')).toBe(true);
-      expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_medication_followups
-        WHERE status='due' AND version=1 AND due_at='2026-09-21T00:00:00.000Z'`).get()).toEqual({ count: 51 });
+      expect(
+        sqlite
+          .prepare(`SELECT COUNT(*) AS count FROM pharmacy_medication_followups
+        WHERE status='due' AND version=1 AND due_at='2026-09-21T00:00:00.000Z'`)
+          .get(),
+      ).toEqual({ count: 51 });
       expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     } finally {
       sqlite.close();
@@ -106,16 +114,33 @@ it('guards queue metadata by tenant, account, version and monotonic time', async
   const now = NOW.toISOString();
   try {
     const [row] = await listDueMedicationFollowUps(db, new Date(Date.parse(now) + 120000));
-    expect(await markMedicationFollowUpNotificationChecked(db, { ...row, line_account_id: 'account-other' }, new Date(now))).toBe(false);
-    expect(await markMedicationFollowUpNotificationChecked(db, { ...row, tenant_id: 'tenant-other' }, new Date(now))).toBe(false);
-    expect(await markMedicationFollowUpNotificationChecked(db, { ...row, version: row.version + 1 }, new Date(now))).toBe(false);
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, line_account_id: 'account-other' }, new Date(now)),
+    ).toBe(false);
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, tenant_id: 'tenant-other' }, new Date(now)),
+    ).toBe(false);
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, version: row.version + 1 }, new Date(now)),
+    ).toBe(false);
     const later = new Date(Date.parse(now) + 180000);
     expect(await markMedicationFollowUpNotificationChecked(db, row, later)).toBe(true);
     expect(await markMedicationFollowUpNotificationChecked(db, row, new Date(now))).toBe(true);
-    expect(sqlite.prepare('SELECT notification_checked_at FROM pharmacy_medication_followups WHERE id = ?').get(row.id))
-      .toEqual({ notification_checked_at: later.toISOString() });
+    expect(
+      sqlite.prepare('SELECT notification_checked_at FROM pharmacy_medication_followups WHERE id = ?').get(row.id),
+    ).toEqual({ notification_checked_at: later.toISOString() });
     const { notification_checked_at, ...legacyRow } = row;
-    expect(await markMedicationFollowUpNotificationChecked({ prepare: () => { throw new Error('old schema must not query new column'); } } as unknown as D1Database, legacyRow, later)).toBe(true);
+    expect(
+      await markMedicationFollowUpNotificationChecked(
+        {
+          prepare: () => {
+            throw new Error('old schema must not query new column');
+          },
+        } as unknown as D1Database,
+        legacyRow,
+        later,
+      ),
+    ).toBe(true);
   } finally {
     sqlite.close();
   }
@@ -143,8 +168,9 @@ it('revisits paused rows and can deliver them after resumption', async () => {
     send.mockResolvedValue('sent');
     const result = await process(db, new Date(NOW.getTime() + 120000));
     expect(result.sent).toBe(50);
-    expect(sqlite.prepare("SELECT status FROM pharmacy_medication_followups WHERE id='followup-000'").get())
-      .toEqual({ status: 'delivered' });
+    expect(sqlite.prepare("SELECT status FROM pharmacy_medication_followups WHERE id='followup-000'").get()).toEqual({
+      status: 'delivered',
+    });
   } finally {
     sqlite.close();
   }

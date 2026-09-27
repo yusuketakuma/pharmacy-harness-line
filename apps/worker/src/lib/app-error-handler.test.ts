@@ -29,9 +29,12 @@ function makeApp(register = true) {
 }
 
 function consoleOutput(spies: { mock: { calls: unknown[][] } }[]): string {
-  return spies.flatMap((spy) => spy.mock.calls).map((args) =>
-    args.map((arg: unknown) => (arg instanceof Error ? `${arg.message}\n${arg.stack}` : String(arg))).join(' '),
-  ).join('\n');
+  return spies
+    .flatMap((spy) => spy.mock.calls)
+    .map((args) =>
+      args.map((arg: unknown) => (arg instanceof Error ? `${arg.message}\n${arg.stack}` : String(arg))).join(' '),
+    )
+    .join('\n');
 }
 
 describe('appErrorHandler', () => {
@@ -39,7 +42,8 @@ describe('appErrorHandler', () => {
 
   it('keeps the default 500 response and middleware headers without logging the error', async () => {
     const spies = (['error', 'warn', 'log'] as const).map((level) =>
-      vi.spyOn(console, level).mockImplementation(() => undefined));
+      vi.spyOn(console, level).mockImplementation(() => undefined),
+    );
     const res = await makeApp().request(`/api/child/${encodeURIComponent(SENTINEL)}`);
 
     expect(res.status).toBe(500);
@@ -49,7 +53,12 @@ describe('appErrorHandler', () => {
     expect(output).not.toContain(SENTINEL);
     expect(output).not.toContain('storage failed');
     const line = JSON.parse(spies[0].mock.calls[0][0] as string) as Record<string, unknown>;
-    expect(line).toMatchObject({ level: 'error', event: 'unhandled_route_error', method: 'GET', status: 500 });
+    expect(line).toMatchObject({
+      level: 'error',
+      event: 'unhandled_route_error',
+      method: 'GET',
+      status: 500,
+    });
   });
 
   it('matches the Hono default response for unexpected errors', async () => {

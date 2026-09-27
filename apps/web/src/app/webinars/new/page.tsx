@@ -1,7 +1,7 @@
-'use client'
+'use client';
 
-import Header from '@/components/layout/header'
-import WebinarForm from '@/components/webinars/webinar-form'
+import Header from '@/components/layout/header';
+import WebinarForm from '@/components/webinars/webinar-form';
 
 export default function NewWebinarPage() {
   return (
@@ -11,5 +11,5 @@ export default function NewWebinarPage() {
         <WebinarForm />
       </div>
     </>
-  )
+  );
 }

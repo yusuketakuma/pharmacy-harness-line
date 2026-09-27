@@ -1,10 +1,10 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import type { Tag } from '@line-crm/shared'
-import { api, ApiError } from '@/lib/api'
-import Header from '@/components/layout/header'
-import TagBadge from '@/components/friends/tag-badge'
+import { useState, useEffect, useCallback } from 'react';
+import type { Tag } from '@line-crm/shared';
+import { api, ApiError } from '@/lib/api';
+import Header from '@/components/layout/header';
+import TagBadge from '@/components/friends/tag-badge';
 
 const PRESET_COLORS = [
   '#3B82F6', // blue (server default)
@@ -15,39 +15,40 @@ const PRESET_COLORS = [
   '#EC4899', // pink
   '#06B6D4', // cyan
   '#6B7280', // gray
-]
+];
 
 function TagMileageEditor({ tag, onSaved }: { tag: Tag; onSaved: () => void }) {
-  const [reward, setReward] = useState(String(tag.mileageReward ?? 0))
-  const [referralReward, setReferralReward] = useState(String(tag.referralMileageReward ?? 0))
+  const [reward, setReward] = useState(String(tag.mileageReward ?? 0));
+  const [referralReward, setReferralReward] = useState(String(tag.referralMileageReward ?? 0));
   const [multiplier, setMultiplier] = useState(
     tag.mileageMultiplierBps == null ? '' : String(tag.mileageMultiplierBps / 10000),
-  )
-  const [priority, setPriority] = useState(String(tag.mileageMultiplierPriority ?? 0))
-  const [saving, setSaving] = useState(false)
+  );
+  const [priority, setPriority] = useState(String(tag.mileageMultiplierPriority ?? 0));
+  const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    const rewardMiles = Number(reward)
-    const referralRewardMiles = Number(referralReward)
-    const multiplierBps = multiplier.trim() === '' ? null : Math.round(Number(multiplier) * 10000)
-    const multiplierPriority = Number(priority)
-    if (!Number.isInteger(rewardMiles) || rewardMiles < 0) return
-    if (!Number.isInteger(referralRewardMiles) || referralRewardMiles < 0) return
-    if (multiplierBps !== null && (!Number.isInteger(multiplierBps) || multiplierBps < 1000 || multiplierBps > 100000)) return
-    if (!Number.isInteger(multiplierPriority) || multiplierPriority < 0) return
-    setSaving(true)
+    const rewardMiles = Number(reward);
+    const referralRewardMiles = Number(referralReward);
+    const multiplierBps = multiplier.trim() === '' ? null : Math.round(Number(multiplier) * 10000);
+    const multiplierPriority = Number(priority);
+    if (!Number.isInteger(rewardMiles) || rewardMiles < 0) return;
+    if (!Number.isInteger(referralRewardMiles) || referralRewardMiles < 0) return;
+    if (multiplierBps !== null && (!Number.isInteger(multiplierBps) || multiplierBps < 1000 || multiplierBps > 100000))
+      return;
+    if (!Number.isInteger(multiplierPriority) || multiplierPriority < 0) return;
+    setSaving(true);
     try {
       await api.tags.updateMileage(tag.id, {
         rewardMiles,
         referralRewardMiles,
         multiplierBps,
         multiplierPriority,
-      })
-      onSaved()
+      });
+      onSaved();
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <>
@@ -110,79 +111,82 @@ function TagMileageEditor({ tag, onSaved }: { tag: Tag; onSaved: () => void }) {
         </button>
       </td>
     </>
-  )
+  );
 }
 
 export default function TagsPage() {
-  const [items, setItems] = useState<Tag[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [items, setItems] = useState<Tag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState(PRESET_COLORS[0])
-  const [saving, setSaving] = useState(false)
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.tags.list({ withCounts: true })
-      if (res.success) setItems(res.data)
+      const res = await api.tags.list({ withCounts: true });
+      if (res.success) setItems(res.data);
     } catch {
-      setError('読み込みに失敗しました')
+      setError('読み込みに失敗しました');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleCreate = async () => {
-    if (saving) return
-    const name = newName.trim()
-    if (!name) return
+    if (saving) return;
+    const name = newName.trim();
+    if (!name) return;
     if (items.some((t) => t.name === name)) {
-      setError(`タグ「${name}」は既に存在します`)
-      return
+      setError(`タグ「${name}」は既に存在します`);
+      return;
     }
-    setSaving(true)
-    setError('')
+    setSaving(true);
+    setError('');
     try {
-      await api.tags.create({ name, color: newColor })
-      setNewName('')
-      setCreating(false)
-      load()
+      await api.tags.create({ name, color: newColor });
+      setNewName('');
+      setCreating(false);
+      load();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        setError(`タグ「${name}」は既に存在します`)
-        load()
+        setError(`タグ「${name}」は既に存在します`);
+        load();
       } else {
-        setError('作成に失敗しました')
+        setError('作成に失敗しました');
       }
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleDelete = async (tag: Tag) => {
-    const count = tag.friendCount ?? 0
-    const message = count > 0
-      ? `タグ「${tag.name}」は ${count} 人の友だちに付与されています。\n削除すると全員からこのタグが外れます。よろしいですか？`
-      : `タグ「${tag.name}」を削除しますか？`
-    if (!confirm(message)) return
-    setError('')
+    const count = tag.friendCount ?? 0;
+    const message =
+      count > 0
+        ? `タグ「${tag.name}」は ${count} 人の友だちに付与されています。\n削除すると全員からこのタグが外れます。よろしいですか？`
+        : `タグ「${tag.name}」を削除しますか？`;
+    if (!confirm(message)) return;
+    setError('');
     try {
-      await api.tags.delete(tag.id)
-      load()
+      await api.tags.delete(tag.id);
+      load();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        setError(`タグ「${tag.name}」はアフィリエイトオファー等で使用中のため削除できません`)
+        setError(`タグ「${tag.name}」はアフィリエイトオファー等で使用中のため削除できません`);
       } else {
-        setError('削除に失敗しました')
+        setError('削除に失敗しました');
       }
     }
-  }
+  };
 
   return (
     <div>
@@ -191,7 +195,10 @@ export default function TagsPage() {
         description="本人のタグ獲得マイル、紹介した友だちがタグを獲得した時の紹介者マイル、今後の行動倍率を設定できます。反映は非同期です。"
         action={
           <button
-            onClick={() => { setCreating(!creating); setError('') }}
+            onClick={() => {
+              setCreating(!creating);
+              setError('');
+            }}
             className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#06C755' }}
           >
@@ -200,11 +207,7 @@ export default function TagsPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {creating && (
         <div className="mb-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
@@ -215,7 +218,9 @@ export default function TagsPage() {
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreate();
+                }}
                 placeholder="例: 見込み客"
                 autoFocus
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -252,7 +257,10 @@ export default function TagsPage() {
                 {saving ? '作成中...' : '作成'}
               </button>
               <button
-                onClick={() => { setCreating(false); setNewName('') }}
+                onClick={() => {
+                  setCreating(false);
+                  setNewName('');
+                }}
                 className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg"
               >
                 キャンセル
@@ -280,9 +288,17 @@ export default function TagsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">読み込み中...</td></tr>
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    読み込み中...
+                  </td>
+                </tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">タグがありません</td></tr>
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    タグがありません
+                  </td>
+                </tr>
               ) : (
                 items.map((t) => (
                   <tr key={t.id} className="hover:bg-gray-50">
@@ -313,5 +329,5 @@ export default function TagsPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,0 +1,5 @@
+# DSR保存期間集計の実D1制限
+ID F37候補 / CONFIRMED_BUG/P2、primary、P=55c170b1c4ec61c54ef1a93bffb892f36d08c529から不変のlegal-hold.ts。
+F36-native初回で古い合成PHIだけなのにlegal_hold=1/unknown。F36-native-diagnostic2.logの直接latestPhiRecordedAt呼出しで実Miniflare D1が `too many terms in compound SELECT`。取得失敗をassessPatientRetentionがunknownへ変換しfail-closedするため、消去可否を正常判定できない。保持安全側の停止で、削除漏出とは主張しない。
+対象legal-hold.ts SHA256 b39f1df05e4269117d63aaf6f9f7af3c15c9c71802eb18f464c05016a81a3557（F36で未変更）。33本のsource UNION ALL全体がnative限度を越える仮説。正確な本数/閾値の有限検証と分割orJOIN構成の互換修復が次の手。
+F36-nativeはこの独立障害を隠さずaccess requestのunknown状態/既存resolve許可で世代の正常遷移を確認した。erasure正常終了は未確認のまま。本番・外部通信なし。

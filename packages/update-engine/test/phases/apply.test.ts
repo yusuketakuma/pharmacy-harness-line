@@ -3,13 +3,7 @@ import { runApply } from '../../src/phases/apply.js';
 import { createEventEmitter } from '../../src/events.js';
 import { hashWorkerAsset } from '../../src/cf-api/assets.js';
 import type { ParsedBundle } from '../../src/bundle.js';
-import type {
-  UpdateContext,
-  UpdateEvent,
-  ReleaseEntry,
-  CurrentVersion,
-  CfApiCreds,
-} from '../../src/types.js';
+import type { UpdateContext, UpdateEvent, ReleaseEntry, CurrentVersion, CfApiCreds } from '../../src/types.js';
 
 const ACCOUNT_ID = 'acc';
 const API_TOKEN = 'tok';
@@ -144,8 +138,7 @@ function makeRouter(routes: RouterRoutes): ReturnType<typeof vi.fn> {
       ok: cfg.ok ?? true,
       status: cfg.status ?? 200,
       json: async () => cfg.body ?? {},
-      text: async () =>
-        cfg.body === undefined ? '' : JSON.stringify(cfg.body),
+      text: async () => (cfg.body === undefined ? '' : JSON.stringify(cfg.body)),
     } as unknown as Response;
   };
 
@@ -230,12 +223,8 @@ function makeRouter(routes: RouterRoutes): ReturnType<typeof vi.fn> {
  * tests can spread + override only what they need.
  */
 function defaultRoutes(bundle: ParsedBundle): RouterRoutes {
-  const adminHashes = Array.from(bundle.adminFiles).map(([path, content]) =>
-    hashWorkerAsset(path, content),
-  );
-  const liffHashes = Array.from(bundle.liffFiles).map(([path, content]) =>
-    hashWorkerAsset(path, content),
-  );
+  const adminHashes = Array.from(bundle.adminFiles).map(([path, content]) => hashWorkerAsset(path, content));
+  const liffHashes = Array.from(bundle.liffFiles).map(([path, content]) => hashWorkerAsset(path, content));
   return {
     d1: { defaults: { ok: true, status: 200, body: { success: true, result: [] } } },
     bindings: {
@@ -355,23 +344,13 @@ describe('runApply', () => {
       calls.findIndex(([url, init]) => predicate(url, init));
 
     const d1Idx = findIdx((url) => url.includes(`/d1/database/${D1_ID}/query`));
-    const bindingsIdx = findIdx((url) =>
-      url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`),
-    );
+    const bindingsIdx = findIdx((url) => url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`));
     const workerPutIdx = findIdx(
-      (url, init) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
-        (init?.method ?? 'GET').toUpperCase() === 'PUT',
+      (url, init) => url.endsWith(`/workers/scripts/${WORKER_NAME}`) && (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
-    const adminTokenIdx = findIdx((url) =>
-      url.includes(`/pages/projects/${ADMIN_PROJECT}/upload-token`),
-    );
-    const adminDeployIdx = findIdx((url) =>
-      url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments`),
-    );
-    const liffTokenIdx = findIdx((url) =>
-      url.includes(`/pages/projects/${LIFF_PROJECT}/upload-token`),
-    );
+    const adminTokenIdx = findIdx((url) => url.includes(`/pages/projects/${ADMIN_PROJECT}/upload-token`));
+    const adminDeployIdx = findIdx((url) => url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments`));
+    const liffTokenIdx = findIdx((url) => url.includes(`/pages/projects/${LIFF_PROJECT}/upload-token`));
 
     expect(d1Idx).toBeGreaterThanOrEqual(0);
     expect(d1Idx).toBeLessThan(bindingsIdx);
@@ -389,9 +368,7 @@ describe('runApply', () => {
     });
 
     const { events, emitter } = collectEvents();
-    await expect(runApply(ctx, bundle, emitter)).rejects.toThrow(
-      /migration 999_missing\.sql missing in bundle/,
-    );
+    await expect(runApply(ctx, bundle, emitter)).rejects.toThrow(/migration 999_missing\.sql missing in bundle/);
 
     // No worker/admin/liff steps should have started.
     expect(events.some((e) => e.step === 'worker')).toBe(false);
@@ -428,8 +405,7 @@ describe('runApply', () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
     const workerPut = calls.find(
       ([url, init]) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
-        (init?.method ?? 'GET').toUpperCase() === 'PUT',
+        url.endsWith(`/workers/scripts/${WORKER_NAME}`) && (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     expect(workerPut).toBeUndefined();
   });
@@ -457,9 +433,7 @@ describe('runApply', () => {
 
     // No admin Pages upload-token call.
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
-    const adminToken = calls.find(([url]) =>
-      url.includes(`/pages/projects/${ADMIN_PROJECT}/upload-token`),
-    );
+    const adminToken = calls.find(([url]) => url.includes(`/pages/projects/${ADMIN_PROJECT}/upload-token`));
     expect(adminToken).toBeUndefined();
   });
 
@@ -485,9 +459,7 @@ describe('runApply', () => {
 
     // No LIFF Pages upload-token call.
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
-    const liffToken = calls.find(([url]) =>
-      url.includes(`/pages/projects/${LIFF_PROJECT}/upload-token`),
-    );
+    const liffToken = calls.find(([url]) => url.includes(`/pages/projects/${LIFF_PROJECT}/upload-token`));
     expect(liffToken).toBeUndefined();
   });
 
@@ -546,8 +518,7 @@ describe('runApply', () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
     const putCall = calls.find(
       ([url, init]) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
-        (init?.method ?? 'GET').toUpperCase() === 'PUT',
+        url.endsWith(`/workers/scripts/${WORKER_NAME}`) && (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     expect(putCall).toBeDefined();
     const fd = putCall![1]!.body as FormData;

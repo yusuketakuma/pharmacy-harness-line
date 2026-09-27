@@ -4,14 +4,23 @@ import { PHARMACY_RICH_MENU_CATALOG_VERSION } from './rich-menu/catalog.js';
 export type PharmacyReadinessStatus = 'READY' | 'BLOCKED' | 'UNVERIFIED';
 
 export const PHARMACY_READINESS_REASON_CODES = [
-  'ELECTRONIC_CAPABILITY_DISABLED', 'ELECTRONIC_ENDPOINT_MISSING', 'ELECTRONIC_ENDPOINT_UNVERIFIED',
-  'EMERGENCY_CAPABILITY_DISABLED', 'EMERGENCY_REQUIREMENTS_INCOMPLETE',
-  'EMERGENCY_TRAINED_PHARMACIST_MISSING', 'EMERGENCY_INVENTORY_UNAVAILABLE',
-  'EMERGENCY_FUTURE_SLOT_UNAVAILABLE', 'RICH_MENU_CAPABILITY_DISABLED',
-  'RICH_MENU_LAYOUT_MISSING', 'RICH_MENU_SAVED_VERSION_MISSING',
-  'RICH_MENU_CAPABILITY_REVISION_STALE', 'RICH_MENU_CATALOG_STALE',
-  'RICH_MENU_UPLOAD_UNVERIFIED', 'RICH_MENU_PUBLISHED_VERSION_MISSING',
-  'RICH_MENU_DEFAULT_NOT_RECORDED', 'RICH_MENU_DEFAULT_READBACK_UNVERIFIED',
+  'ELECTRONIC_CAPABILITY_DISABLED',
+  'ELECTRONIC_ENDPOINT_MISSING',
+  'ELECTRONIC_ENDPOINT_UNVERIFIED',
+  'EMERGENCY_CAPABILITY_DISABLED',
+  'EMERGENCY_REQUIREMENTS_INCOMPLETE',
+  'EMERGENCY_TRAINED_PHARMACIST_MISSING',
+  'EMERGENCY_INVENTORY_UNAVAILABLE',
+  'EMERGENCY_FUTURE_SLOT_UNAVAILABLE',
+  'RICH_MENU_CAPABILITY_DISABLED',
+  'RICH_MENU_LAYOUT_MISSING',
+  'RICH_MENU_SAVED_VERSION_MISSING',
+  'RICH_MENU_CAPABILITY_REVISION_STALE',
+  'RICH_MENU_CATALOG_STALE',
+  'RICH_MENU_UPLOAD_UNVERIFIED',
+  'RICH_MENU_PUBLISHED_VERSION_MISSING',
+  'RICH_MENU_DEFAULT_NOT_RECORDED',
+  'RICH_MENU_DEFAULT_READBACK_UNVERIFIED',
 ] as const;
 
 export type PharmacyReadinessReasonCode = (typeof PHARMACY_READINESS_REASON_CODES)[number];
@@ -84,8 +93,9 @@ export async function getPharmacyReadiness(
 ): Promise<PharmacyReadiness | null> {
   const checkedAt = now.toISOString();
   const evidenceFreshAfter = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const row = await db.prepare(
-    `SELECT account.id, capability.capabilities_json,
+  const row = await db
+    .prepare(
+      `SELECT account.id, capability.capabilities_json,
        EXISTS (
          SELECT 1 FROM pharmacy_myna_endpoint_configs AS endpoint
           WHERE endpoint.line_account_id = account.id AND endpoint.enabled = 1
@@ -214,14 +224,19 @@ export async function getPharmacyReadiness(
       LEFT JOIN pharmacy_emergency_settings AS settings ON settings.line_account_id = account.id
      WHERE account.id = ?
      LIMIT 1`,
-  ).bind(checkedAt, checkedAt, checkedAt, evidenceFreshAfter, lineAccountId).first<ReadinessRow>();
+    )
+    .bind(checkedAt, checkedAt, checkedAt, evidenceFreshAfter, lineAccountId)
+    .first<ReadinessRow>();
   if (!row) return null;
 
   const capabilities = parsePharmacyCapabilities(row.capabilities_json);
   const electronicCapability = capabilities.includes('electronic_prescription');
   const endpointConfigured = row.endpoint_configured === 1;
-  const endpointVerified = endpointConfigured && Boolean(row.endpoint_checked_at) &&
-    row.endpoint_checked_at! >= evidenceFreshAfter && row.endpoint_checked_at! <= checkedAt;
+  const endpointVerified =
+    endpointConfigured &&
+    Boolean(row.endpoint_checked_at) &&
+    row.endpoint_checked_at! >= evidenceFreshAfter &&
+    row.endpoint_checked_at! <= checkedAt;
   const emergencyCapability = capabilities.includes('emergency_contraception');
   const requirementsComplete = row.emergency_requirements_complete === 1;
   const trainedPharmacistAvailable = row.trained_pharmacist_available === 1;
@@ -269,9 +284,7 @@ export async function getPharmacyReadiness(
     accountId: row.id,
     checkedAt,
     electronicPrescription: {
-      status: electronicCapability && endpointConfigured
-        ? endpointVerified ? 'READY' : 'UNVERIFIED'
-        : 'BLOCKED',
+      status: electronicCapability && endpointConfigured ? (endpointVerified ? 'READY' : 'UNVERIFIED') : 'BLOCKED',
       capabilityEnabled: electronicCapability,
       endpointConfigured,
       reasonCodes: electronicReasons,
@@ -283,8 +296,14 @@ export async function getPharmacyReadiness(
       },
     },
     emergencyContraception: {
-      status: emergencyCapability && requirementsComplete && trainedPharmacistAvailable && inventoryAvailable && futureSlotAvailable
-        ? 'READY' : 'BLOCKED',
+      status:
+        emergencyCapability &&
+        requirementsComplete &&
+        trainedPharmacistAvailable &&
+        inventoryAvailable &&
+        futureSlotAvailable
+          ? 'READY'
+          : 'BLOCKED',
       capabilityEnabled: emergencyCapability,
       requirementsComplete,
       trainedPharmacistAvailable,
@@ -294,9 +313,12 @@ export async function getPharmacyReadiness(
     },
     richMenu: {
       status: richMenuBlocked ? 'BLOCKED' : defaultReadbackVerified ? 'READY' : 'UNVERIFIED',
-      syncStatus: !richMenuCapability || !currentDefaultRecorded || !defaultReadbackVerified
-        ? 'UNVERIFIED'
-        : !capabilityRevisionCurrent || !catalogVersionCurrent ? 'STALE' : 'CURRENT',
+      syncStatus:
+        !richMenuCapability || !currentDefaultRecorded || !defaultReadbackVerified
+          ? 'UNVERIFIED'
+          : !capabilityRevisionCurrent || !catalogVersionCurrent
+            ? 'STALE'
+            : 'CURRENT',
       capabilityEnabled: richMenuCapability,
       layoutConfigured,
       savedVersionAvailable,

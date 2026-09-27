@@ -23,7 +23,9 @@ describe('patient medication follow-up API', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          response: 'concern', expectedVersion: 3, idempotencyKey: 'response-key-1',
+          response: 'concern',
+          expectedVersion: 3,
+          idempotencyKey: 'response-key-1',
         }),
       }),
     );

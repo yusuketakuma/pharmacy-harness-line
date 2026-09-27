@@ -30,10 +30,14 @@ describe('emergency appointment reminder schedule', () => {
 
 describe('emergency appointment reminder generation and claim', () => {
   it('converges duplicate cron generation and creates a new occurrence only after the anchor changes', async () => {
-    let rows = [{
-      intake_id: 'intake-a', tenant_id: 'tenant-a', line_account_id: 'account-a',
-      anchor_at: '2026-08-21T01:00:00.000Z',
-    }];
+    let rows = [
+      {
+        intake_id: 'intake-a',
+        tenant_id: 'tenant-a',
+        line_account_id: 'account-a',
+        anchor_at: '2026-08-21T01:00:00.000Z',
+      },
+    ];
     const occurrences = new Set<string>();
     const hashes: string[] = [];
     const db = {
@@ -53,21 +57,40 @@ describe('emergency appointment reminder generation and claim', () => {
     } as unknown as D1Database;
     const options = { now: new Date('2026-08-20T20:00:00.000Z'), limit: 10 };
 
-    await expect(generateEmergencyAppointmentReminders(db, options))
-      .resolves.toEqual({ generated: 1, suppressed: 0, failed: 0 });
-    await expect(generateEmergencyAppointmentReminders(db, options))
-      .resolves.toEqual({ generated: 0, suppressed: 0, failed: 0 });
+    await expect(generateEmergencyAppointmentReminders(db, options)).resolves.toEqual({
+      generated: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    await expect(generateEmergencyAppointmentReminders(db, options)).resolves.toEqual({
+      generated: 0,
+      suppressed: 0,
+      failed: 0,
+    });
     rows = [{ ...rows[0], anchor_at: '2026-08-21T02:00:00.000Z' }];
-    await expect(generateEmergencyAppointmentReminders(db, options))
-      .resolves.toEqual({ generated: 1, suppressed: 0, failed: 0 });
+    await expect(generateEmergencyAppointmentReminders(db, options)).resolves.toEqual({
+      generated: 1,
+      suppressed: 0,
+      failed: 0,
+    });
     expect(occurrences).toHaveLength(2);
     expect(new Set(hashes)).toHaveLength(2);
   });
 
   it('keeps one broken account from stopping another account occurrence', async () => {
     const rows = [
-      { intake_id: 'intake-a', tenant_id: 'tenant-a', line_account_id: 'account-a', anchor_at: '2026-08-21T01:00:00.000Z' },
-      { intake_id: 'intake-b', tenant_id: 'tenant-b', line_account_id: 'account-b', anchor_at: '2026-08-21T02:00:00.000Z' },
+      {
+        intake_id: 'intake-a',
+        tenant_id: 'tenant-a',
+        line_account_id: 'account-a',
+        anchor_at: '2026-08-21T01:00:00.000Z',
+      },
+      {
+        intake_id: 'intake-b',
+        tenant_id: 'tenant-b',
+        line_account_id: 'account-b',
+        anchor_at: '2026-08-21T02:00:00.000Z',
+      },
     ];
     const inserted: unknown[][] = [];
     const db = {
@@ -86,9 +109,12 @@ describe('emergency appointment reminder generation and claim', () => {
       })),
     } as unknown as D1Database;
 
-    await expect(generateEmergencyAppointmentReminders(db, {
-      now: new Date('2026-08-20T20:00:00.000Z'), limit: 10,
-    })).resolves.toEqual({ generated: 1, suppressed: 0, failed: 1 });
+    await expect(
+      generateEmergencyAppointmentReminders(db, {
+        now: new Date('2026-08-20T20:00:00.000Z'),
+        limit: 10,
+      }),
+    ).resolves.toEqual({ generated: 1, suppressed: 0, failed: 1 });
     expect(inserted).toHaveLength(2);
     expect(inserted.flat().join(' ')).not.toMatch(/patient|reference|intercourse|pregnan|drug/iu);
   });
@@ -104,20 +130,26 @@ describe('emergency appointment reminder generation and claim', () => {
           },
           all: async () => {
             seen.push(`all:${sql}:${values.join(',')}`);
-            return { results: [{
-              id: 'reminder-a', line_account_id: 'account-a', intake_id: 'intake-a',
-              anchor_at: '2026-08-21T01:00:00.000Z', due_at: '2026-08-21T00:00:00.000Z',
-              deadline_at: '2026-08-21T01:00:00.000Z', occurrence_hash: 'a'.repeat(64),
-              claim_token: expect.any(String),
-            }] };
+            return {
+              results: [
+                {
+                  id: 'reminder-a',
+                  line_account_id: 'account-a',
+                  intake_id: 'intake-a',
+                  anchor_at: '2026-08-21T01:00:00.000Z',
+                  due_at: '2026-08-21T00:00:00.000Z',
+                  deadline_at: '2026-08-21T01:00:00.000Z',
+                  occurrence_hash: 'a'.repeat(64),
+                  claim_token: expect.any(String),
+                },
+              ],
+            };
           },
         }),
       })),
     } as unknown as D1Database;
 
-    const claimed = await claimDueEmergencyAppointmentReminders(
-      db, new Date('2026-08-21T00:15:00.000Z'), 10,
-    );
+    const claimed = await claimDueEmergencyAppointmentReminders(db, new Date('2026-08-21T00:15:00.000Z'), 10);
     expect(claimed).toHaveLength(1);
     expect(seen[0]).toContain("status = 'suppressed'");
     expect(seen[1]).toContain("SET status = 'processing'");
@@ -141,12 +173,20 @@ describe('emergency appointment reminder account control', () => {
     } as unknown as D1Database;
 
     await expect(getEmergencyReminderControl(db, 'account-a')).resolves.toEqual({
-      state: 'inactive', revision: 0, timeZone: 'Asia/Tokyo', updatedAt: null,
+      state: 'inactive',
+      revision: 0,
+      timeZone: 'Asia/Tokyo',
+      updatedAt: null,
     });
-    await expect(saveEmergencyReminderControl(db, {
-      lineAccountId: 'account-a', staffId: 'staff-a', state: 'active', expectedRevision: 0,
-      now: new Date('2026-08-21T00:00:00.000Z'),
-    })).resolves.toMatchObject({ state: 'active', revision: 1, timeZone: 'Asia/Tokyo' });
+    await expect(
+      saveEmergencyReminderControl(db, {
+        lineAccountId: 'account-a',
+        staffId: 'staff-a',
+        state: 'active',
+        expectedRevision: 0,
+        now: new Date('2026-08-21T00:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({ state: 'active', revision: 1, timeZone: 'Asia/Tokyo' });
     expect(calls[0].sql).toContain('pharmacy_emergency_reminder_controls');
     expect(calls[0].values).toEqual(expect.arrayContaining(['account-a', 'staff-a', 'active']));
   });

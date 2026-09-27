@@ -60,8 +60,15 @@ async function get<T>(path: string): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     let parsed: unknown = null;
-    try { parsed = JSON.parse(text); } catch { /* keep raw */ }
-    const err = new Error(`API ${res.status}: ${text}`) as Error & { status: number; body: unknown };
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep raw */
+    }
+    const err = new Error(`API ${res.status}: ${text}`) as Error & {
+      status: number;
+      body: unknown;
+    };
     err.status = res.status;
     err.body = parsed ?? text;
     throw err;
@@ -80,7 +87,11 @@ async function post<T>(path: string, body: unknown, headers: Record<string, stri
   if (!res.ok) {
     const text = await res.text();
     let parsed: unknown = null;
-    try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep raw */
+    }
     const err = new Error(`API ${res.status}`) as Error & { status: number; body: unknown };
     err.status = res.status;
     err.body = parsed ?? text;
@@ -160,8 +171,7 @@ export type WebinarState =
 
 export const api = {
   menus: () => get<{ menus: MenuItem[] }>('/api/liff/booking/menus'),
-  staffOf: (menuId: string) =>
-    get<{ staff: StaffItem[] }>(`/api/liff/booking/menus/${menuId}/staff`),
+  staffOf: (menuId: string) => get<{ staff: StaffItem[] }>(`/api/liff/booking/menus/${menuId}/staff`),
   availability: (menuId: string, staffId: string | undefined, from: string, to: string) => {
     const qs = new URLSearchParams({ menu_id: menuId, from, to });
     if (staffId) qs.set('staff_id', staffId);
@@ -172,11 +182,9 @@ export const api = {
     body: { menu_id: string; staff_id: string; starts_at: string; customer_note?: string },
     idempotencyKey: string,
   ) =>
-    post<{ booking_id: string; status: string }>(
-      '/api/liff/booking/requests',
-      body,
-      { 'Idempotency-Key': idempotencyKey },
-    ),
+    post<{ booking_id: string; status: string }>('/api/liff/booking/requests', body, {
+      'Idempotency-Key': idempotencyKey,
+    }),
   me: () => get<{ upcoming: BookingHistoryItem[]; past: BookingHistoryItem[] }>('/api/liff/booking/me'),
 
   // ===== Event booking =====
@@ -187,15 +195,11 @@ export const api = {
     body: { slot_id: string; customer_note?: string | null },
     idempotencyKey: string,
   ) =>
-    post<{ id: string; status: string }>(
-      `/api/liff/events/${eventId}/bookings`,
-      body,
-      { 'Idempotency-Key': idempotencyKey },
-    ),
-  myEventBookings: (tab: 'upcoming' | 'past') =>
-    get<{ items: EventBookingMine[] }>(`/api/liff/events/me?tab=${tab}`),
-  cancelMyEventBooking: (bookingId: string) =>
-    post<{ ok: true }>(`/api/liff/events/me/${bookingId}/cancel`, {}),
+    post<{ id: string; status: string }>(`/api/liff/events/${eventId}/bookings`, body, {
+      'Idempotency-Key': idempotencyKey,
+    }),
+  myEventBookings: (tab: 'upcoming' | 'past') => get<{ items: EventBookingMine[] }>(`/api/liff/events/me?tab=${tab}`),
+  cancelMyEventBooking: (bookingId: string) => post<{ ok: true }>(`/api/liff/events/me/${bookingId}/cancel`, {}),
 
   // ===== Webinar =====
   webinarState: (slug: string) => get<WebinarState>(`/api/liff/webinars/${slug}`),

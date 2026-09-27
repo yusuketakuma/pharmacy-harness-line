@@ -2,11 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  getWranglerConfigDir,
-  parseWranglerAuthToml,
-  readWranglerOAuthToken,
-} from '../src/lib/wrangler-oauth.js';
+import { getWranglerConfigDir, parseWranglerAuthToml, readWranglerOAuthToken } from '../src/lib/wrangler-oauth.js';
 
 describe('getWranglerConfigDir', () => {
   const isDir = (dirs: string[]) => (p: string) => dirs.includes(p);
@@ -114,16 +110,12 @@ describe('readWranglerOAuthToken', () => {
   const opts = () => ({ env: {}, platform: 'linux' as const, home });
 
   it('reads a live token from the legacy ~/.wrangler location', () => {
-    writeCredentials(
-      'oauth_token = "tok_live"\nexpiration_time = "2099-01-01T00:00:00.000Z"\n',
-    );
+    writeCredentials('oauth_token = "tok_live"\nexpiration_time = "2099-01-01T00:00:00.000Z"\n');
     expect(readWranglerOAuthToken(opts())).toBe('tok_live');
   });
 
   it('returns null when the token is expired', () => {
-    writeCredentials(
-      'oauth_token = "tok_old"\nexpiration_time = "2000-01-01T00:00:00.000Z"\n',
-    );
+    writeCredentials('oauth_token = "tok_old"\nexpiration_time = "2000-01-01T00:00:00.000Z"\n');
     expect(readWranglerOAuthToken(opts())).toBeNull();
   });
 

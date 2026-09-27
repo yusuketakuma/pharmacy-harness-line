@@ -29,18 +29,40 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
       confirmationToken: z.string().optional(),
       force: z.boolean().default(false),
     },
-    async ({ action, groupId, sourcePageId, areaId, targetPageId, accountId, mode, tagId, enabled, dryRun, confirm, confirmationToken, force }) => {
+    async ({
+      action,
+      groupId,
+      sourcePageId,
+      areaId,
+      targetPageId,
+      accountId,
+      mode,
+      tagId,
+      enabled,
+      dryRun,
+      confirm,
+      confirmationToken,
+      force,
+    }) => {
       try {
         const resolvedAccountId = pinnedAccountId(accountId);
         const client = getClient();
 
         if (action === 'list') {
-          return result({ success: true, accountId: resolvedAccountId, groups: await client.richMenuGroups.list(resolvedAccountId) });
+          return result({
+            success: true,
+            accountId: resolvedAccountId,
+            groups: await client.richMenuGroups.list(resolvedAccountId),
+          });
         }
 
         if (!groupId) throw new Error('groupId is required for this action');
         if (action === 'inspect') {
-          return result({ success: true, accountId: resolvedAccountId, group: await client.richMenuGroups.get(groupId, resolvedAccountId) });
+          return result({
+            success: true,
+            accountId: resolvedAccountId,
+            group: await client.richMenuGroups.get(groupId, resolvedAccountId),
+          });
         }
 
         if (action === 'set_switch') {
@@ -65,7 +87,11 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
             areas: page.areas.map((candidate) => {
               const { id, ...areaInput } = candidate;
               return page.id === sourcePageId && id === areaId
-                ? { ...areaInput, actionType: 'richmenuswitch' as const, actionData: { targetPageId } }
+                ? {
+                    ...areaInput,
+                    actionType: 'richmenuswitch' as const,
+                    actionData: { targetPageId },
+                  }
                 : areaInput;
             }),
           }));
@@ -111,10 +137,18 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
             });
           }
           if (action === 'publish') {
-            return result({ success: true, operation: action, group: await client.richMenuGroups.publish(groupId, resolvedAccountId) });
+            return result({
+              success: true,
+              operation: action,
+              group: await client.richMenuGroups.publish(groupId, resolvedAccountId),
+            });
           }
           if (action === 'unpublish') {
-            return result({ success: true, operation: action, group: await client.richMenuGroups.unpublish(groupId, resolvedAccountId) });
+            return result({
+              success: true,
+              operation: action,
+              group: await client.richMenuGroups.unpublish(groupId, resolvedAccountId),
+            });
           }
           await client.richMenuGroups.delete(groupId, { force, accountId: resolvedAccountId });
           return result({ success: true, operation: action, groupId });

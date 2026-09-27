@@ -30,12 +30,17 @@ function d1From(sqlite: Database.Database): D1Database {
   const statement = (sql: string, values: unknown[] = []): RunnableStatement => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true,
-      results: sqlite.prepare(sql).all(...values) as T[],
-      meta: {},
-    }) as D1Result<T>,
-    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
+    all: async <T>() =>
+      ({
+        success: true,
+        results: sqlite.prepare(sql).all(...values) as T[],
+        meta: {},
+      }) as D1Result<T>,
+    raw: async <T>() =>
+      sqlite
+        .prepare(sql)
+        .raw()
+        .all(...values) as T[],
     run: async () => statement(sql, values).runSync(),
     runSync: () => {
       const info = sqlite.prepare(sql).run(...values);
@@ -44,9 +49,8 @@ function d1From(sqlite: Database.Database): D1Database {
   });
   return {
     prepare: (sql: string) => statement(sql),
-    batch: async <T>(statements: D1PreparedStatement[]) => sqlite.transaction(() =>
-      statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>),
-    )(),
+    batch: async <T>(statements: D1PreparedStatement[]) =>
+      sqlite.transaction(() => statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>))(),
   } as unknown as D1Database;
 }
 
@@ -54,39 +58,63 @@ function seedContinuity(db: Database.Database, suffix: 'a' | 'b'): void {
   const now = '2026-08-18T00:00:00.000Z';
   db.prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(`account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, now, now);
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+    `account-${suffix}`,
+    `channel-${suffix}`,
+    suffix,
+    `token-${suffix}`,
+    `secret-${suffix}`,
+    now,
+    now,
+  );
   db.prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
-    VALUES (?, ?, ?, 'active', ?, ?)`)
-    .run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
+    VALUES (?, ?, ?, 'active', ?, ?)`).run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
   db.prepare(`INSERT INTO tenant_line_accounts
     (tenant_id, line_account_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?)`)
-    .run(`tenant-${suffix}`, `account-${suffix}`, now, now);
+    VALUES (?, ?, ?, ?)`).run(`tenant-${suffix}`, `account-${suffix}`, now, now);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
-    VALUES (?, ?, ?, 1, ?, ?)`)
-    .run(`friend-${suffix}`, `U-${suffix}`, `account-${suffix}`, now, now);
+    VALUES (?, ?, ?, 1, ?, ?)`).run(`friend-${suffix}`, `U-${suffix}`, `account-${suffix}`, now, now);
   db.prepare(`INSERT INTO pharmacy_patients
     (id, line_account_id, owner_friend_id, relationship, name, name_kana,
      birth_date, created_at, updated_at)
-    VALUES (?, ?, ?, 'self', ?, ?, '1990-01-01', ?, ?)`)
-    .run(`patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, suffix, suffix, now, now);
+    VALUES (?, ?, ?, 'self', ?, ?, '1990-01-01', ?, ?)`).run(
+    `patient-${suffix}`,
+    `account-${suffix}`,
+    `friend-${suffix}`,
+    suffix,
+    suffix,
+    now,
+    now,
+  );
   db.prepare(`INSERT INTO pharmacy_prescription_submissions
     (id, line_account_id, friend_id, idempotency_key, status, upload_revision,
      closed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'closed', 1, ?, ?, ?)`)
-    .run(`submission-${suffix}`, `account-${suffix}`, `friend-${suffix}`, `submission-key-${suffix}`, now, now, now);
+    VALUES (?, ?, ?, ?, 'closed', 1, ?, ?, ?)`).run(
+    `submission-${suffix}`,
+    `account-${suffix}`,
+    `friend-${suffix}`,
+    `submission-key-${suffix}`,
+    now,
+    now,
+    now,
+  );
   db.prepare(`INSERT INTO pharmacy_continuity_obligations
     (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
      status, expected_next_from, expected_next_to, next_contact_at, consent_at,
      created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'active', '2026-09-01', '2026-09-30', ?, ?, ?, ?)`)
-    .run(
-      `continuity-${suffix}`, `account-${suffix}`, `friend-${suffix}`,
-      `patient-${suffix}`, `submission-${suffix}`, now, now, now, now,
-    );
+    VALUES (?, ?, ?, ?, ?, 'active', '2026-09-01', '2026-09-30', ?, ?, ?, ?)`).run(
+    `continuity-${suffix}`,
+    `account-${suffix}`,
+    `friend-${suffix}`,
+    `patient-${suffix}`,
+    `submission-${suffix}`,
+    now,
+    now,
+    now,
+    now,
+  );
 }
 
 describe('custom_012 pharmacy next-intake expectations', () => {
@@ -107,16 +135,25 @@ describe('custom_012 pharmacy next-intake expectations', () => {
   });
 
   it('stores only account-scoped timing and consent workflow state', () => {
-    const columns = db.prepare('PRAGMA table_info(pharmacy_next_intake_expectations)')
-      .all() as Array<{ name: string }>;
-    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
-      'obligation_id', 'line_account_id', 'owner_friend_id', 'patient_id',
-      'status', 'timing_source', 'supply_days', 'expected_from', 'expected_to',
-      'reminder_at', 'version',
-    ]));
-    expect(columns.map((column) => column.name)).not.toEqual(expect.arrayContaining([
-      'drug_name', 'disease', 'note', 'message', 'payload_json', 'line_user_id',
-    ]));
+    const columns = db.prepare('PRAGMA table_info(pharmacy_next_intake_expectations)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        'obligation_id',
+        'line_account_id',
+        'owner_friend_id',
+        'patient_id',
+        'status',
+        'timing_source',
+        'supply_days',
+        'expected_from',
+        'expected_to',
+        'reminder_at',
+        'version',
+      ]),
+    );
+    expect(columns.map((column) => column.name)).not.toEqual(
+      expect.arrayContaining(['drug_name', 'disease', 'note', 'message', 'payload_json', 'line_user_id']),
+    );
   });
 
   it('enforces timing source and tenant ownership', () => {
@@ -128,18 +165,13 @@ describe('custom_012 pharmacy next-intake expectations', () => {
               '2026-09-15T00:00:00.000Z', 1, 'staff-a',
               '2026-08-18T00:00:00.000Z', '2026-08-18T00:00:00.000Z')`);
 
-    expect(() => insert.run(
-      'expectation-cross', 'continuity-a', 'account-b', 'friend-b', 'patient-b',
-      'manual_supply_days', 28,
-    )).toThrow(/FOREIGN KEY constraint failed/i);
-    insert.run(
-      'expectation-a', 'continuity-a', 'account-a', 'friend-a', 'patient-a',
-      'manual_supply_days', 28,
-    );
-    expect(() => insert.run(
-      'expectation-invalid', 'continuity-b', 'account-b', 'friend-b', 'patient-b',
-      'manual_window', 28,
-    )).toThrow(/CHECK constraint failed/i);
+    expect(() =>
+      insert.run('expectation-cross', 'continuity-a', 'account-b', 'friend-b', 'patient-b', 'manual_supply_days', 28),
+    ).toThrow(/FOREIGN KEY constraint failed/i);
+    insert.run('expectation-a', 'continuity-a', 'account-a', 'friend-a', 'patient-a', 'manual_supply_days', 28);
+    expect(() =>
+      insert.run('expectation-invalid', 'continuity-b', 'account-b', 'friend-b', 'patient-b', 'manual_window', 28),
+    ).toThrow(/CHECK constraint failed/i);
   });
 
   it('keeps workflow events append-only and idempotent per account', () => {
@@ -183,128 +215,170 @@ describe('custom_012 pharmacy next-intake expectations', () => {
       expected_to: '2026-09-15',
       reminder_at: '2026-09-15T00:00:00.000Z',
     });
-    await expect(offerNextIntakeExpectation(d1, {
-      ...input, lineAccountId: 'account-b',
-    })).rejects.toThrow(/continuity record not found/i);
+    await expect(
+      offerNextIntakeExpectation(d1, {
+        ...input,
+        lineAccountId: 'account-b',
+      }),
+    ).rejects.toThrow(/continuity record not found/i);
   });
 
   it('records the verified owner response once and rejects another friend', async () => {
     const item = await offerNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', obligationId: 'continuity-a',
+      lineAccountId: 'account-a',
+      obligationId: 'continuity-a',
       timing: {
-        source: 'manual_window', expectedFrom: '2026-09-10',
-        expectedTo: '2026-09-20', reminderAt: '2026-09-10T00:00:00.000Z',
+        source: 'manual_window',
+        expectedFrom: '2026-09-10',
+        expectedTo: '2026-09-20',
+        reminderAt: '2026-09-10T00:00:00.000Z',
       },
-      staffId: 'staff-a', idempotencyKey: 'offer-response-a',
+      staffId: 'staff-a',
+      idempotencyKey: 'offer-response-a',
       now: new Date('2026-08-18T01:00:00.000Z'),
     });
     const input = {
-      lineAccountId: 'account-a', friendId: 'friend-a', expectationId: item.id,
-      response: 'accepted' as const, idempotencyKey: 'patient-response-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      expectationId: item.id,
+      response: 'accepted' as const,
+      idempotencyKey: 'patient-response-a',
       now: new Date('2026-08-18T02:00:00.000Z'),
     };
     const accepted = await respondToNextIntakeExpectation(d1, input);
     const replay = await respondToNextIntakeExpectation(d1, input);
     const duplicateTap = await respondToNextIntakeExpectation(d1, {
-      ...input, idempotencyKey: 'patient-response-second',
+      ...input,
+      idempotencyKey: 'patient-response-second',
     });
     expect(accepted.status).toBe('accepted');
     expect(replay).toEqual(accepted);
     expect(duplicateTap).toEqual(accepted);
-    expect(db.prepare(`SELECT COUNT(*) AS count
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
       FROM pharmacy_next_intake_expectation_events
-      WHERE expectation_id = ? AND event_type = 'accepted'`).get(item.id)).toEqual({ count: 1 });
-    await expect(respondToNextIntakeExpectation(d1, {
-      ...input, friendId: 'friend-b', idempotencyKey: 'patient-response-b',
-    })).rejects.toThrow(/expectation unavailable/i);
+      WHERE expectation_id = ? AND event_type = 'accepted'`)
+        .get(item.id),
+    ).toEqual({ count: 1 });
+    await expect(
+      respondToNextIntakeExpectation(d1, {
+        ...input,
+        friendId: 'friend-b',
+        idempotencyKey: 'patient-response-b',
+      }),
+    ).rejects.toThrow(/expectation unavailable/i);
   });
 
   it('rejects a stale patient response after continuity is paused', async () => {
     db.prepare(`UPDATE pharmacy_account_capabilities
       SET capabilities_json = '["continuity"]' WHERE line_account_id = 'account-b'`).run();
     const item = await offerNextIntakeExpectation(d1, {
-      lineAccountId: 'account-b', obligationId: 'continuity-b',
+      lineAccountId: 'account-b',
+      obligationId: 'continuity-b',
       timing: { source: 'manual_supply_days', supplyDays: 28 },
-      staffId: 'staff-b', idempotencyKey: 'offer-paused-b',
+      staffId: 'staff-b',
+      idempotencyKey: 'offer-paused-b',
       now: new Date('2026-08-18T01:00:00.000Z'),
     });
     db.prepare(`UPDATE pharmacy_account_capabilities
       SET capabilities_json = '[]' WHERE line_account_id = 'account-b'`).run();
-    db.prepare("UPDATE pharmacy_continuity_obligations SET status = 'paused' WHERE id = ?")
-      .run('continuity-b');
+    db.prepare("UPDATE pharmacy_continuity_obligations SET status = 'paused' WHERE id = ?").run('continuity-b');
 
-    await expect(respondToNextIntakeExpectation(d1, {
-      lineAccountId: 'account-b', friendId: 'friend-b', expectationId: item.id,
-      response: 'accepted', idempotencyKey: 'patient-paused-b',
-      now: new Date('2026-08-18T02:00:00.000Z'),
-    })).rejects.toThrow(/expectation unavailable/i);
+    await expect(
+      respondToNextIntakeExpectation(d1, {
+        lineAccountId: 'account-b',
+        friendId: 'friend-b',
+        expectationId: item.id,
+        response: 'accepted',
+        idempotencyKey: 'patient-paused-b',
+        now: new Date('2026-08-18T02:00:00.000Z'),
+      }),
+    ).rejects.toThrow(/expectation unavailable/i);
   });
 
   it('claims accepted reminders once and finalizes only after delivery', async () => {
     const item = await offerNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', obligationId: 'continuity-a',
+      lineAccountId: 'account-a',
+      obligationId: 'continuity-a',
       timing: {
-        source: 'manual_window', expectedFrom: '2026-08-19',
-        expectedTo: '2026-08-25', reminderAt: '2026-08-19T00:00:00.000Z',
+        source: 'manual_window',
+        expectedFrom: '2026-08-19',
+        expectedTo: '2026-08-25',
+        reminderAt: '2026-08-19T00:00:00.000Z',
       },
-      staffId: 'staff-a', idempotencyKey: 'offer-due-a',
+      staffId: 'staff-a',
+      idempotencyKey: 'offer-due-a',
       now: new Date('2026-08-18T01:00:00.000Z'),
     });
     await respondToNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', friendId: 'friend-a', expectationId: item.id,
-      response: 'accepted', idempotencyKey: 'patient-due-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      expectationId: item.id,
+      response: 'accepted',
+      idempotencyKey: 'patient-due-a',
       now: new Date('2026-08-18T02:00:00.000Z'),
     });
-    await expect(claimDueNextIntakeExpectations(
-      d1, new Date('2026-08-18T23:59:59.000Z'),
-    )).resolves.toEqual([]);
-    const claimed = await claimDueNextIntakeExpectations(
-      d1, new Date('2026-08-19T00:00:00.000Z'),
-    );
-    expect(claimed).toEqual([expect.objectContaining({
-      id: item.id, status: 'active', line_user_id: 'U-a',
-      tenant_id: 'tenant-a',
-    })]);
+    await expect(claimDueNextIntakeExpectations(d1, new Date('2026-08-18T23:59:59.000Z'))).resolves.toEqual([]);
+    const claimed = await claimDueNextIntakeExpectations(d1, new Date('2026-08-19T00:00:00.000Z'));
+    expect(claimed).toEqual([
+      expect.objectContaining({
+        id: item.id,
+        status: 'active',
+        line_user_id: 'U-a',
+        tenant_id: 'tenant-a',
+      }),
+    ]);
     await markNextIntakeExpectationReminded(d1, {
-      lineAccountId: 'account-a', expectationId: item.id,
-      expectedVersion: claimed[0].version, now: new Date('2026-08-19T00:00:01.000Z'),
+      lineAccountId: 'account-a',
+      expectationId: item.id,
+      expectedVersion: claimed[0].version,
+      now: new Date('2026-08-19T00:00:01.000Z'),
     });
-    await expect(markNextIntakeExpectationReminded(d1, {
-      lineAccountId: 'account-a', expectationId: item.id,
-      expectedVersion: claimed[0].version, now: new Date('2026-08-19T00:00:02.000Z'),
-    })).resolves.toMatchObject({ id: item.id, status: 'reminded' });
-    expect(db.prepare(`SELECT reminder_count
-      FROM pharmacy_continuity_obligations WHERE id = ?`).get('continuity-a'))
-      .toEqual({ reminder_count: 0 });
-    await expect(claimDueNextIntakeExpectations(
-      d1, new Date('2026-08-19T00:01:00.000Z'),
-    )).resolves.toEqual([]);
+    await expect(
+      markNextIntakeExpectationReminded(d1, {
+        lineAccountId: 'account-a',
+        expectationId: item.id,
+        expectedVersion: claimed[0].version,
+        now: new Date('2026-08-19T00:00:02.000Z'),
+      }),
+    ).resolves.toMatchObject({ id: item.id, status: 'reminded' });
+    expect(
+      db
+        .prepare(`SELECT reminder_count
+      FROM pharmacy_continuity_obligations WHERE id = ?`)
+        .get('continuity-a'),
+    ).toEqual({ reminder_count: 0 });
+    await expect(claimDueNextIntakeExpectations(d1, new Date('2026-08-19T00:01:00.000Z'))).resolves.toEqual([]);
   });
 
   it('projects linked continuity by patient, never by the family friend alone', async () => {
     const item = await offerNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', obligationId: 'continuity-a',
+      lineAccountId: 'account-a',
+      obligationId: 'continuity-a',
       timing: { source: 'manual_supply_days', supplyDays: 28 },
-      staffId: 'staff-a', idempotencyKey: 'offer-list-a',
+      staffId: 'staff-a',
+      idempotencyKey: 'offer-list-a',
       now: new Date('2026-08-18T01:00:00.000Z'),
     });
     await respondToNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', friendId: 'friend-a', expectationId: item.id,
-      response: 'accepted', idempotencyKey: 'patient-list-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      expectationId: item.id,
+      response: 'accepted',
+      idempotencyKey: 'patient-list-a',
       now: new Date('2026-08-18T02:00:00.000Z'),
     });
     db.prepare(`UPDATE pharmacy_continuity_obligations
       SET status = 'linked', candidate_submission_id = 'submission-a'
       WHERE id = 'continuity-a'`).run();
 
-    await expect(listAccountExpectations(d1, 'account-a'))
-      .resolves.toEqual([expect.objectContaining({ id: item.id, status: 'linked', patient_id: 'patient-a' })]);
-    await expect(listPatientExpectations(d1, 'account-a', 'friend-a'))
-      .resolves.toHaveLength(1);
-    await expect(listPatientExpectations(d1, 'account-a', 'friend-b'))
-      .resolves.toEqual([]);
-    await expect(listPatientExpectations(d1, 'account-b', 'friend-a'))
-      .resolves.toEqual([]);
+    await expect(listAccountExpectations(d1, 'account-a')).resolves.toEqual([
+      expect.objectContaining({ id: item.id, status: 'linked', patient_id: 'patient-a' }),
+    ]);
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-a')).resolves.toHaveLength(1);
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-b')).resolves.toEqual([]);
+    await expect(listPatientExpectations(d1, 'account-b', 'friend-a')).resolves.toEqual([]);
   });
 
   it('hides minor proxy continuity and rejects response after proxy revoke', async () => {
@@ -330,39 +404,61 @@ describe('custom_012 pharmacy next-intake expectations', () => {
        status, expected_next_from, expected_next_to, next_contact_at, consent_at,
        created_at, updated_at)
       VALUES ('continuity-child-proxy', 'account-a', 'friend-a', 'patient-child-proxy',
-              'submission-child-proxy', 'active', '2026-09-01', '2026-09-30', ?, ?, ?, ?)`)
-      .run(now, now, now, now);
+              'submission-child-proxy', 'active', '2026-09-01', '2026-09-30', ?, ?, ?, ?)`).run(now, now, now, now);
 
     const item = await offerNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', obligationId: 'continuity-child-proxy',
-      timing: { source: 'manual_window', expectedFrom: '2026-09-10',
-        expectedTo: '2026-09-20', reminderAt: '2026-09-10T00:00:00.000Z' },
-      staffId: 'staff-a', idempotencyKey: 'offer-child-proxy', now: new Date(now),
+      lineAccountId: 'account-a',
+      obligationId: 'continuity-child-proxy',
+      timing: {
+        source: 'manual_window',
+        expectedFrom: '2026-09-10',
+        expectedTo: '2026-09-20',
+        reminderAt: '2026-09-10T00:00:00.000Z',
+      },
+      staffId: 'staff-a',
+      idempotencyKey: 'offer-child-proxy',
+      now: new Date(now),
     });
-    await expect(listPatientContinuity(d1, 'account-a', 'friend-a'))
-      .resolves.toContainEqual(expect.objectContaining({ patient_id: 'patient-child-proxy' }));
-    await expect(listPatientExpectations(d1, 'account-a', 'friend-a'))
-      .resolves.toContainEqual(expect.objectContaining({ id: item.id, patient_id: 'patient-child-proxy' }));
-    await expect(respondToNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', friendId: 'friend-a', expectationId: item.id,
-      response: 'accepted', idempotencyKey: 'response-child-proxy', now: new Date(now),
-    })).resolves.toMatchObject({ id: item.id, status: 'accepted' });
+    await expect(listPatientContinuity(d1, 'account-a', 'friend-a')).resolves.toContainEqual(
+      expect.objectContaining({ patient_id: 'patient-child-proxy' }),
+    );
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-a')).resolves.toContainEqual(
+      expect.objectContaining({ id: item.id, patient_id: 'patient-child-proxy' }),
+    );
+    await expect(
+      respondToNextIntakeExpectation(d1, {
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        expectationId: item.id,
+        response: 'accepted',
+        idempotencyKey: 'response-child-proxy',
+        now: new Date(now),
+      }),
+    ).resolves.toMatchObject({ id: item.id, status: 'accepted' });
 
     db.prepare(`UPDATE pharmacy_patient_proxy_grants
       SET revoked_at = ?, revoke_reason_code = 'user_revoked', version = version + 1,
           updated_at = ?
       WHERE id = 'grant-child-proxy'`).run(now, now);
 
-    await expect(listPatientContinuity(d1, 'account-a', 'friend-a'))
-      .resolves.not.toContainEqual(expect.objectContaining({ patient_id: 'patient-child-proxy' }));
-    await expect(listPatientExpectations(d1, 'account-a', 'friend-a'))
-      .resolves.not.toContainEqual(expect.objectContaining({ id: item.id }));
-    await expect(pausePatientContinuity(
-      d1, 'account-a', 'friend-a', 'continuity-child-proxy',
-    )).rejects.toThrow(/continuity pause conflict/i);
-    await expect(respondToNextIntakeExpectation(d1, {
-      lineAccountId: 'account-a', friendId: 'friend-a', expectationId: item.id,
-      response: 'accepted', idempotencyKey: 'response-child-proxy', now: new Date(now),
-    })).rejects.toThrow(/expectation unavailable/i);
+    await expect(listPatientContinuity(d1, 'account-a', 'friend-a')).resolves.not.toContainEqual(
+      expect.objectContaining({ patient_id: 'patient-child-proxy' }),
+    );
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-a')).resolves.not.toContainEqual(
+      expect.objectContaining({ id: item.id }),
+    );
+    await expect(pausePatientContinuity(d1, 'account-a', 'friend-a', 'continuity-child-proxy')).rejects.toThrow(
+      /continuity pause conflict/i,
+    );
+    await expect(
+      respondToNextIntakeExpectation(d1, {
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        expectationId: item.id,
+        response: 'accepted',
+        idempotencyKey: 'response-child-proxy',
+        now: new Date(now),
+      }),
+    ).rejects.toThrow(/expectation unavailable/i);
   });
 });

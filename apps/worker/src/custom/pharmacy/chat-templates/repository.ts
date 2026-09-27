@@ -24,10 +24,12 @@ const VALID_STAFF_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 async function requireChatTemplateTable(db: D1Database): Promise<void> {
   let row: { name: string } | null;
   try {
-    row = await db.prepare(
-      `SELECT name FROM sqlite_master
+    row = await db
+      .prepare(
+        `SELECT name FROM sqlite_master
         WHERE type = 'table' AND name = 'pharmacy_chat_templates'`,
-    ).first<{ name: string }>();
+      )
+      .first<{ name: string }>();
   } catch {
     throw new Error('chat templates schema unavailable');
   }
@@ -36,15 +38,23 @@ async function requireChatTemplateTable(db: D1Database): Promise<void> {
   }
 }
 
-function normalizeTemplateText(title: unknown, body: unknown): {
+function normalizeTemplateText(
+  title: unknown,
+  body: unknown,
+): {
   title: string;
   body: string;
 } {
   const normalizedTitle = typeof title === 'string' ? title.trim() : '';
   const normalizedBody = typeof body === 'string' ? body.trim() : '';
-  if (normalizedTitle.length < 1 || normalizedTitle.length > 80 ||
-      normalizedBody.length < 1 || normalizedBody.length > 500 ||
-      PLACEHOLDER_RE.test(normalizedTitle) || PLACEHOLDER_RE.test(normalizedBody)) {
+  if (
+    normalizedTitle.length < 1 ||
+    normalizedTitle.length > 80 ||
+    normalizedBody.length < 1 ||
+    normalizedBody.length > 500 ||
+    PLACEHOLDER_RE.test(normalizedTitle) ||
+    PLACEHOLDER_RE.test(normalizedBody)
+  ) {
     throw new Error('invalid chat template');
   }
   try {
@@ -57,19 +67,19 @@ function normalizeTemplateText(title: unknown, body: unknown): {
   return { title: normalizedTitle, body: normalizedBody };
 }
 
-export async function listChatTemplates(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<PharmacyChatTemplate[]> {
+export async function listChatTemplates(db: D1Database, lineAccountId: string): Promise<PharmacyChatTemplate[]> {
   await requireChatTemplateTable(db);
-  const result = await db.prepare(
-    `SELECT line_account_id, template_id, title, body, status, version,
+  const result = await db
+    .prepare(
+      `SELECT line_account_id, template_id, title, body, status, version,
             created_by_staff_id, approved_by_staff_id, approved_at,
             created_at, updated_at
        FROM pharmacy_chat_templates
       WHERE line_account_id = ?
       ORDER BY status = 'approved' DESC, updated_at DESC`,
-  ).bind(lineAccountId).all<PharmacyChatTemplate>();
+    )
+    .bind(lineAccountId)
+    .all<PharmacyChatTemplate>();
   return result.results ?? [];
 }
 
@@ -79,14 +89,17 @@ export async function getChatTemplate(
   templateId: string,
 ): Promise<PharmacyChatTemplate | null> {
   await requireChatTemplateTable(db);
-  return db.prepare(
-    `SELECT line_account_id, template_id, title, body, status, version,
+  return db
+    .prepare(
+      `SELECT line_account_id, template_id, title, body, status, version,
             created_by_staff_id, approved_by_staff_id, approved_at,
             created_at, updated_at
        FROM pharmacy_chat_templates
       WHERE line_account_id = ? AND template_id = ?
       LIMIT 1`,
-  ).bind(lineAccountId, templateId).first<PharmacyChatTemplate>();
+    )
+    .bind(lineAccountId, templateId)
+    .first<PharmacyChatTemplate>();
 }
 
 interface MutationInput {
@@ -112,43 +125,44 @@ export async function createChatTemplate(
   input: MutationInput & { title: unknown; body: unknown; templateId: string },
 ): Promise<PharmacyChatTemplate> {
   const { title, body } = normalizeTemplateText(input.title, input.body);
-  if (!input.lineAccountId || !TEMPLATE_ID_RE.test(input.templateId) ||
-      !VALID_STAFF_ID.test(input.actorStaffId)) {
+  if (!input.lineAccountId || !TEMPLATE_ID_RE.test(input.templateId) || !VALID_STAFF_ID.test(input.actorStaffId)) {
     throw new Error('invalid chat template');
   }
   await requireChatTemplateTable(db);
   const timestamp = (input.now ?? new Date()).toISOString();
-  const write = db.prepare(
-    `INSERT INTO pharmacy_chat_templates
+  const write = db
+    .prepare(
+      `INSERT INTO pharmacy_chat_templates
       (line_account_id, template_id, title, body, status, version,
        created_by_staff_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?)`,
-  ).bind(
-    input.lineAccountId, input.templateId, title, body,
-    input.actorStaffId, timestamp, timestamp,
-  );
-  const audit = tenantAuditStatement(db, {
-    lineAccountId: input.lineAccountId,
-    actorStaffId: input.actorStaffId,
-    action: 'pharmacy_chat_template_created',
-    resourceType: 'chat_template',
-    resourceId: input.templateId,
-    detail: { status: 'draft' },
-  }, {
-    sql: `EXISTS (
+    )
+    .bind(input.lineAccountId, input.templateId, title, body, input.actorStaffId, timestamp, timestamp);
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action: 'pharmacy_chat_template_created',
+      resourceType: 'chat_template',
+      resourceId: input.templateId,
+      detail: { status: 'draft' },
+    },
+    {
+      sql: `EXISTS (
       SELECT 1 FROM pharmacy_chat_templates
        WHERE line_account_id = ? AND template_id = ? AND version = 1
     )`,
-    bindings: [input.lineAccountId, input.templateId],
-  });
+      bindings: [input.lineAccountId, input.templateId],
+    },
+  );
   let results: D1Result[];
   try {
     results = await db.batch([write, audit]);
   } catch (error) {
     mapScopeError(error);
   }
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('chat template conflict');
   }
   const saved = await getChatTemplate(db, input.lineAccountId, input.templateId);
@@ -168,9 +182,13 @@ async function mutateTemplate(
     detail: Record<string, string | number | boolean | string[] | null>;
   },
 ): Promise<PharmacyChatTemplate> {
-  if (!input.lineAccountId || !TEMPLATE_ID_RE.test(input.templateId) ||
-      !VALID_STAFF_ID.test(input.actorStaffId) ||
-      !Number.isInteger(input.expectedVersion) || (input.expectedVersion ?? -1) < 1) {
+  if (
+    !input.lineAccountId ||
+    !TEMPLATE_ID_RE.test(input.templateId) ||
+    !VALID_STAFF_ID.test(input.actorStaffId) ||
+    !Number.isInteger(input.expectedVersion) ||
+    (input.expectedVersion ?? -1) < 1
+  ) {
     throw new Error('invalid chat template');
   }
   const current = await getChatTemplate(db, input.lineAccountId, input.templateId);
@@ -181,29 +199,32 @@ async function mutateTemplate(
   const timestamp = (input.now ?? new Date()).toISOString();
   const nextVersion = current.version + 1;
   const { statement, action, detail } = build(current, timestamp);
-  const audit = tenantAuditStatement(db, {
-    lineAccountId: input.lineAccountId,
-    actorStaffId: input.actorStaffId,
-    action,
-    resourceType: 'chat_template',
-    resourceId: input.templateId,
-    detail,
-  }, {
-    sql: `EXISTS (
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action,
+      resourceType: 'chat_template',
+      resourceId: input.templateId,
+      detail,
+    },
+    {
+      sql: `EXISTS (
       SELECT 1 FROM pharmacy_chat_templates
        WHERE line_account_id = ? AND template_id = ?
          AND version = ? AND updated_at = ?
     )`,
-    bindings: [input.lineAccountId, input.templateId, nextVersion, timestamp],
-  });
+      bindings: [input.lineAccountId, input.templateId, nextVersion, timestamp],
+    },
+  );
   let results: D1Result[];
   try {
     results = await db.batch([statement, audit]);
   } catch (error) {
     mapScopeError(error);
   }
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('chat template conflict');
   }
   const saved = await getChatTemplate(db, input.lineAccountId, input.templateId);
@@ -223,16 +244,15 @@ export async function updateChatTemplate(
     return {
       // Edits always drop back to draft so approved copy cannot be changed
       // without a fresh owner/admin approval.
-      statement: db.prepare(
-        `UPDATE pharmacy_chat_templates
+      statement: db
+        .prepare(
+          `UPDATE pharmacy_chat_templates
             SET title = ?, body = ?, status = 'draft',
                 approved_by_staff_id = NULL, approved_at = NULL,
                 version = version + 1, updated_at = ?
           WHERE line_account_id = ? AND template_id = ? AND version = ?`,
-      ).bind(
-        title, body, timestamp,
-        input.lineAccountId, input.templateId, input.expectedVersion,
-      ),
+        )
+        .bind(title, body, timestamp, input.lineAccountId, input.templateId, input.expectedVersion),
       action: 'pharmacy_chat_template_updated',
       detail: { status: 'draft' },
     };
@@ -250,15 +270,14 @@ export async function approveChatTemplate(
       throw new Error('invalid chat template state');
     }
     return {
-      statement: db.prepare(
-        `UPDATE pharmacy_chat_templates
+      statement: db
+        .prepare(
+          `UPDATE pharmacy_chat_templates
             SET status = 'approved', approved_by_staff_id = ?, approved_at = ?,
                 version = version + 1, updated_at = ?
           WHERE line_account_id = ? AND template_id = ? AND version = ?`,
-      ).bind(
-        input.actorStaffId, timestamp, timestamp,
-        input.lineAccountId, input.templateId, input.expectedVersion,
-      ),
+        )
+        .bind(input.actorStaffId, timestamp, timestamp, input.lineAccountId, input.templateId, input.expectedVersion),
       action: 'pharmacy_chat_template_approved',
       detail: { status: 'approved' },
     };
@@ -272,14 +291,14 @@ export async function archiveChatTemplate(
   return mutateTemplate(db, input, (current, timestamp) => {
     if (current.status === 'archived') throw new Error('invalid chat template state');
     return {
-      statement: db.prepare(
-        `UPDATE pharmacy_chat_templates
+      statement: db
+        .prepare(
+          `UPDATE pharmacy_chat_templates
             SET status = 'archived', approved_by_staff_id = NULL, approved_at = NULL,
                 version = version + 1, updated_at = ?
           WHERE line_account_id = ? AND template_id = ? AND version = ?`,
-      ).bind(
-        timestamp, input.lineAccountId, input.templateId, input.expectedVersion,
-      ),
+        )
+        .bind(timestamp, input.lineAccountId, input.templateId, input.expectedVersion),
       action: 'pharmacy_chat_template_archived',
       detail: { status: 'archived' },
     };

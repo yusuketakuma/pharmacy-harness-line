@@ -150,7 +150,10 @@ const DETAIL_HREFS: Record<PharmacyActionQueueDomain, string> = {
 };
 
 const TOKYO_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
 });
 
 function tokyoDate(value: Date): string {
@@ -174,7 +177,7 @@ function sortRank(row: ActionQueueRow, at: Date): number {
 }
 
 function sortTimestamp(row: ActionQueueRow, rank: number): number {
-  const timestamp = Date.parse(rank === 3 ? row.activity_at ?? '' : row.deadline_at ?? '');
+  const timestamp = Date.parse(rank === 3 ? (row.activity_at ?? '') : (row.deadline_at ?? ''));
   return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
 }
 
@@ -183,37 +186,42 @@ export async function getPharmacyActionQueue(
   lineAccountId: string,
   at = new Date(),
 ): Promise<PharmacyActionQueue> {
-  const results = await Promise.allSettled(DOMAIN_QUERIES.map(async ({ domain, sql, fallbackSql, values }) => {
-    const run = (statement: string) => db.prepare(statement)
-      .bind(...values(lineAccountId, at.toISOString()))
-      .all<{
-        id: string;
-        status: string;
-        deadline_at: string | null;
-        activity_at: string | null;
-      }>();
-    let result: Awaited<ReturnType<typeof run>>;
-    try {
-      result = await run(sql);
-    } catch (error) {
-      if (!fallbackSql) throw error;
-      result = await run(fallbackSql);
-    }
-    return (result.results ?? []).map((row) => ({ domain, ...row }));
-  }));
+  const results = await Promise.allSettled(
+    DOMAIN_QUERIES.map(async ({ domain, sql, fallbackSql, values }) => {
+      const run = (statement: string) =>
+        db
+          .prepare(statement)
+          .bind(...values(lineAccountId, at.toISOString()))
+          .all<{
+            id: string;
+            status: string;
+            deadline_at: string | null;
+            activity_at: string | null;
+          }>();
+      let result: Awaited<ReturnType<typeof run>>;
+      try {
+        result = await run(sql);
+      } catch (error) {
+        if (!fallbackSql) throw error;
+        result = await run(fallbackSql);
+      }
+      return (result.results ?? []).map((row) => ({ domain, ...row }));
+    }),
+  );
 
-  const rows = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  const rows = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
   rows.sort((left, right) => {
     const leftRank = sortRank(left, at);
     const rightRank = sortRank(right, at);
     const leftTimestamp = sortTimestamp(left, leftRank);
     const rightTimestamp = sortTimestamp(right, rightRank);
-    const timestampOrder = leftRank === 3
-      ? rightTimestamp - leftTimestamp
-      : leftTimestamp - rightTimestamp;
-    return leftRank - rightRank || timestampOrder ||
-    left.domain.localeCompare(right.domain) ||
-    left.id.localeCompare(right.id);
+    const timestampOrder = leftRank === 3 ? rightTimestamp - leftTimestamp : leftTimestamp - rightTimestamp;
+    return (
+      leftRank - rightRank ||
+      timestampOrder ||
+      left.domain.localeCompare(right.domain) ||
+      left.id.localeCompare(right.id)
+    );
   });
 
   return {

@@ -1,0 +1,11 @@
+{
+  "P": "5daae756c7951d9141d09d7335d66ed6a34e1255",
+  "paths": {
+    "apps/worker/src/routes/marketing/tracked-links.ts": "8083cd61433b3cef9cd1d5f4ae648085eb1379544f359a3961ba8d4033b37238",
+    "apps/worker/src/routes/marketing/tracked-links.test.ts": "153d859870b7b82f8965f4507f6004e6e89b6189faf96c90b6801e141da1cb52"
+  },
+  "W": {
+    "apps/worker/src/routes/marketing/tracked-links.ts": "1988d73a513b14e3cbb979f870ed0feca12455f283db9a28994d6f38bc55d56d",
+    "apps/worker/src/routes/marketing/tracked-links.test.ts": "cc20e2526a727404cdec1822c5a0d0646e2344a803dda4e03c1b40cbcfce9ba8"
+  }
+}

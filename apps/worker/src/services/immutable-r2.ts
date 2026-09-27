@@ -6,8 +6,9 @@ export function r2ChecksumHex(value: unknown): string | null {
     return Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, '0')).join('');
   }
   if (ArrayBuffer.isView(value)) {
-    return Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
-      (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
   }
   return null;
 }
@@ -36,14 +37,12 @@ export function isR2RetentionTombstone(object: R2Object | null): boolean {
 }
 
 /** Atomically erase the selected bytes while permanently retiring their key. */
-export async function putR2RetentionTombstone(
-  bucket: R2Bucket,
-  key: string,
-  expectedEtag: string,
-): Promise<boolean> {
+export async function putR2RetentionTombstone(bucket: R2Bucket, key: string, expectedEtag: string): Promise<boolean> {
   // ponytail: zero-byte tombstones stay permanent; use versioned retired-key records if volume matters.
-  return Boolean(await bucket.put(key, null, {
-    onlyIf: { etagMatches: expectedEtag },
-    customMetadata: { retentionDisposition: R2_RETENTION_TOMBSTONE },
-  }));
+  return Boolean(
+    await bucket.put(key, null, {
+      onlyIf: { etagMatches: expectedEtag },
+      customMetadata: { retentionDisposition: R2_RETENTION_TOMBSTONE },
+    }),
+  );
 }

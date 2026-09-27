@@ -1,22 +1,20 @@
 import { describe, expect, test, vi } from 'vitest';
-import {
-  LineHarnessUnknownOutcomeError,
-  pushViaHarnessProxy,
-  replyViaHarnessProxy,
-} from './line-proxy-send.js';
+import { LineHarnessUnknownOutcomeError, pushViaHarnessProxy, replyViaHarnessProxy } from './line-proxy-send.js';
 
 describe('pushViaHarnessProxy', () => {
   test('rejects a missing retry key before dispatch', async () => {
     const dispatch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
-    await expect(pushViaHarnessProxy(
-      'https://worker.example.com',
-      'channel-token',
-      'U00000000000000000000000000000000',
-      [{ type: 'text', text: 'test' }],
-      undefined as unknown as string,
-      dispatch,
-    )).rejects.toThrow('LINE retry key required');
+    await expect(
+      pushViaHarnessProxy(
+        'https://worker.example.com',
+        'channel-token',
+        'U00000000000000000000000000000000',
+        [{ type: 'text', text: 'test' }],
+        undefined as unknown as string,
+        dispatch,
+      ),
+    ).rejects.toThrow('LINE retry key required');
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -52,9 +50,7 @@ describe('pushViaHarnessProxy', () => {
       'U00000000000000000000000000000000',
       [{ type: 'text', text: 'test' }],
       'retry-key',
-      vi.fn().mockResolvedValue(
-        new Response('private upstream detail', { status: 502, statusText: 'Bad Gateway' }),
-      ),
+      vi.fn().mockResolvedValue(new Response('private upstream detail', { status: 502, statusText: 'Bad Gateway' })),
     ).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(LineHarnessUnknownOutcomeError);
@@ -69,7 +65,9 @@ describe('replyViaHarnessProxy', () => {
     { message: 'Invalid reply token: synthetic-patient-private-details' },
   ])('omits arbitrary upstream details: %j', async (body) => {
     const failure = await replyViaHarnessProxy(
-      'https://worker.example.com', 'synthetic-token', 'synthetic-reply',
+      'https://worker.example.com',
+      'synthetic-token',
+      'synthetic-reply',
       [{ type: 'text', text: 'test' }],
       vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 400, statusText: 'Bad Request' })),
     ).catch((error: unknown) => error);
@@ -104,10 +102,13 @@ describe('replyViaHarnessProxy', () => {
 
   test('preserves only the safe invalid-token detail for deterministic classification', async () => {
     const dispatch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        message: 'Invalid reply token',
-        details: [{ userId: 'U-private', secret: 'private-value' }],
-      }), { status: 400, statusText: 'Bad Request' }),
+      new Response(
+        JSON.stringify({
+          message: 'Invalid reply token',
+          details: [{ userId: 'U-private', secret: 'private-value' }],
+        }),
+        { status: 400, statusText: 'Bad Request' },
+      ),
     );
 
     const failure = await replyViaHarnessProxy(

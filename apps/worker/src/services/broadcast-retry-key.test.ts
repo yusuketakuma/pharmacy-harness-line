@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  createBroadcastRetryKey,
-  createFormLinkRetryKey,
-  isLineRetryKey,
-} from './broadcast-retry-key.js';
+import { createBroadcastRetryKey, createFormLinkRetryKey, isLineRetryKey } from './broadcast-retry-key.js';
 
 describe('isLineRetryKey', () => {
   test('accepts LINE-compatible UUIDs and rejects malformed values', () => {

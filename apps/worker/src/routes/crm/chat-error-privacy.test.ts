@@ -35,21 +35,34 @@ beforeEach(() => {
   app.route('/', chats);
   app.route('/', conversations);
 });
-afterEach(() => { sqlite.close(); vi.restoreAllMocks(); });
+afterEach(() => {
+  sqlite.close();
+  vi.restoreAllMocks();
+});
 
 async function expectPrivateFailure(method: string, path: string, event: string, database: D1Database, body?: string) {
   const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-  const response = await app.request(path, {
-    method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body }),
-  }, { DB: database } as Env['Bindings']);
+  const response = await app.request(
+    path,
+    {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      ...(body === undefined ? {} : { body }),
+    },
+    { DB: database } as Env['Bindings'],
+  );
   expect(response.status).toBe(500);
   expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
   const emitted = [...error.mock.calls, ...warn.mock.calls, ...log.mock.calls].flat().map(String).join(' ');
   expect(emitted).not.toContain(PRIVATE_MARKER);
   expect(error).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(String(error.mock.calls[0][0]))).toEqual({ ts: expect.any(String), level: 'error', event });
+  expect(JSON.parse(String(error.mock.calls[0][0]))).toEqual({
+    ts: expect.any(String),
+    level: 'error',
+    event,
+  });
 }
 
 describe('CRM exception privacy', () => {
@@ -60,7 +73,9 @@ describe('CRM exception privacy', () => {
     ['PUT', '/api/chats/chat-a', 'chat_update_failed'],
   ])('keeps malformed %s %s bodies out of logs', async (method, path, event) => {
     await expectPrivateFailure(method, path, event, db, PRIVATE_MARKER);
-    expect(sqlite.prepare("SELECT notes FROM chats WHERE id='chat-a'").get()).toEqual({ notes: 'original' });
+    expect(sqlite.prepare("SELECT notes FROM chats WHERE id='chat-a'").get()).toEqual({
+      notes: 'original',
+    });
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM operators').get()).toEqual({ n: 0 });
   });
 
@@ -76,7 +91,11 @@ describe('CRM exception privacy', () => {
     ['GET', '/api/conversations', 'conversation_list_failed', undefined],
     ['GET', '/api/conversations/friend-a', 'conversation_detail_failed', undefined],
   ] as const)('keeps dependency errors private for %s %s', async (method, path, event, body) => {
-    const failingDb = { prepare() { throw new Error(PRIVATE_MARKER); } } as unknown as D1Database;
+    const failingDb = {
+      prepare() {
+        throw new Error(PRIVATE_MARKER);
+      },
+    } as unknown as D1Database;
     await expectPrivateFailure(method, path, event, failingDb, body === undefined ? undefined : JSON.stringify(body));
   });
 });

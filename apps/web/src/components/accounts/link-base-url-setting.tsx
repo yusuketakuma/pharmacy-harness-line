@@ -1,7 +1,7 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { api } from '@/lib/api'
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 
 /**
  * Global short-link domain settings (deployment-wide, not per-account).
@@ -15,58 +15,63 @@ import { api } from '@/lib/api'
  */
 
 interface UrlSettingCardProps {
-  title: string
-  description: React.ReactNode
-  placeholder: string
-  load: () => Promise<{ success: boolean; data: string | null }>
-  save: (value: string) => Promise<{ success: boolean; error?: string }>
+  title: string;
+  description: React.ReactNode;
+  placeholder: string;
+  load: () => Promise<{ success: boolean; data: string | null }>;
+  save: (value: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 function UrlSettingCard({ title, description, placeholder, load, save }: UrlSettingCardProps) {
-  const [value, setValue] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [value, setValue] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        const res = await load()
+        const res = await load();
         if (!cancelled && res.success) {
-          setValue(res.data ?? '')
+          setValue(res.data ?? '');
         }
-      } catch { /* ignore */ }
-      finally { if (!cancelled) setLoading(false) }
-    })()
-    return () => { cancelled = true }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
   const handleSave = async () => {
-    setSaving(true)
-    setError('')
-    setSaved(false)
+    setSaving(true);
+    setError('');
+    setSaved(false);
     try {
-      const res = await save(value.trim())
+      const res = await save(value.trim());
       if (res.success) {
         // Normalise stored value: strip trailing slash to match server behaviour.
-        setValue(value.trim().replace(/\/$/, ''))
-        setSaved(true)
-        setTimeout(() => setSaved(false), 3000)
+        setValue(value.trim().replace(/\/$/, ''));
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
       } else {
-        setError(res.error ?? '保存に失敗しました')
+        setError(res.error ?? '保存に失敗しました');
       }
     } catch {
-      setError('保存に失敗しました')
+      setError('保存に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   if (loading) {
-    return <p className="text-xs text-gray-400">読み込み中...</p>
+    return <p className="text-xs text-gray-400">読み込み中...</p>;
   }
 
   return (
@@ -94,7 +99,7 @@ function UrlSettingCard({ title, description, placeholder, load, save }: UrlSett
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 export default function LinkBaseUrlSetting() {
@@ -118,9 +123,10 @@ export default function LinkBaseUrlSetting() {
         description={
           <>
             配信メッセージの自動短縮リンク（/t/…）に使うドメイン。例:{' '}
-            <code className="bg-gray-100 px-1 rounded">https://go.example.com</code>
-            {' '}→ リンクは <code className="bg-gray-100 px-1 rounded">https://go.example.com/t/Ab3xY9k</code> 形式に。
-            そのドメインの <code className="bg-gray-100 px-1 rounded">/t/*</code> をパスそのまま Worker へ転送する設定（Redirect Rule 等）が必要。詳細は wiki「Tracked Links」参照
+            <code className="bg-gray-100 px-1 rounded">https://go.example.com</code> → リンクは{' '}
+            <code className="bg-gray-100 px-1 rounded">https://go.example.com/t/Ab3xY9k</code> 形式に。 そのドメインの{' '}
+            <code className="bg-gray-100 px-1 rounded">/t/*</code> をパスそのまま Worker へ転送する設定（Redirect Rule
+            等）が必要。詳細は wiki「Tracked Links」参照
           </>
         }
         placeholder="https://go.example.com（空欄で Worker URL を使用）"
@@ -128,5 +134,5 @@ export default function LinkBaseUrlSetting() {
         save={api.accountSettings.updateTrackedLinkBaseUrl}
       />
     </>
-  )
+  );
 }

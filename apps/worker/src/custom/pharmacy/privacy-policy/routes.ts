@@ -3,11 +3,7 @@ import type { Env } from '../../../index.js';
 import { readJsonObject } from '../json.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { resolvePrescriptionPatient } from '../prescriptions/patient.js';
-import {
-  getEffectiveTenantPrivacyPolicy,
-  getTenantPrivacyPolicy,
-  saveTenantPrivacyPolicy,
-} from './repository.js';
+import { getEffectiveTenantPrivacyPolicy, getTenantPrivacyPolicy, saveTenantPrivacyPolicy } from './repository.js';
 
 type PrivacyPolicyEnv = {
   Bindings: Env['Bindings'];
@@ -27,10 +23,7 @@ pharmacyPrivacyPolicyRoutes.use('/api/liff/pharmacy/privacy-policy', async (c, n
 
 // Patient intake receives either the tenant-authored notice or the immutable baseline.
 pharmacyPrivacyPolicyRoutes.get('/api/liff/pharmacy/privacy-policy', async (c) => {
-  const policy = await getEffectiveTenantPrivacyPolicy(
-    c.env.DB,
-    c.get('privacyPolicyLineAccountId'),
-  );
+  const policy = await getEffectiveTenantPrivacyPolicy(c.env.DB, c.get('privacyPolicyLineAccountId'));
   return c.json({
     policy: policy && {
       purpose_text: policy.purpose_text,

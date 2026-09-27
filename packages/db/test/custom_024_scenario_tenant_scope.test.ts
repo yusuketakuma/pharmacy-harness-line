@@ -8,34 +8,47 @@ import { createScenario, getScenarios, getScenariosForAccount, getScenariosForTe
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function d1From(sqlite: Database.Database, afterWrite?: () => void): D1Database {
-  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true,
-      results: sqlite.prepare(sql).all(...values) as T[],
-      meta: {},
-    }) as D1Result<T>,
-    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
-    run: async () => {
-      const info = sqlite.prepare(sql).run(...values);
-      afterWrite?.();
-      return { success: true, meta: { changes: info.changes }, results: [] } as unknown as D1Result;
-    },
-  }) as unknown as D1PreparedStatement;
+  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement =>
+    ({
+      bind: (...next: unknown[]) => statement(sql, next),
+      first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
+      all: async <T>() =>
+        ({
+          success: true,
+          results: sqlite.prepare(sql).all(...values) as T[],
+          meta: {},
+        }) as D1Result<T>,
+      raw: async <T>() =>
+        sqlite
+          .prepare(sql)
+          .raw()
+          .all(...values) as T[],
+      run: async () => {
+        const info = sqlite.prepare(sql).run(...values);
+        afterWrite?.();
+        return {
+          success: true,
+          meta: { changes: info.changes },
+          results: [],
+        } as unknown as D1Result;
+      },
+    }) as unknown as D1PreparedStatement;
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 }
 
 function seedTenant(sqlite: Database.Database, suffix: 'a' | 'b'): void {
   const now = '2026-08-19T00:00:00.000+09:00';
-  sqlite.prepare(`INSERT INTO line_accounts
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(`account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+  sqlite
+    .prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
     VALUES (?, ?, ?, 'active', ?, ?)`)
     .run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
+  sqlite
+    .prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
     VALUES (?, ?, ?, ?)`)
     .run(`tenant-${suffix}`, `account-${suffix}`, now, now);
 }
@@ -47,7 +60,8 @@ function insertScenario(
   lineAccountId: string | null,
 ): void {
   const now = '2026-08-19T00:00:00.000+09:00';
-  sqlite.prepare(`INSERT INTO scenarios
+  sqlite
+    .prepare(`INSERT INTO scenarios
     (id, name, trigger_type, is_active, delivery_mode, tenant_id, line_account_id, created_at, updated_at)
     VALUES (?, ?, 'friend_add', 1, 'relative', ?, ?, ?, ?)`)
     .run(id, id, tenantId, lineAccountId, now, now);
@@ -68,24 +82,40 @@ describe('custom_024 scenario tenant scope (M-1)', () => {
   it('creates an inactive account-scoped scenario without an intermediate active/global row', async () => {
     const observed: unknown[] = [];
     try {
-      const created = await createScenario(d1From(sqlite, () => {
-        observed.push(sqlite.prepare('SELECT tenant_id, line_account_id, is_active FROM scenarios').get());
-      }), {
-        name: 'synthetic draft', triggerType: 'friend_add', tenantId: 'tenant-a',
-        lineAccountId: 'account-a', isActive: false,
-      });
+      const created = await createScenario(
+        d1From(sqlite, () => {
+          observed.push(sqlite.prepare('SELECT tenant_id, line_account_id, is_active FROM scenarios').get());
+        }),
+        {
+          name: 'synthetic draft',
+          triggerType: 'friend_add',
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          isActive: false,
+        },
+      );
       expect(observed).toEqual([{ tenant_id: 'tenant-a', line_account_id: 'account-a', is_active: 0 }]);
-      expect(created).toMatchObject({ tenant_id: 'tenant-a', line_account_id: 'account-a', is_active: 0 });
-    } finally { sqlite.close(); }
+      expect(created).toMatchObject({
+        tenant_id: 'tenant-a',
+        line_account_id: 'account-a',
+        is_active: 0,
+      });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('preserves the old create signature default of active and account-unassigned', async () => {
     try {
       const created = await createScenario(d1From(sqlite), {
-        name: 'legacy input', triggerType: 'manual', tenantId: 'tenant-a',
+        name: 'legacy input',
+        triggerType: 'manual',
+        tenantId: 'tenant-a',
       });
       expect(created).toMatchObject({ tenant_id: 'tenant-a', line_account_id: null, is_active: 1 });
-    } finally { sqlite.close(); }
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('never matches another tenant account-unassigned scenario', async () => {
@@ -145,5 +175,4 @@ describe('custom_024 scenario tenant scope (M-1)', () => {
     expect((await getScenariosForTenant(db, 'tenant-a')).map((r) => r.id)).toEqual(['scn-a-global']);
     expect((await getScenariosForTenant(db, null)).map((r) => r.id)).toEqual(['scn-orphan']);
   });
-
 });

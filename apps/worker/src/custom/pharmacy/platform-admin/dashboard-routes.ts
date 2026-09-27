@@ -4,8 +4,14 @@ import type { Env } from '../../../index.js';
 import { recordPlatformAdminAccess } from './audit.js';
 import { getPharmacyReadiness, type PharmacyReadinessStatus } from '../readiness.js';
 import {
-  ADMIN_HASH, BUNDLE_VERSION, LIFF_HASH, LIFF_PACKAGE_VERSION, RELEASED_AT,
-  WEB_PACKAGE_VERSION, WORKER_HASH, WORKER_PACKAGE_VERSION,
+  ADMIN_HASH,
+  BUNDLE_VERSION,
+  LIFF_HASH,
+  LIFF_PACKAGE_VERSION,
+  RELEASED_AT,
+  WEB_PACKAGE_VERSION,
+  WORKER_HASH,
+  WORKER_PACKAGE_VERSION,
 } from '../../../_version.js';
 
 /**
@@ -52,8 +58,9 @@ const utcCutoff = (ms: number) => new Date(Date.now() - ms).toISOString();
  */
 platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
   const admin = c.get('platformAdmin');
-  const [row, accountRows] = await Promise.all([c.env.DB.prepare(
-    `SELECT
+  const [row, accountRows] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT
        (SELECT COUNT(*) FROM tenants) AS total_tenants,
        (SELECT COUNT(*) FROM tenants WHERE status = 'active') AS active_tenants,
        (SELECT COUNT(*) FROM tenants WHERE status = 'suspended') AS suspended_tenants,
@@ -72,20 +79,26 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
                            FROM tenant_admin_sessions AS session
                           WHERE session.tenant_id = tenant.id), '') < ?)
          AS tenants_with_stale_activity`,
-  ).bind(jstCutoff(DAY_MS), new Date().toISOString(), utcCutoff(STALE_ACTIVITY_MS)).first<{
-      total_tenants: number;
-      active_tenants: number;
-      suspended_tenants: number;
-      webhook_failures_24h: number;
-      webhook_pending: number;
-      active_support_grants: number;
-      tenants_with_stale_activity: number;
-    }>(), c.env.DB.prepare(
-    `SELECT mapping.tenant_id, mapping.line_account_id
+    )
+      .bind(jstCutoff(DAY_MS), new Date().toISOString(), utcCutoff(STALE_ACTIVITY_MS))
+      .first<{
+        total_tenants: number;
+        active_tenants: number;
+        suspended_tenants: number;
+        webhook_failures_24h: number;
+        webhook_pending: number;
+        active_support_grants: number;
+        tenants_with_stale_activity: number;
+      }>(),
+    c.env.DB.prepare(
+      `SELECT mapping.tenant_id, mapping.line_account_id
        FROM tenant_line_accounts AS mapping
        INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
       ORDER BY mapping.tenant_id, mapping.line_account_id`,
-  ).bind().all<AccountReadinessRow>()]);
+    )
+      .bind()
+      .all<AccountReadinessRow>(),
+  ]);
 
   const checkedAt = new Date();
   const mappings = accountRows.results ?? [];
@@ -93,11 +106,14 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
     mappings.map((mapping) => getPharmacyReadiness(c.env.DB, mapping.line_account_id, checkedAt)),
   );
   const totalReadiness = emptyReadinessCounts();
-  const tenants = new Map<string, {
-    tenantId: string;
-    statusCounts: ReadinessCounts;
-    accounts: Array<{ accountId: string; checkedAt: string; statusCounts: ReadinessCounts }>;
-  }>();
+  const tenants = new Map<
+    string,
+    {
+      tenantId: string;
+      statusCounts: ReadinessCounts;
+      accounts: Array<{ accountId: string; checkedAt: string; statusCounts: ReadinessCounts }>;
+    }
+  >();
   for (const [index, mapping] of mappings.entries()) {
     const result = readinessResults[index];
     const readiness = result.status === 'fulfilled' ? result.value : null;
@@ -107,12 +123,15 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
         readiness.electronicPrescription.status,
         readiness.emergencyContraception.status,
         readiness.richMenu.status,
-      ]) statusCounts[status] += 1;
+      ])
+        statusCounts[status] += 1;
     } else {
       statusCounts.UNVERIFIED = 3;
     }
     const tenant = tenants.get(mapping.tenant_id) ?? {
-      tenantId: mapping.tenant_id, statusCounts: emptyReadinessCounts(), accounts: [],
+      tenantId: mapping.tenant_id,
+      statusCounts: emptyReadinessCounts(),
+      accounts: [],
     };
     addReadinessCounts(tenant.statusCounts, statusCounts);
     tenant.accounts.push({
@@ -165,9 +184,9 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
 platformAdminDashboardRoutes.get('/api/platform-admin/tenants/:id/health', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
-  const tenant = await c.env.DB.prepare(
-    `SELECT id FROM tenants WHERE id = ? LIMIT 1`,
-  ).bind(tenantId).first<{ id: string }>();
+  const tenant = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
+    .bind(tenantId)
+    .first<{ id: string }>();
   if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
 
   const webhookCutoff = jstCutoff(DAY_MS);
@@ -184,13 +203,15 @@ platformAdminDashboardRoutes.get('/api/platform-admin/tenants/:id/health', async
          INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
         WHERE mapping.tenant_id = ?
         ORDER BY account.id`,
-    ).bind(tenantId).all<{
-      id: string;
-      name: string;
-      is_active: number;
-      has_channel_identity: number;
-      last_webhook_at: string | null;
-    }>(),
+    )
+      .bind(tenantId)
+      .all<{
+        id: string;
+        name: string;
+        is_active: number;
+        has_channel_identity: number;
+        last_webhook_at: string | null;
+      }>(),
     c.env.DB.prepare(
       `SELECT
          (SELECT COUNT(*) FROM pharmacy_webhook_event_receipts
@@ -205,21 +226,18 @@ platformAdminDashboardRoutes.get('/api/platform-admin/tenants/:id/health', async
            WHERE tenant_id = ? AND revoked_at IS NULL AND expires_at > ?) AS active_session_count,
          (SELECT MAX(created_at) FROM tenant_admin_sessions
            WHERE tenant_id = ?) AS last_admin_login_at`,
-    ).bind(
-      tenantId, webhookCutoff, tenantId, webhookCutoff, tenantId,
-      tenantId, new Date().toISOString(), tenantId,
-    ).first<{
-      webhook_success_24h: number;
-      webhook_failed_24h: number;
-      active_staff_count: number;
-      active_session_count: number;
-      last_admin_login_at: string | null;
-    }>(),
+    )
+      .bind(tenantId, webhookCutoff, tenantId, webhookCutoff, tenantId, tenantId, new Date().toISOString(), tenantId)
+      .first<{
+        webhook_success_24h: number;
+        webhook_failed_24h: number;
+        active_staff_count: number;
+        active_session_count: number;
+        last_admin_login_at: string | null;
+      }>(),
   ]);
 
-  await recordPlatformAdminAccess(
-    c.env.DB, admin.id, tenantId, 'view_tenant_health', 'tenant', tenantId,
-  );
+  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_tenant_health', 'tenant', tenantId);
   return c.json({
     success: true,
     data: {
@@ -328,30 +346,33 @@ const INTEGRITY_CHECKS: Array<{
 /** GET /api/platform-admin/integrity — the fixed cross-tenant integrity checks. */
 platformAdminDashboardRoutes.get('/api/platform-admin/integrity', async (c) => {
   const admin = c.get('platformAdmin');
-  const checks = await Promise.all(INTEGRITY_CHECKS.map(async (check) => {
-    // json_group_array rather than group_concat so an id containing a comma
-    // cannot split into two fake samples. A redacted check selects no ids at
-    // all, so a patient identifier never leaves SQLite.
-    const sampleIds = check.redactSamples
-      ? `'[]'`
-      : `(SELECT json_group_array(id) FROM (SELECT id FROM violation LIMIT ${SAMPLE_LIMIT}))`;
-    const row = await c.env.DB.prepare(
-      `WITH violation AS (${check.select})
+  const checks = await Promise.all(
+    INTEGRITY_CHECKS.map(async (check) => {
+      // json_group_array rather than group_concat so an id containing a comma
+      // cannot split into two fake samples. A redacted check selects no ids at
+      // all, so a patient identifier never leaves SQLite.
+      const sampleIds = check.redactSamples
+        ? `'[]'`
+        : `(SELECT json_group_array(id) FROM (SELECT id FROM violation LIMIT ${SAMPLE_LIMIT}))`;
+      const row = await c.env.DB.prepare(
+        `WITH violation AS (${check.select})
        SELECT (SELECT COUNT(*) FROM violation) AS affected_count,
               ${sampleIds} AS sample_ids`,
-    ).bind(...(check.binds?.() ?? [])).first<{ affected_count: number; sample_ids: string }>();
-    const affectedCount = row?.affected_count ?? 0;
-    return {
-      name: check.name,
-      status: affectedCount === 0 ? 'ok' as const : check.severity,
-      affectedCount,
-      sampleIds: JSON.parse(row?.sample_ids ?? '[]') as string[],
-    };
-  }));
-
-  await recordPlatformAdminAccess(
-    c.env.DB, admin.id, null, 'run_integrity_check', undefined, undefined,
-    { failing: checks.filter((check) => check.status !== 'ok').map((check) => check.name) },
+      )
+        .bind(...(check.binds?.() ?? []))
+        .first<{ affected_count: number; sample_ids: string }>();
+      const affectedCount = row?.affected_count ?? 0;
+      return {
+        name: check.name,
+        status: affectedCount === 0 ? ('ok' as const) : check.severity,
+        affectedCount,
+        sampleIds: JSON.parse(row?.sample_ids ?? '[]') as string[],
+      };
+    }),
   );
+
+  await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'run_integrity_check', undefined, undefined, {
+    failing: checks.filter((check) => check.status !== 'ok').map((check) => check.name),
+  });
   return c.json({ success: true, data: checks });
 });

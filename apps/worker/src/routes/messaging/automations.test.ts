@@ -34,19 +34,17 @@ interface AutomationRow {
   line_account_id: string | null;
 }
 
-function setupApp(
-  db: D1Database,
-  options: { tenantId?: string; staffId?: string } = {},
-) {
+function setupApp(db: D1Database, options: { tenantId?: string; staffId?: string } = {}) {
   const app = new Hono<Env>();
   app.use('*', async (c, next) => {
     c.env = { DB: db } as Env['Bindings'];
     if (options.tenantId !== undefined) c.set('tenantId', options.tenantId);
-    if (options.staffId !== undefined) c.set('staff', {
-      id: options.staffId,
-      name: 'Staff',
-      role: 'staff',
-    });
+    if (options.staffId !== undefined)
+      c.set('staff', {
+        id: options.staffId,
+        name: 'Staff',
+        role: 'staff',
+      });
     await next();
   });
   app.route('/', automations);
@@ -79,8 +77,9 @@ describe('GET /api/automations?lineAccountId=X', () => {
     dbMocks.getAutomations.mockResolvedValue([rows[0]]);
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
 
-    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' })
-      .request('/api/automations?lineAccountId=acc-1');
+    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' }).request(
+      '/api/automations?lineAccountId=acc-1',
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       success: boolean;
@@ -96,12 +95,9 @@ describe('GET /api/automations?lineAccountId=X', () => {
 
   test('uses the server tenant when no lineAccountId is provided', async () => {
     const db = {} as D1Database;
-    dbMocks.getAutomations.mockResolvedValue([
-      { id: 'a-x', name: 'x', line_account_id: 'acc-a', ...rowBase },
-    ]);
+    dbMocks.getAutomations.mockResolvedValue([{ id: 'a-x', name: 'x', line_account_id: 'acc-a', ...rowBase }]);
 
-    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' })
-      .request('/api/automations');
+    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' }).request('/api/automations');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; data: { id: string }[] };
     expect(body.data.map((d) => d.id)).toEqual(['a-x']);
@@ -113,8 +109,9 @@ describe('GET /api/automations?lineAccountId=X', () => {
     dbMocks.getAutomations.mockResolvedValue([]);
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
 
-    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' })
-      .request('/api/automations?lineAccountId=acc-1');
+    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' }).request(
+      '/api/automations?lineAccountId=acc-1',
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; data: unknown[] };
     expect(body.data).toEqual([]);
@@ -124,8 +121,9 @@ describe('GET /api/automations?lineAccountId=X', () => {
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
     const db = {} as D1Database;
 
-    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' })
-      .request('/api/automations?lineAccountId=acc-b');
+    const res = await setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' }).request(
+      '/api/automations?lineAccountId=acc-b',
+    );
 
     expect(res.status).toBe(403);
     expect(dbMocks.getAutomations).not.toHaveBeenCalled();
@@ -253,11 +251,7 @@ describe('automation detail, logs, and mutations tenant boundary', () => {
     });
 
     expect([create.status, update.status]).toEqual([400, 400]);
-    expect(dbMocks.getTemplateById).toHaveBeenCalledWith(
-      expect.anything(),
-      'template-b',
-      'tenant-a',
-    );
+    expect(dbMocks.getTemplateById).toHaveBeenCalledWith(expect.anything(), 'template-b', 'tenant-a');
     expect(dbMocks.createAutomation).not.toHaveBeenCalled();
     expect(dbMocks.updateAutomation).not.toHaveBeenCalled();
   });
@@ -296,25 +290,23 @@ describe('automation detail, logs, and mutations tenant boundary', () => {
 
     expect(update.status).toBe(200);
     expect(remove.status).toBe(200);
-    expect(dbMocks.updateAutomation).toHaveBeenCalledWith(
-      expect.anything(), 'auto-a', { name: 'updated' }, 'tenant-a',
-    );
-    expect(dbMocks.deleteAutomation).toHaveBeenCalledWith(
-      expect.anything(), 'auto-a', 'tenant-a',
-    );
+    expect(dbMocks.updateAutomation).toHaveBeenCalledWith(expect.anything(), 'auto-a', { name: 'updated' }, 'tenant-a');
+    expect(dbMocks.deleteAutomation).toHaveBeenCalledWith(expect.anything(), 'auto-a', 'tenant-a');
   });
 
   test('does not expose historical event data or action errors in detail/log responses', async () => {
     dbMocks.getAutomationById.mockResolvedValue(owned);
-    dbMocks.getAutomationLogs.mockResolvedValue([{
-      id: 'log-a',
-      automation_id: 'auto-a',
-      friend_id: 'friend-a',
-      event_data: JSON.stringify({ text: 'patient-sensitive-text' }),
-      actions_result: JSON.stringify([{ action: 'send_webhook', success: false, error: 'secret-upstream-body' }]),
-      status: 'failed',
-      created_at: '2026-05-20T00:00:00.000',
-    }]);
+    dbMocks.getAutomationLogs.mockResolvedValue([
+      {
+        id: 'log-a',
+        automation_id: 'auto-a',
+        friend_id: 'friend-a',
+        event_data: JSON.stringify({ text: 'patient-sensitive-text' }),
+        actions_result: JSON.stringify([{ action: 'send_webhook', success: false, error: 'secret-upstream-body' }]),
+        status: 'failed',
+        created_at: '2026-05-20T00:00:00.000',
+      },
+    ]);
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
     const app = setupScoped();
 

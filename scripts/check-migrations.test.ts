@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  POLICY_CUTOFF_PREFIX,
-  checkMigration,
-  filterMigrationsByPolicy,
-} from './check-migrations';
+import { POLICY_CUTOFF_PREFIX, checkMigration, filterMigrationsByPolicy } from './check-migrations';
 
 describe('checkMigration', () => {
   it.each([
@@ -43,9 +39,9 @@ describe('checkMigration', () => {
   });
 
   it('allows additive CREATE TRIGGER migrations supported by the migration splitter', () => {
-    expect(checkMigration(
-      'CREATE TRIGGER audit AFTER INSERT ON friends BEGIN INSERT INTO logs VALUES (NEW.id); END;',
-    )).toEqual({ ok: true });
+    expect(
+      checkMigration('CREATE TRIGGER audit AFTER INSERT ON friends BEGIN INSERT INTO logs VALUES (NEW.id); END;'),
+    ).toEqual({ ok: true });
   });
   it('allows CREATE TABLE', () => {
     const sql = `CREATE TABLE foo (id INTEGER PRIMARY KEY, name TEXT);`;
@@ -168,18 +164,11 @@ describe('checkMigration', () => {
 });
 
 describe('filterMigrationsByPolicy', () => {
-  const sample = [
-    '001_v033_baseline.sql',
-    '002_custom_060_pharmacy_next.sql',
-    '003_future.sql',
-  ];
+  const sample = ['001_v033_baseline.sql', '002_custom_060_pharmacy_next.sql', '003_future.sql'];
 
   it('returns only files with prefix >= POLICY_CUTOFF_PREFIX by default', () => {
     expect(POLICY_CUTOFF_PREFIX).toBe('002');
-    expect(filterMigrationsByPolicy(sample)).toEqual([
-      '002_custom_060_pharmacy_next.sql',
-      '003_future.sql',
-    ]);
+    expect(filterMigrationsByPolicy(sample)).toEqual(['002_custom_060_pharmacy_next.sql', '003_future.sql']);
   });
 
   it('returns only files with prefix >= POLICY_CUTOFF_PREFIX when all is false', () => {

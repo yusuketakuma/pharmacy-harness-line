@@ -1,59 +1,66 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { api } from '@/lib/api'
-import ImageUploader from '@/components/shared/image-uploader'
+import { useState } from 'react';
+import { api } from '@/lib/api';
+import ImageUploader from '@/components/shared/image-uploader';
 
 export interface AutoReplyDraft {
-  id?: string
-  keyword: string
-  matchType: 'exact' | 'contains'
-  responseType: string
-  responseContent: string
-  templateId: string | null
-  lineAccountId: string | null
-  isActive: boolean
+  id?: string;
+  keyword: string;
+  matchType: 'exact' | 'contains';
+  responseType: string;
+  responseContent: string;
+  templateId: string | null;
+  lineAccountId: string | null;
+  isActive: boolean;
 }
 
 interface Props {
-  draft: AutoReplyDraft
-  templates: Array<{ id: string; name: string; messageType: string; messageContent: string }>
-  onClose: () => void
-  onSaved: () => void
+  draft: AutoReplyDraft;
+  templates: Array<{ id: string; name: string; messageType: string; messageContent: string }>;
+  onClose: () => void;
+  onSaved: () => void;
 }
 
-type ResponseMode = 'silent' | 'template' | 'inline-text' | 'inline-flex' | 'inline-image'
+type ResponseMode = 'silent' | 'template' | 'inline-text' | 'inline-flex' | 'inline-image';
 
 function detectMode(d: AutoReplyDraft): ResponseMode {
-  if (d.responseType === 'silent') return 'silent'
-  if (d.templateId) return 'template'
-  if (d.responseType === 'flex') return 'inline-flex'
-  if (d.responseType === 'image') return 'inline-image'
-  return 'inline-text'
+  if (d.responseType === 'silent') return 'silent';
+  if (d.templateId) return 'template';
+  if (d.responseType === 'flex') return 'inline-flex';
+  if (d.responseType === 'image') return 'inline-image';
+  return 'inline-text';
 }
 
 export default function EditDialog({ draft, templates, onClose, onSaved }: Props) {
-  const [keyword, setKeyword] = useState(draft.keyword)
-  const [matchType, setMatchType] = useState<'exact' | 'contains'>(draft.matchType)
-  const [mode, setMode] = useState<ResponseMode>(detectMode(draft))
-  const [templateId, setTemplateId] = useState<string | null>(draft.templateId)
-  const [responseContent, setResponseContent] = useState(draft.responseContent)
-  const [isActive, setIsActive] = useState(draft.isActive)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [keyword, setKeyword] = useState(draft.keyword);
+  const [matchType, setMatchType] = useState<'exact' | 'contains'>(draft.matchType);
+  const [mode, setMode] = useState<ResponseMode>(detectMode(draft));
+  const [templateId, setTemplateId] = useState<string | null>(draft.templateId);
+  const [responseContent, setResponseContent] = useState(draft.responseContent);
+  const [isActive, setIsActive] = useState(draft.isActive);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const flexTemplates = templates.filter((t) => t.messageType === 'flex')
-  const textTemplates = templates.filter((t) => t.messageType === 'text')
-  const imageTemplates = templates.filter((t) => t.messageType === 'image')
+  const flexTemplates = templates.filter((t) => t.messageType === 'flex');
+  const textTemplates = templates.filter((t) => t.messageType === 'text');
+  const imageTemplates = templates.filter((t) => t.messageType === 'image');
 
   const handleSave = async () => {
-    if (!keyword.trim()) { setError('keyword を入力してください'); return }
-    if (mode === 'template' && !templateId) { setError('template を選んでください'); return }
-    if ((mode === 'inline-text' || mode === 'inline-flex' || mode === 'inline-image') && !responseContent.trim()) {
-      setError('内容を入力してください'); return
+    if (!keyword.trim()) {
+      setError('keyword を入力してください');
+      return;
     }
-    setError('')
-    setSaving(true)
+    if (mode === 'template' && !templateId) {
+      setError('template を選んでください');
+      return;
+    }
+    if ((mode === 'inline-text' || mode === 'inline-flex' || mode === 'inline-image') && !responseContent.trim()) {
+      setError('内容を入力してください');
+      return;
+    }
+    setError('');
+    setSaving(true);
     try {
       const body: {
         keyword: string;
@@ -67,39 +74,43 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
         keyword,
         matchType,
         responseType:
-          mode === 'silent' ? 'silent'
-          : mode === 'inline-flex' ? 'flex'
-          : mode === 'inline-image' ? 'image'
-          : mode === 'template' ? 'text' /* placeholder, override below if template found */
-          : 'text',
+          mode === 'silent'
+            ? 'silent'
+            : mode === 'inline-flex'
+              ? 'flex'
+              : mode === 'inline-image'
+                ? 'image'
+                : mode === 'template'
+                  ? 'text' /* placeholder, override below if template found */
+                  : 'text',
         // template mode でも response_content / response_type を残す。template が
         // 削除された (ON DELETE SET NULL) ときの inline fallback として機能する。
         responseContent: mode === 'silent' ? '' : responseContent,
         templateId: mode === 'template' ? templateId : null,
         lineAccountId: draft.lineAccountId,
         isActive,
-      }
+      };
       if (mode === 'template' && templateId) {
-        const tpl = templates.find((t) => t.id === templateId)
+        const tpl = templates.find((t) => t.id === templateId);
         if (tpl) {
-          body.responseType = tpl.messageType
+          body.responseType = tpl.messageType;
           // template が削除された (ON DELETE SET NULL) ときの inline fallback として
           // 現時点の template content をスナップショット保存する。これがないと
           // template 削除後に webhook が空メッセージ送信になる。
-          body.responseContent = tpl.messageContent
+          body.responseContent = tpl.messageContent;
         }
       }
       if (draft.id) {
-        await api.autoReplies.update(draft.id, body)
+        await api.autoReplies.update(draft.id, body);
       } else {
-        await api.autoReplies.create(body)
+        await api.autoReplies.create(body);
       }
-      onSaved()
+      onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '保存に失敗しました')
+      setError(e instanceof Error ? e.message : '保存に失敗しました');
     }
-    setSaving(false)
-  }
+    setSaving(false);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -136,13 +147,15 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
           <div>
             <label className="block text-xs text-gray-600 mb-1">応答方法</label>
             <div className="flex flex-wrap gap-2">
-              {([
-                { key: 'silent', label: 'silent (返信なし)' },
-                { key: 'template', label: 'テンプレートから' },
-                { key: 'inline-text', label: 'テキスト直書き' },
-                { key: 'inline-flex', label: 'Flex JSON 直書き' },
-                { key: 'inline-image', label: '画像 (image JSON)' },
-              ] as const).map(({ key, label }) => (
+              {(
+                [
+                  { key: 'silent', label: 'silent (返信なし)' },
+                  { key: 'template', label: 'テンプレートから' },
+                  { key: 'inline-text', label: 'テキスト直書き' },
+                  { key: 'inline-flex', label: 'Flex JSON 直書き' },
+                  { key: 'inline-image', label: '画像 (image JSON)' },
+                ] as const
+              ).map(({ key, label }) => (
                 <button
                   key={key}
                   onClick={() => setMode(key)}
@@ -166,28 +179,38 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
                 {flexTemplates.length > 0 && (
                   <optgroup label="Flex">
                     {flexTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
                     ))}
                   </optgroup>
                 )}
                 {textTemplates.length > 0 && (
                   <optgroup label="テキスト">
                     {textTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
                     ))}
                   </optgroup>
                 )}
                 {imageTemplates.length > 0 && (
                   <optgroup label="画像">
                     {imageTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
                     ))}
                   </optgroup>
                 )}
               </select>
               {templates.length === 0 && (
                 <p className="text-[11px] text-amber-600 mt-1">
-                  テンプレートがありません。<a href="/templates" className="underline">/templates</a> で作成してください。
+                  テンプレートがありません。
+                  <a href="/templates" className="underline">
+                    /templates
+                  </a>{' '}
+                  で作成してください。
                 </p>
               )}
             </div>
@@ -210,25 +233,32 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
               mode="line-image"
               value={(() => {
                 try {
-                  const parsed = JSON.parse(responseContent) as { originalContentUrl?: string; previewImageUrl?: string }
+                  const parsed = JSON.parse(responseContent) as {
+                    originalContentUrl?: string;
+                    previewImageUrl?: string;
+                  };
                   if (parsed.originalContentUrl) {
                     return {
                       mode: 'line-image' as const,
                       originalContentUrl: parsed.originalContentUrl,
                       previewImageUrl: parsed.previewImageUrl ?? parsed.originalContentUrl,
-                    }
+                    };
                   }
-                } catch { /* ignore */ }
-                return null
+                } catch {
+                  /* ignore */
+                }
+                return null;
               })()}
               onChange={(v) => {
                 if (v?.mode === 'line-image') {
-                  setResponseContent(JSON.stringify({
-                    originalContentUrl: v.originalContentUrl,
-                    previewImageUrl: v.previewImageUrl,
-                  }))
+                  setResponseContent(
+                    JSON.stringify({
+                      originalContentUrl: v.originalContentUrl,
+                      previewImageUrl: v.previewImageUrl,
+                    }),
+                  );
                 } else {
-                  setResponseContent('')
+                  setResponseContent('');
                 }
               }}
               label="返信画像"
@@ -246,7 +276,12 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
         <div className="px-5 py-3 border-t flex gap-2 justify-end">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md">キャンセル</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md"
+          >
+            キャンセル
+          </button>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -258,5 +293,5 @@ export default function EditDialog({ draft, templates, onClose, onSaved }: Props
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -52,9 +52,7 @@ export default function Booking() {
         <DateTimePicker
           menuId={menu.id}
           staffId={staff.id}
-          ctaLabel={
-            isPeek ? '空き状況の確認モードです' : '確認画面で要望を入力してください'
-          }
+          ctaLabel={isPeek ? '空き状況の確認モードです' : '確認画面で要望を入力してください'}
           onSelect={(picked) => {
             setSlot(picked);
             if (isPeek) {
@@ -72,10 +70,7 @@ export default function Booking() {
           <p className="text-sm text-gray-600 mb-2">
             選択中: {slot.date} {slot.start}
           </p>
-          <button
-            onClick={exitPeekToBooking}
-            className="w-full bg-green-600 text-white py-3 rounded font-semibold"
-          >
+          <button onClick={exitPeekToBooking} className="w-full bg-green-600 text-white py-3 rounded font-semibold">
             この時間で予約に進む
           </button>
         </div>

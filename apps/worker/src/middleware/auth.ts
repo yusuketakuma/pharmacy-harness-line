@@ -68,20 +68,12 @@ export function csrfTokenFromCookie(c: Context<Env>): string | null {
 export { buildCookie } from './cookie.js';
 
 /** HttpOnly cookie carrying only an opaque password session. */
-export function adminSessionCookie(
-  token: string,
-  sameSite: AdminSameSite,
-  maxAgeSeconds = 8 * 60 * 60,
-): string {
+export function adminSessionCookie(token: string, sameSite: AdminSameSite, maxAgeSeconds = 8 * 60 * 60): string {
   return buildCookie(ADMIN_AUTH_COOKIE, token, sameSite, maxAgeSeconds, true);
 }
 
 /** HttpOnly tenant binding paired with the admin session credential. */
-export function tenantSessionCookie(
-  tenantId: string,
-  sameSite: AdminSameSite,
-  maxAgeSeconds = 8 * 60 * 60,
-): string {
+export function tenantSessionCookie(tenantId: string, sameSite: AdminSameSite, maxAgeSeconds = 8 * 60 * 60): string {
   return buildCookie(TENANT_COOKIE, tenantId, sameSite, maxAgeSeconds, true);
 }
 
@@ -93,22 +85,12 @@ export function tenantSessionCookie(
  * header against this cookie, which the browser does send back to the API
  * (SameSite=None).
  */
-export function csrfCookie(
-  token: string,
-  sameSite: AdminSameSite,
-  maxAgeSeconds = 8 * 60 * 60,
-): string {
+export function csrfCookie(token: string, sameSite: AdminSameSite, maxAgeSeconds = 8 * 60 * 60): string {
   return buildCookie(CSRF_COOKIE, token, sameSite, maxAgeSeconds, false);
 }
 
 export function expiredCookie(name: string, sameSite: AdminSameSite): string {
-  return buildCookie(
-    name,
-    '',
-    sameSite,
-    0,
-    name === ADMIN_AUTH_COOKIE || name === TENANT_COOKIE,
-  );
+  return buildCookie(name, '', sameSite, 0, name === ADMIN_AUTH_COOKIE || name === TENANT_COOKIE);
 }
 
 export type AuthenticatedStaff = {
@@ -142,16 +124,19 @@ async function resolvePlatformAdminTenant(
   const normalized = selector?.trim();
   if (!normalized) return null;
   try {
-    const tenant = await db.prepare(
-      `SELECT id, tenant_code, display_name
+    const tenant = await db
+      .prepare(
+        `SELECT id, tenant_code, display_name
          FROM tenants
         WHERE status = 'active' AND (id = ? OR tenant_code = ? COLLATE NOCASE)
         LIMIT 1`,
-    ).bind(normalized, normalized).first<{
-      id: string;
-      tenant_code: string;
-      display_name: string;
-    }>();
+      )
+      .bind(normalized, normalized)
+      .first<{
+        id: string;
+        tenant_code: string;
+        display_name: string;
+      }>();
     return tenant ? { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name } : null;
   } catch {
     return null;
@@ -170,8 +155,9 @@ export async function resolveAuthenticatedTenant(
   const normalized = selector?.trim();
   if (!normalized) return null;
   try {
-    const tenant = await db.prepare(
-      `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
+    const tenant = await db
+      .prepare(
+        `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
               EXISTS (
                 SELECT 1
                   FROM tenant_line_accounts AS mapping
@@ -180,20 +166,25 @@ export async function resolveAuthenticatedTenant(
          FROM tenants AS tenant
         WHERE status = 'active' AND (id = ? OR tenant_code = ? COLLATE NOCASE)
         LIMIT 1`,
-    ).bind(normalized, normalized).first<{
-      id: string;
-      tenant_code: string;
-      display_name: string;
-      pharmacy_mode: number;
-    }>();
+      )
+      .bind(normalized, normalized)
+      .first<{
+        id: string;
+        tenant_code: string;
+        display_name: string;
+        pharmacy_mode: number;
+      }>();
     if (!tenant) return null;
 
-    const membership = await db.prepare(
-      `SELECT role
+    const membership = await db
+      .prepare(
+        `SELECT role
          FROM tenant_staff_memberships
         WHERE tenant_id = ? AND staff_id = ? AND is_active = 1
         LIMIT 1`,
-    ).bind(tenant.id, staff.id).first<{ role: AuthenticatedStaff['role'] }>();
+      )
+      .bind(tenant.id, staff.id)
+      .first<{ role: AuthenticatedStaff['role'] }>();
     if (!membership) return null;
     return {
       staff: { ...staff, role: membership.role },
@@ -214,10 +205,7 @@ function setTenantIdentity(c: Context<Env>, identity: RequestIdentity): void {
   c.set('mustChangePassword', identity.mustChangePassword);
 }
 
-async function authenticateOpaqueSession(
-  c: Context<Env>,
-  token: string,
-): Promise<RequestIdentity | null> {
+async function authenticateOpaqueSession(c: Context<Env>, token: string): Promise<RequestIdentity | null> {
   try {
     const tokenHash = await hashTenantAdminSessionToken(token);
     const currentTime = new Date();
@@ -251,19 +239,21 @@ async function authenticateOpaqueSession(
                (session.session_kind = 'bootstrap' AND session.last_seen_at > ?) OR
                (session.session_kind = 'standard' AND session.last_seen_at > ?))
         LIMIT 1`,
-    ).bind(tokenHash, now, bootstrapIdleCutoff, standardIdleCutoff).first<{
-      id: string;
-      tenant_code: string;
-      display_name: string;
-      staff_id: string;
-      name: string;
-      principal_kind: 'human' | 'pharmacy_shared';
-      role: AuthenticatedStaff['role'];
-      must_change_password: number;
-      credential_version: number;
-      session_kind: 'bootstrap' | 'standard';
-      last_seen_at: string | null;
-    }>();
+    )
+      .bind(tokenHash, now, bootstrapIdleCutoff, standardIdleCutoff)
+      .first<{
+        id: string;
+        tenant_code: string;
+        display_name: string;
+        staff_id: string;
+        name: string;
+        principal_kind: 'human' | 'pharmacy_shared';
+        role: AuthenticatedStaff['role'];
+        must_change_password: number;
+        credential_version: number;
+        session_kind: 'bootstrap' | 'standard';
+        last_seen_at: string | null;
+      }>();
     if (!row || tenantToken(c) !== row.id) return null;
     const mustChangePassword = row.must_change_password === 1;
     if ((row.session_kind === 'bootstrap') !== mustChangePassword) return null;
@@ -271,7 +261,9 @@ async function authenticateOpaqueSession(
       `UPDATE tenant_admin_sessions
           SET last_seen_at = ?
         WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
-    ).bind(now, tokenHash, now).run();
+    )
+      .bind(now, tokenHash, now)
+      .run();
     return {
       staff: {
         id: row.staff_id,
@@ -295,9 +287,7 @@ async function authenticateRequest(
   cookie: string | null,
 ): Promise<RequestIdentity | null> {
   if (!bearer) {
-    return cookie && isTenantAdminSessionToken(cookie)
-      ? authenticateOpaqueSession(c, cookie)
-      : null;
+    return cookie && isTenantAdminSessionToken(cookie) ? authenticateOpaqueSession(c, cookie) : null;
   }
 
   if (isPlatformAdminSessionToken(bearer)) {
@@ -329,26 +319,21 @@ async function authenticateRequest(
 
   const staff = await authenticateApiToken(c, bearer);
   if (!staff) return null;
-  const identity = await resolveAuthenticatedTenant(
-    c.env.DB,
-    staff,
-    c.req.header(TENANT_HEADER),
-  );
-  return identity ? {
-    ...identity,
-    authMethod: 'api_key',
-    credentialVersion: null,
-    mustChangePassword: false,
-  } : null;
+  const identity = await resolveAuthenticatedTenant(c.env.DB, staff, c.req.header(TENANT_HEADER));
+  return identity
+    ? {
+        ...identity,
+        authMethod: 'api_key',
+        credentialVersion: null,
+        mustChangePassword: false,
+      }
+    : null;
 }
 
 /**
  * Resolve a Bearer integration token to a staff identity.
  */
-export async function authenticateApiToken(
-  c: Context<Env>,
-  token: string | null,
-): Promise<AuthenticatedStaff | null> {
+export async function authenticateApiToken(c: Context<Env>, token: string | null): Promise<AuthenticatedStaff | null> {
   if (!token) return null;
 
   const staff = await getStaffByApiKey(c.env.DB, token, c.env.STAFF_API_KEY_HASH_SECRET);
@@ -366,11 +351,7 @@ export async function authenticateApiToken(
   // check above already accepts it; this branch must skip to avoid false
   // LEGACY counters. Logs accept_via=LEGACY_API_KEY so operators can confirm
   // zero legacy usage before deleting the secret.
-  if (
-    c.env.LEGACY_API_KEY &&
-    c.env.LEGACY_API_KEY !== c.env.API_KEY &&
-    sameText(token, c.env.LEGACY_API_KEY)
-  ) {
+  if (c.env.LEGACY_API_KEY && c.env.LEGACY_API_KEY !== c.env.API_KEY && sameText(token, c.env.LEGACY_API_KEY)) {
     console.log('[auth] accept_via=LEGACY_API_KEY');
     return { id: 'env-owner', name: 'Owner', role: 'owner' };
   }
@@ -408,8 +389,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // unauthenticated LIFF caller receives the redacted public representation.
   // Crucially, this exception is method-aware: PUT/DELETE on the same path
   // must continue through the normal admin authentication below.
-  const isPublicFormDefinition =
-    method === 'GET' && /^\/api\/forms\/[^/]+$/.test(path);
+  const isPublicFormDefinition = method === 'GET' && /^\/api\/forms\/[^/]+$/.test(path);
   if (isPublicFormDefinition) {
     const identity = await authenticateRequest(c, bearerToken(c), adminSessionTokenFromCookie(c));
     if (identity && !identity.mustChangePassword) setTenantIdentity(c, identity);
@@ -431,12 +411,11 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // this namespace cannot silently bypass staff authentication.
   const isPrescriptionPatientAction =
     (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
-    (method === 'GET' && (
-      path === '/api/liff/pharmacy/prescriptions/me' ||
-      path === '/api/liff/pharmacy/prescriptions/recovery'
-    )) ||
+    (method === 'GET' &&
+      (path === '/api/liff/pharmacy/prescriptions/me' || path === '/api/liff/pharmacy/prescriptions/recovery')) ||
     (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
-    (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission|arrival)$/.test(path));
+    (method === 'POST' &&
+      /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission|arrival)$/.test(path));
   if (isPrescriptionPatientAction) return next();
 
   // custom:pharmacy-patient-timeline — read-only projection with its own
@@ -446,12 +425,13 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // custom:pharmacy-intake — patient profiles and intake revisions verify the
   // LINE ID token in their route middleware, just like prescription uploads.
   const isPharmacyIntakePatientAction =
-    path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST') ||
-    /^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
-      (method === 'GET' || method === 'POST' || method === 'PATCH') ||
-    method === 'GET' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/access$/.test(path) ||
-    method === 'POST' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/(privacy-consent|notification-preference)$/.test(path) ||
-    method === 'DELETE' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/proxy-grant$/.test(path);
+    (path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST')) ||
+    (/^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
+      (method === 'GET' || method === 'POST' || method === 'PATCH')) ||
+    (method === 'GET' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/access$/.test(path)) ||
+    (method === 'POST' &&
+      /^\/api\/liff\/pharmacy\/patients\/[^/]+\/(privacy-consent|notification-preference)$/.test(path)) ||
+    (method === 'DELETE' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/proxy-grant$/.test(path));
   if (isPharmacyIntakePatientAction) return next();
 
   // custom:pharmacy-myna — the handoff and self-report routes verify the
@@ -473,22 +453,21 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // custom:pharmacy-follow-up/emergency-contraception — patient actions use
   // the same route-level LINE identity verification as the LIFF routes above.
   const isMedicationFollowUpPatientAction =
-    (method === 'GET' && (
-      path === '/api/liff/pharmacy/medication-followups' ||
-      path === '/api/liff/pharmacy/medication-followups/outlook'
-    )) ||
+    (method === 'GET' &&
+      (path === '/api/liff/pharmacy/medication-followups' ||
+        path === '/api/liff/pharmacy/medication-followups/outlook')) ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/medication-followups\/[^/]+\/respond$/.test(path));
   const isEmergencyContraceptionPatientAction =
     (method === 'GET' && path === '/api/liff/pharmacy/emergency-contraception') ||
     (method === 'POST' && path === '/api/liff/pharmacy/emergency-contraception/intakes') ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/cancel$/.test(path));
   const isPublicProfilePatientAction =
-    method === 'GET' && (
-      path === '/api/liff/pharmacy/public-profile' ||
+    method === 'GET' &&
+    (path === '/api/liff/pharmacy/public-profile' ||
       path === '/api/liff/pharmacy/privacy-policy' ||
-      path === '/api/liff/pharmacy/feature-access'
-    );
-  if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction || isPublicProfilePatientAction) return next();
+      path === '/api/liff/pharmacy/feature-access');
+  if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction || isPublicProfilePatientAction)
+    return next();
 
   if (
     path === '/webhook' ||
@@ -506,14 +485,16 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     // Platform CLI provisioning authenticates with PLATFORM_ADMIN_KEY in-route.
     (path === '/api/platform/pharmacy/tenants' && method === 'POST') ||
     (path === '/api/platform/pharmacy/platform-admins' && method === 'POST') ||
+    (method === 'POST' && /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
+    (method === 'POST' && /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/cli-sessions(?:\/[^/]+\/revoke)?$/.test(path)) ||
     (method === 'POST' &&
-      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/credentials\/(?:backfill|scrub|restore)$/.test(
+        path,
+      )) ||
     (method === 'POST' &&
-      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/cli-sessions(?:\/[^/]+\/revoke)?$/.test(path)) ||
-    (method === 'POST' &&
-      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/credentials\/(?:backfill|scrub|restore)$/.test(path)) ||
-    (method === 'POST' &&
-      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/intake-encryption\/(?:coverage|backfill|freeze|scrub|restore)$/.test(path)) ||
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/intake-encryption\/(?:coverage|backfill|freeze|scrub|restore)$/.test(
+        path,
+      )) ||
     path.startsWith('/auth/') ||
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||
@@ -553,8 +534,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     }
   }
 
-  if (identity.mustChangePassword &&
-      path !== '/api/auth/session' && path !== '/api/auth/change-password') {
+  if (identity.mustChangePassword && path !== '/api/auth/session' && path !== '/api/auth/change-password') {
     return deny(c, 403, 'password_change_required', 'Password change required');
   }
 

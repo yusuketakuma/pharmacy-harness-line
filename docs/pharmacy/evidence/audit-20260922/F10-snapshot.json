@@ -1,0 +1,13 @@
+{
+  "P": "72fdd26",
+  "W": "af9a0822ef17f2f57557512c6fafabd0ea977b70",
+  "registration_schema_sha256": "c18133b643a5a04abde6d7c3c30e96dc2e3aa5d8572749bc2c5ec9981f3a1523",
+  "paths": {
+    "packages/db/src/scenarios.ts": "1541d6b1fc9ba86be17e057ae45b35b4052b7337f04e21b680a8be3676d46617",
+    "packages/db/test/custom_024_scenario_tenant_scope.test.ts": "237e8ea573c86f74444846c4102449781d9fe4afe9bb91f24f167532840cd9a5",
+    "apps/worker/src/routes/messaging/scenarios.ts": "12f79e752599f6a66a9bf6131fd6a234f06112d59b1159caa8f6ec96762b36dc",
+    "apps/worker/src/routes/messaging/scenarios.test.ts": "81fd40818456bae0095417d43c9f9f8562a2888a6c8c02fb8592b01a276446fe",
+    "packages/mcp-server/src/tools/create-scenario.ts": "ec0b83a8befda78a7bdc95ce669343f922241457a78b0ef2e22b9e5a26fc876f",
+    "packages/mcp-server/test/create-scenario.test.ts": "57f5f3fdb169af5fbcdc8ff5a9a1f418ff53563e81b6c41f9e092b930236a0a8"
+  }
+}

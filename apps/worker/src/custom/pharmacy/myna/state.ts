@@ -1,7 +1,4 @@
-export type MynaMethod =
-  | 'E_PRESCRIPTION'
-  | 'PAPER'
-  | 'MEDICAL_INSTITUTION_SENT';
+export type MynaMethod = 'E_PRESCRIPTION' | 'PAPER' | 'MEDICAL_INSTITUTION_SENT';
 
 export const MYNA_HANDOFF_STATUSES = [
   'CREATED',
@@ -15,13 +12,9 @@ export const MYNA_HANDOFF_STATUSES = [
   'CLOSED',
 ] as const;
 
-export type MynaHandoffStatus = typeof MYNA_HANDOFF_STATUSES[number];
+export type MynaHandoffStatus = (typeof MYNA_HANDOFF_STATUSES)[number];
 
-export type MynaPatientReport =
-  | 'COMPLETED'
-  | 'NO_PRESCRIPTION_FOUND'
-  | 'FAILED'
-  | 'SWITCH_TO_PAPER';
+export type MynaPatientReport = 'COMPLETED' | 'NO_PRESCRIPTION_FOUND' | 'FAILED' | 'SWITCH_TO_PAPER';
 
 export type MynaVerificationStatus =
   | 'NOT_CHECKED'
@@ -68,17 +61,15 @@ export function patientReportToStatus(result: MynaPatientReport): MynaHandoffSta
   return PATIENT_REPORT_STATUS[result];
 }
 
-export function canRecordMynaPatientReport(
-  status: MynaHandoffStatus,
-  result: MynaPatientReport,
-): boolean {
+export function canRecordMynaPatientReport(status: MynaHandoffStatus, result: MynaPatientReport): boolean {
   const next = patientReportToStatus(result);
   if (status === next) return true;
   if (status === 'CREATED' || status === 'LAUNCH_REQUESTED') return true;
-  return next === 'PAPER_FALLBACK' && (
-    status === 'PATIENT_REPORTED_COMPLETE' ||
-    status === 'PATIENT_REPORTED_NO_PRESCRIPTION' ||
-    status === 'SUPPORT_NEEDED'
+  return (
+    next === 'PAPER_FALLBACK' &&
+    (status === 'PATIENT_REPORTED_COMPLETE' ||
+      status === 'PATIENT_REPORTED_NO_PRESCRIPTION' ||
+      status === 'SUPPORT_NEEDED')
   );
 }
 
@@ -97,15 +88,11 @@ export function canRecordVerification(status: MynaVerificationStatus): boolean {
   return VERIFICATION_STATUSES.has(status);
 }
 
-export function verificationToReceiptStatus(
-  status: MynaVerificationStatus,
-): PrescriptionReceiptStatus {
+export function verificationToReceiptStatus(status: MynaVerificationStatus): PrescriptionReceiptStatus {
   return status === 'E_PRESCRIPTION_RECEIVED' ? 'RECEIVED' : 'EXPECTED';
 }
 
-export function verificationToHandoffStatus(
-  status: MynaVerificationStatus,
-): MynaHandoffStatus {
+export function verificationToHandoffStatus(status: MynaVerificationStatus): MynaHandoffStatus {
   if (status === 'E_PRESCRIPTION_RECEIVED') return 'CLOSED';
   if (status === 'PRESCRIPTION_EXPIRED') return 'EXPIRED';
   if (status === 'PAPER_FALLBACK') return 'PAPER_FALLBACK';

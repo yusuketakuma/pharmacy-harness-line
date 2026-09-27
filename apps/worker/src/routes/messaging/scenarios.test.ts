@@ -53,9 +53,7 @@ function makeScenarioDb(rows: ScenarioRow[]) {
           calls.push({ sql, binds: bound });
           if (/FROM scenarios s\b/i.test(sql) && /line_account_id IS NULL/i.test(sql)) {
             const [lineAccountId] = bound as [string];
-            const filtered = rows.filter(
-              (r) => r.line_account_id == null || r.line_account_id === lineAccountId,
-            );
+            const filtered = rows.filter((r) => r.line_account_id == null || r.line_account_id === lineAccountId);
             return { results: filtered };
           }
           return { results: [] };
@@ -95,18 +93,40 @@ beforeEach(() => {
 
 describe('POST /api/scenarios initial scope', () => {
   test('passes account and inactive state to the initial insert and returns the saved scope', async () => {
-    const row = { ...rowBase, id: 'scenario-a', name: 'draft', is_active: 0, line_account_id: 'account-a' };
+    const row = {
+      ...rowBase,
+      id: 'scenario-a',
+      name: 'draft',
+      is_active: 0,
+      line_account_id: 'account-a',
+    };
     dbMocks.createScenario.mockResolvedValue(row);
-    const prepare = vi.fn(() => { throw new Error('unexpected post-insert mutation'); });
+    const prepare = vi.fn(() => {
+      throw new Error('unexpected post-insert mutation');
+    });
     const response = await setupApp({ prepare } as unknown as D1Database, 'tenant-a').request('/api/scenarios', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'draft', triggerType: 'friend_add', lineAccountId: 'account-a', isActive: false }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'draft',
+        triggerType: 'friend_add',
+        lineAccountId: 'account-a',
+        isActive: false,
+      }),
     });
     expect(response.status).toBe(201);
-    expect(dbMocks.createScenario).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      tenantId: 'tenant-a', lineAccountId: 'account-a', isActive: false,
-    }));
-    expect((await response.json() as { data: unknown }).data).toMatchObject({ isActive: false, lineAccountId: 'account-a' });
+    expect(dbMocks.createScenario).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        isActive: false,
+      }),
+    );
+    expect(((await response.json()) as { data: unknown }).data).toMatchObject({
+      isActive: false,
+      lineAccountId: 'account-a',
+    });
     expect(prepare).not.toHaveBeenCalled();
     expect(dbMocks.updateScenario).not.toHaveBeenCalled();
   });
@@ -124,7 +144,10 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
 
     const res = await setupApp(db).request('/api/scenarios?lineAccountId=acc-1');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { success: boolean; data: { id: string; lineAccountId: string | null }[] };
+    const body = (await res.json()) as {
+      success: boolean;
+      data: { id: string; lineAccountId: string | null }[];
+    };
     expect(body.success).toBe(true);
     // webhook.ts:211 / liff.ts:878 trigger scenarios where line_account_id is
     // NULL (global) OR matches the active account. The list endpoint must
@@ -171,9 +194,7 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
   });
 
   test('returns empty array when filter matches nothing and no globals exist', async () => {
-    const rows: ScenarioRow[] = [
-      { id: 's-other', name: 'other', line_account_id: 'acc-other', ...rowBase },
-    ];
+    const rows: ScenarioRow[] = [{ id: 's-other', name: 'other', line_account_id: 'acc-other', ...rowBase }];
     const { db } = makeScenarioDb(rows);
     dbMocks.getScenariosForAccount.mockResolvedValue([]);
 
@@ -208,18 +229,38 @@ describe('scenario step template tenant boundary', () => {
       },
     } as unknown as D1Database;
     dbMocks.createScenarioStep.mockResolvedValue({
-      id: 'step-a', scenario_id: 'scenario-a', step_order: 1, delay_minutes: 0,
-      message_type: 'text', message_content: 'foreign', condition_type: null,
-      condition_value: null, next_step_on_false: null, offset_days: null,
-      offset_minutes: null, delivery_time: null, template_id: 'template-b',
-      on_reach_tag_id: null, created_at: '2026-08-31T00:00:00.000',
+      id: 'step-a',
+      scenario_id: 'scenario-a',
+      step_order: 1,
+      delay_minutes: 0,
+      message_type: 'text',
+      message_content: 'foreign',
+      condition_type: null,
+      condition_value: null,
+      next_step_on_false: null,
+      offset_days: null,
+      offset_minutes: null,
+      delivery_time: null,
+      template_id: 'template-b',
+      on_reach_tag_id: null,
+      created_at: '2026-08-31T00:00:00.000',
     });
     dbMocks.updateScenarioStep.mockResolvedValue({
-      id: 'step-a', scenario_id: 'scenario-a', step_order: 1, delay_minutes: 0,
-      message_type: 'text', message_content: 'foreign', condition_type: null,
-      condition_value: null, next_step_on_false: null, offset_days: null,
-      offset_minutes: null, delivery_time: null, template_id: 'template-b',
-      on_reach_tag_id: null, created_at: '2026-08-31T00:00:00.000',
+      id: 'step-a',
+      scenario_id: 'scenario-a',
+      step_order: 1,
+      delay_minutes: 0,
+      message_type: 'text',
+      message_content: 'foreign',
+      condition_type: null,
+      condition_value: null,
+      next_step_on_false: null,
+      offset_days: null,
+      offset_minutes: null,
+      delivery_time: null,
+      template_id: 'template-b',
+      on_reach_tag_id: null,
+      created_at: '2026-08-31T00:00:00.000',
     });
     const app = setupApp(db, 'tenant-a');
 

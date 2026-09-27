@@ -14,14 +14,10 @@ export const PHARMACY_SINGLE_ACTION_PROFILE_KEY = 'intake-single-action-v1';
 export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '5';
 export const PHARMACY_PREVIOUS_RICH_MENU_GENERATOR_VERSION = '3';
 export const PHARMACY_LEGACY_RICH_MENU_GENERATOR_VERSION = '1';
-export const PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg';
-export const PHARMACY_PREVIOUS_INITIAL_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-large-3x2-v3.jpg';
-export const PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-compact-3x1.jpg';
-export const PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-single-action-v1.jpg';
+export const PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH = '/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg';
+export const PHARMACY_PREVIOUS_INITIAL_RICH_MENU_IMAGE_PATH = '/custom/pharmacy/rich-menu/initial-large-3x2-v3.jpg';
+export const PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH = '/custom/pharmacy/rich-menu/initial-compact-3x1.jpg';
+export const PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH = '/custom/pharmacy/rich-menu/initial-single-action-v1.jpg';
 
 const WIDTH = 2500;
 const COMPACT_HEIGHT = 843;
@@ -54,10 +50,8 @@ function buildArea(liffId: string, cell: MenuCell, index: number) {
     boundsY: index < 3 ? 0 : COMPACT_HEIGHT,
     boundsWidth: COLUMN_WIDTHS[index % 3],
     boundsHeight: COMPACT_HEIGHT,
-    actionType: cell.page ? 'uri' as const : 'message' as const,
-    actionData: cell.page
-      ? { uri: liffPageUrl(liffId, cell.page) }
-      : { text: cell.label },
+    actionType: cell.page ? ('uri' as const) : ('message' as const),
+    actionData: cell.page ? { uri: liffPageUrl(liffId, cell.page) } : { text: cell.label },
   };
 }
 
@@ -68,9 +62,7 @@ const CATALOG_CELLS: Record<PharmacyRichMenuActionKey, MenuCell> = {
   'manual-chat': { page: null, label: '薬局へ相談' },
   'pharmacy-info': { page: 'pharmacy-info', label: '薬局情報' },
 };
-const LEGAL_CATALOG_ORDERS = new Set(
-  listPharmacyRichMenuVariantOrders().map((order) => order.join()),
-);
+const LEGAL_CATALOG_ORDERS = new Set(listPharmacyRichMenuVariantOrders().map((order) => order.join()));
 
 export function getPharmacyRichMenuCatalogPreview(
   liffId: string,
@@ -87,14 +79,15 @@ export function getPharmacyRichMenuCatalogPreview(
   }));
 }
 
-function buildCatalogAreas(
-  liffId: string,
-  orderedActions: readonly PharmacyRichMenuActionKey[],
-): RichMenuAreaInput[] {
+function buildCatalogAreas(liffId: string, orderedActions: readonly PharmacyRichMenuActionKey[]): RichMenuAreaInput[] {
   const presentation = getPharmacyRichMenuPresentation(orderedActions);
-  const cells = [...orderedActions.map((key) => CATALOG_CELLS[key]), {
-    page: 'pharmacy-menu', label: 'すべての機能',
-  }];
+  const cells = [
+    ...orderedActions.map((key) => CATALOG_CELLS[key]),
+    {
+      page: 'pharmacy-menu',
+      label: 'すべての機能',
+    },
+  ];
   return cells.map((cell, index) => {
     const bounds = presentation.bounds[index];
     return {
@@ -102,10 +95,8 @@ function buildCatalogAreas(
       boundsY: bounds.y,
       boundsWidth: bounds.width,
       boundsHeight: bounds.height,
-      actionType: cell.page ? 'uri' as const : 'message' as const,
-      actionData: cell.page
-        ? { uri: liffPageUrl(liffId, cell.page) }
-        : { text: cell.label },
+      actionType: cell.page ? ('uri' as const) : ('message' as const),
+      actionData: cell.page ? { uri: liffPageUrl(liffId, cell.page) } : { text: cell.label },
     };
   });
 }
@@ -146,8 +137,12 @@ export function diagnosePharmacyRichMenuActions(
   const reasons: string[] = [];
   orderedManifest(areas).forEach((area, index) => {
     const target = expected[index];
-    if (area.boundsX !== target.boundsX || area.boundsY !== target.boundsY ||
-        area.boundsWidth !== target.boundsWidth || area.boundsHeight !== target.boundsHeight) {
+    if (
+      area.boundsX !== target.boundsX ||
+      area.boundsY !== target.boundsY ||
+      area.boundsWidth !== target.boundsWidth ||
+      area.boundsHeight !== target.boundsHeight
+    ) {
       reasons.push('ACTION_BOUNDS_INVALID');
     }
     if (area.actionType !== target.actionType) {
@@ -161,18 +156,19 @@ export function diagnosePharmacyRichMenuActions(
   return [...new Set(reasons)];
 }
 
-export async function hashPharmacyRichMenuManifest(
-  areas: readonly RichMenuAreaInput[],
-): Promise<string> {
-  const canonical = areas.map((area) => ({
-    boundsX: area.boundsX,
-    boundsY: area.boundsY,
-    boundsWidth: area.boundsWidth,
-    boundsHeight: area.boundsHeight,
-    actionType: area.actionType,
-    actionData: Object.fromEntries(Object.entries(area.actionData).sort(([left], [right]) =>
-      left.localeCompare(right))),
-  })).sort((left, right) => left.boundsY - right.boundsY || left.boundsX - right.boundsX);
+export async function hashPharmacyRichMenuManifest(areas: readonly RichMenuAreaInput[]): Promise<string> {
+  const canonical = areas
+    .map((area) => ({
+      boundsX: area.boundsX,
+      boundsY: area.boundsY,
+      boundsWidth: area.boundsWidth,
+      boundsHeight: area.boundsHeight,
+      actionType: area.actionType,
+      actionData: Object.fromEntries(
+        Object.entries(area.actionData).sort(([left], [right]) => left.localeCompare(right)),
+      ),
+    }))
+    .sort((left, right) => left.boundsY - right.boundsY || left.boundsX - right.boundsX);
   return sha256Hex(JSON.stringify(canonical));
 }
 
@@ -183,15 +179,13 @@ export type PharmacyRichMenuSlotDiff = {
 };
 
 function orderedManifest(areas: readonly RichMenuAreaInput[]) {
-  return [...areas].sort((left, right) =>
-    left.boundsY - right.boundsY || left.boundsX - right.boundsX,
-  );
+  return [...areas].sort((left, right) => left.boundsY - right.boundsY || left.boundsX - right.boundsX);
 }
 
 function actionIdentity(area: RichMenuAreaInput): string {
-  return `${area.actionType}:${JSON.stringify(Object.fromEntries(
-    Object.entries(area.actionData).sort(([left], [right]) => left.localeCompare(right)),
-  ))}`;
+  return `${area.actionType}:${JSON.stringify(
+    Object.fromEntries(Object.entries(area.actionData).sort(([left], [right]) => left.localeCompare(right))),
+  )}`;
 }
 
 export function diffPharmacyRichMenuManifests(
@@ -213,9 +207,7 @@ export function diffPharmacyRichMenuManifests(
   });
   draft.forEach((action, draftIndex) => {
     if (slots[draftIndex]) return;
-    const currentIndex = current.findIndex((candidate, index) =>
-      !usedCurrent.has(index) && candidate === action,
-    );
+    const currentIndex = current.findIndex((candidate, index) => !usedCurrent.has(index) && candidate === action);
     if (currentIndex >= 0) {
       usedCurrent.add(currentIndex);
       slots[draftIndex] = { kind: 'moved', currentIndex, draftIndex };
@@ -244,10 +236,7 @@ export function diffPharmacyRichMenuManifests(
   return { imageChanged, slots: result };
 }
 
-export function buildPharmacyInitialRichMenu(
-  accountId: string,
-  liffId: string,
-): CreateRichMenuGroupInput {
+export function buildPharmacyInitialRichMenu(accountId: string, liffId: string): CreateRichMenuGroupInput {
   return buildLargeInitialRichMenu(
     accountId,
     liffId,
@@ -257,10 +246,7 @@ export function buildPharmacyInitialRichMenu(
   );
 }
 
-export function buildPharmacyPreviousInitialRichMenu(
-  accountId: string,
-  liffId: string,
-): CreateRichMenuGroupInput {
+export function buildPharmacyPreviousInitialRichMenu(accountId: string, liffId: string): CreateRichMenuGroupInput {
   return buildLargeInitialRichMenu(
     accountId,
     liffId,
@@ -297,18 +283,17 @@ function buildLargeInitialRichMenu(
     selected: true,
     generatorKey,
     generatorVersion,
-    pages: [{
-      name: '初期メニュー',
-      orderIndex: 0,
-      areas,
-    }],
+    pages: [
+      {
+        name: '初期メニュー',
+        orderIndex: 0,
+        areas,
+      },
+    ],
   };
 }
 
-export function buildPharmacyLegacyInitialRichMenu(
-  accountId: string,
-  liffId: string,
-): CreateRichMenuGroupInput {
+export function buildPharmacyLegacyInitialRichMenu(accountId: string, liffId: string): CreateRichMenuGroupInput {
   requireRichMenuInput(accountId, liffId);
   const columns = [
     { page: 'pharmacy-receive', label: 'お薬を受け取る' },
@@ -342,29 +327,33 @@ export function buildPharmacySingleActionRichMenu(
     selected,
     generatorKey: PHARMACY_SINGLE_ACTION_PROFILE_KEY,
     generatorVersion: PHARMACY_LEGACY_RICH_MENU_GENERATOR_VERSION,
-    pages: [{
-      name: '処方せんを送る',
-      orderIndex: 0,
-      areas: [{
-        boundsX: 0,
-        boundsY: 0,
-        boundsWidth: WIDTH,
-        boundsHeight: COMPACT_HEIGHT,
-        actionType: 'uri',
-        actionData: { uri: liffPageUrl(liffId, 'pharmacy-prescription-send') },
-      }],
-    }],
+    pages: [
+      {
+        name: '処方せんを送る',
+        orderIndex: 0,
+        areas: [
+          {
+            boundsX: 0,
+            boundsY: 0,
+            boundsWidth: WIDTH,
+            boundsHeight: COMPACT_HEIGHT,
+            actionType: 'uri',
+            actionData: { uri: liffPageUrl(liffId, 'pharmacy-prescription-send') },
+          },
+        ],
+      },
+    ],
   };
 }
 
 export function isPharmacyInitialRichMenuProfile(profileKey: string | undefined): boolean {
-  return profileKey === undefined || profileKey === PHARMACY_INITIAL_PROFILE_KEY ||
+  return (
+    profileKey === undefined ||
+    profileKey === PHARMACY_INITIAL_PROFILE_KEY ||
     profileKey === PHARMACY_PREVIOUS_INITIAL_PROFILE_KEY ||
     profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY ||
-    profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY;
+    profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
+  );
 }
 
-export {
-  WIDTH as PHARMACY_RICH_MENU_WIDTH,
-  LARGE_HEIGHT as PHARMACY_RICH_MENU_HEIGHT,
-};
+export { WIDTH as PHARMACY_RICH_MENU_WIDTH, LARGE_HEIGHT as PHARMACY_RICH_MENU_HEIGHT };

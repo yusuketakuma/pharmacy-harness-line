@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
-import UserRow, { type UserRowData } from './user-row'
+import UserRow, { type UserRowData } from './user-row';
 
-const fmt = new Intl.NumberFormat('ja-JP')
+const fmt = new Intl.NumberFormat('ja-JP');
 
 const ACCOUNT_BADGE_COLORS = [
   'bg-emerald-100 text-emerald-700',
@@ -11,40 +11,30 @@ const ACCOUNT_BADGE_COLORS = [
   'bg-amber-100 text-amber-700',
   'bg-rose-100 text-rose-700',
   'bg-slate-100 text-slate-700',
-]
+];
 
 interface Props {
-  rows: UserRowData[]
-  total: number
-  page: number
-  pageSize: number
-  loading: boolean
-  onPageChange: (page: number) => void
+  rows: UserRowData[];
+  total: number;
+  page: number;
+  pageSize: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
 }
 
-export default function UsersTable({
-  rows,
-  total,
-  page,
-  pageSize,
-  loading,
-  onPageChange,
-}: Props) {
-  const accountColorMap = new Map<string, string>()
+export default function UsersTable({ rows, total, page, pageSize, loading, onPageChange }: Props) {
+  const accountColorMap = new Map<string, string>();
   for (const row of rows) {
     for (const a of row.accounts) {
       if (!accountColorMap.has(a.accountId)) {
-        accountColorMap.set(
-          a.accountId,
-          ACCOUNT_BADGE_COLORS[accountColorMap.size % ACCOUNT_BADGE_COLORS.length],
-        )
+        accountColorMap.set(a.accountId, ACCOUNT_BADGE_COLORS[accountColorMap.size % ACCOUNT_BADGE_COLORS.length]);
       }
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const end = Math.min(total, page * pageSize)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
 
   return (
     <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200">
@@ -68,9 +58,7 @@ export default function UsersTable({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <UserRow key={row.identityKey} row={row} accountColorMap={accountColorMap} />
-              ))
+              rows.map((row) => <UserRow key={row.identityKey} row={row} accountColorMap={accountColorMap} />)
             )}
           </tbody>
         </table>
@@ -102,5 +90,5 @@ export default function UsersTable({
         </div>
       </div>
     </div>
-  )
+  );
 }

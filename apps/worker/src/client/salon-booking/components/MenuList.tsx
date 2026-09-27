@@ -20,10 +20,7 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
       <div className="sb-card text-center" style={{ animation: 'sb-fade-in 0.3s' }}>
         <p className="text-red-600 text-sm mb-3">メニュー情報の取得に失敗しました</p>
         <p className="text-gray-500 text-xs mb-4">{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="text-sm font-semibold sb-line-green-text underline"
-        >
+        <button onClick={() => window.location.reload()} className="text-sm font-semibold sb-line-green-text underline">
           再読み込み
         </button>
       </div>
@@ -38,11 +35,7 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
     );
   }
   if (menus.length === 0) {
-    return (
-      <div className="sb-card text-center text-sm text-gray-500">
-        まだメニューが登録されていません
-      </div>
-    );
+    return <div className="sb-card text-center text-sm text-gray-500">まだメニューが登録されていません</div>;
   }
 
   const grouped = new Map<string, MenuItem[]>();
@@ -60,9 +53,7 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
       </div>
       {[...grouped.entries()].map(([cat, items]) => (
         <section key={cat} className="space-y-2">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
-            {cat}
-          </h2>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">{cat}</h2>
           <ul className="space-y-2">
             {items.map((m) => (
               <li key={m.id}>
@@ -74,9 +65,7 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900">{m.name}</div>
-                      {m.description && (
-                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">{m.description}</p>
-                      )}
+                      {m.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{m.description}</p>}
                       <div className="text-xs text-gray-400 mt-2">
                         所要 {m.duration_minutes}分
                         {m.buffer_after_minutes > 0 && (
@@ -85,9 +74,7 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="font-bold sb-line-green-text tabular-nums">
-                        ¥{m.base_price.toLocaleString()}
-                      </div>
+                      <div className="font-bold sb-line-green-text tabular-nums">¥{m.base_price.toLocaleString()}</div>
                       <div className="text-xs text-gray-300">〜</div>
                     </div>
                   </div>

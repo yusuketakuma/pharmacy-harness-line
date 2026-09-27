@@ -61,9 +61,7 @@ export async function getPharmacyBetaSchemaState(db: D1Database): Promise<Pharma
     if (typeof capabilityStatement.all !== 'function') return 'ready';
     await capabilityStatement.all();
   } catch (error) {
-    return error instanceof Error && MISSING_SCHEMA_RE.test(error.message)
-      ? 'legacy'
-      : 'unavailable';
+    return error instanceof Error && MISSING_SCHEMA_RE.test(error.message) ? 'legacy' : 'unavailable';
   }
   try {
     const membershipStatement = db.prepare(
@@ -81,10 +79,13 @@ export async function getPharmacyBetaSchemaState(db: D1Database): Promise<Pharma
 /** null means the new migration cannot be read; callers must fail closed. */
 export async function getPharmacyBetaEnabled(db: D1Database, lineAccountId: string): Promise<boolean | null> {
   try {
-    const row = await db.prepare(
-      `SELECT beta_enabled FROM pharmacy_account_capabilities
+    const row = await db
+      .prepare(
+        `SELECT beta_enabled FROM pharmacy_account_capabilities
         WHERE line_account_id = ? AND mode = 'pharmacy'`,
-    ).bind(lineAccountId).first<{ beta_enabled: number }>();
+      )
+      .bind(lineAccountId)
+      .first<{ beta_enabled: number }>();
     return row?.beta_enabled === 1;
   } catch (error) {
     // The additive gate is disabled until this migration is present. This
@@ -109,20 +110,23 @@ export async function hasActivePharmacyBetaMembership(
   const now = (input.now ?? new Date()).toISOString();
   const subject = input.subjectPatientId ? ' AND subject_patient_id = ?' : '';
   try {
-    const row = await db.prepare(
-      `SELECT 1 AS active
+    const row = await db
+      .prepare(
+        `SELECT 1 AS active
          FROM pharmacy_beta_memberships
         WHERE line_account_id = ? AND participant_friend_id = ?
           AND status = 'active'
           AND starts_at <= ? AND expires_at > ?${subject}
         LIMIT 1`,
-    ).bind(
-      input.lineAccountId,
-      input.participantFriendId,
-      now,
-      now,
-      ...(input.subjectPatientId ? [input.subjectPatientId] : []),
-    ).first<{ active: number }>();
+      )
+      .bind(
+        input.lineAccountId,
+        input.participantFriendId,
+        now,
+        now,
+        ...(input.subjectPatientId ? [input.subjectPatientId] : []),
+      )
+      .first<{ active: number }>();
     return row?.active === 1;
   } catch {
     return false;
@@ -141,18 +145,16 @@ export async function getPharmacyBetaNotificationBinding(
   },
 ): Promise<string | null> {
   try {
-    const row = await db.prepare(
-      `SELECT membership_id
+    const row = await db
+      .prepare(
+        `SELECT membership_id
          FROM pharmacy_beta_notification_bindings
         WHERE line_account_id = ? AND retry_key = ?
           AND participant_friend_id = ? AND subject_patient_id = ?
         LIMIT 1`,
-    ).bind(
-      input.lineAccountId,
-      input.retryKey,
-      input.participantFriendId,
-      input.subjectPatientId,
-    ).first<{ membership_id: string }>();
+      )
+      .bind(input.lineAccountId, input.retryKey, input.participantFriendId, input.subjectPatientId)
+      .first<{ membership_id: string }>();
     return row?.membership_id ?? null;
   } catch (error) {
     // An old schema has no binding table, but a transient D1 failure must not
@@ -174,24 +176,31 @@ export async function getPharmacyBetaMembershipDeliveryState(
 ): Promise<PharmacyBetaMembershipDeliveryState> {
   const now = input.now ?? new Date();
   try {
-    const row = await db.prepare(
-      `SELECT status, starts_at, expires_at
+    const row = await db
+      .prepare(
+        `SELECT status, starts_at, expires_at
         FROM pharmacy_beta_memberships
         WHERE line_account_id = ? AND participant_friend_id = ?
           AND subject_patient_id = ? AND id = ?
         ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'suspended' THEN 1 ELSE 2 END,
                  updated_at DESC, id DESC
         LIMIT 1`,
-    ).bind(
-      input.lineAccountId,
-      input.participantFriendId,
-      input.subjectPatientId,
-      input.membershipId,
-    ).first<{ status: 'active' | 'suspended' | 'revoked'; starts_at: string; expires_at: string }>();
+      )
+      .bind(input.lineAccountId, input.participantFriendId, input.subjectPatientId, input.membershipId)
+      .first<{
+        status: 'active' | 'suspended' | 'revoked';
+        starts_at: string;
+        expires_at: string;
+      }>();
     const startsAt = Date.parse(row?.starts_at ?? '');
     const expiresAt = Date.parse(row?.expires_at ?? '');
-    if (!row || !Number.isFinite(startsAt) || !Number.isFinite(expiresAt) ||
-        startsAt > now.getTime() || expiresAt <= now.getTime()) {
+    if (
+      !row ||
+      !Number.isFinite(startsAt) ||
+      !Number.isFinite(expiresAt) ||
+      startsAt > now.getTime() ||
+      expiresAt <= now.getTime()
+    ) {
       return 'blocked';
     }
     return row.status === 'suspended' ? 'suspended' : row.status === 'active' ? 'active' : 'blocked';
@@ -208,10 +217,13 @@ export async function canUsePharmacyBetaParticipant(
 ): Promise<boolean> {
   const enabled = await getPharmacyBetaEnabled(db, lineAccountId);
   if (enabled === null) return false;
-  return !enabled || await hasActivePharmacyBetaMembership(db, {
-    lineAccountId,
-    participantFriendId,
-  });
+  return (
+    !enabled ||
+    (await hasActivePharmacyBetaMembership(db, {
+      lineAccountId,
+      participantFriendId,
+    }))
+  );
 }
 
 function auditGuard(
@@ -246,12 +258,15 @@ export async function listPharmacyBetaMemberships(
   lineAccountId: string,
   now = new Date(),
 ): Promise<PharmacyBetaMembership[]> {
-  const result = await db.prepare(
-    `${MEMBERSHIP_SELECT}
+  const result = await db
+    .prepare(
+      `${MEMBERSHIP_SELECT}
       WHERE line_account_id = ?
       ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'suspended' THEN 1 ELSE 2 END,
                expires_at, id`,
-  ).bind(lineAccountId).all<MembershipRow>();
+    )
+    .bind(lineAccountId)
+    .all<MembershipRow>();
   return (result.results ?? []).map((row) => toMembership(row, now));
 }
 
@@ -261,11 +276,14 @@ export async function getPharmacyBetaMembership(
   membershipId: string,
   now = new Date(),
 ): Promise<PharmacyBetaMembership | null> {
-  const row = await db.prepare(
-    `${MEMBERSHIP_SELECT}
+  const row = await db
+    .prepare(
+      `${MEMBERSHIP_SELECT}
       WHERE id = ? AND line_account_id = ?
       LIMIT 1`,
-  ).bind(membershipId, lineAccountId).first<MembershipRow>();
+    )
+    .bind(membershipId, lineAccountId)
+    .first<MembershipRow>();
   return row ? toMembership(row, now) : null;
 }
 
@@ -279,24 +297,26 @@ export async function grantPharmacyBetaMembership(
     now?: Date;
   },
 ): Promise<PharmacyBetaMembership> {
-  if (!validInputId(input.lineAccountId) || !validInputId(input.patientId) ||
-      !validInputId(input.actorStaffId)) {
+  if (!validInputId(input.lineAccountId) || !validInputId(input.patientId) || !validInputId(input.actorStaffId)) {
     throw new Error('invalid beta membership');
   }
   const nowDate = input.now ?? new Date();
   const expiresAt = validExpiry(input.expiresAt, nowDate);
   if (!expiresAt) throw new Error('invalid beta membership expiry');
 
-  const patient = await db.prepare(
-    `SELECT id, owner_friend_id, relationship
+  const patient = await db
+    .prepare(
+      `SELECT id, owner_friend_id, relationship
        FROM pharmacy_patients
       WHERE id = ? AND line_account_id = ? AND archived_at IS NULL
       LIMIT 1`,
-  ).bind(input.patientId, input.lineAccountId).first<{
-    id: string;
-    owner_friend_id: string;
-    relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other';
-  }>();
+    )
+    .bind(input.patientId, input.lineAccountId)
+    .first<{
+      id: string;
+      owner_friend_id: string;
+      relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other';
+    }>();
   if (!patient) throw new Error('patient not found');
   if (patient.relationship !== 'self' && patient.relationship !== 'child') {
     throw new Error('adult family verification required');
@@ -306,8 +326,9 @@ export async function grantPharmacyBetaMembership(
   const membershipId = crypto.randomUUID();
   const transitionId = crypto.randomUUID();
   const accessKind = patient.relationship === 'self' ? 'self' : 'family';
-  const insert = db.prepare(
-    `INSERT INTO pharmacy_beta_memberships
+  const insert = db
+    .prepare(
+      `INSERT INTO pharmacy_beta_memberships
        (id, line_account_id, participant_friend_id, subject_patient_id,
         subject_owner_friend_id, access_kind, status, starts_at, expires_at,
         version, last_transition_id, created_at, updated_at)
@@ -331,18 +352,20 @@ export async function grantPharmacyBetaMembership(
                    AND unixepoch(proxy.expires_at) > unixepoch(?)
               ))
         )`,
-  ).bind(
-    membershipId, now, expiresAt, transitionId, now, now,
-    input.patientId, input.lineAccountId, now, now,
+    )
+    .bind(membershipId, now, expiresAt, transitionId, now, now, input.patientId, input.lineAccountId, now, now);
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action: 'beta_membership_granted',
+      resourceType: 'beta_membership',
+      resourceId: membershipId,
+      detail: { accessKind, status: 'active' },
+    },
+    auditGuard(membershipId, input.lineAccountId, 1, 'active', transitionId),
   );
-  const audit = tenantAuditStatement(db, {
-    lineAccountId: input.lineAccountId,
-    actorStaffId: input.actorStaffId,
-    action: 'beta_membership_granted',
-    resourceType: 'beta_membership',
-    resourceId: membershipId,
-    detail: { accessKind, status: 'active' },
-  }, auditGuard(membershipId, input.lineAccountId, 1, 'active', transitionId));
 
   let results: D1Result[];
   try {
@@ -353,8 +376,7 @@ export async function grantPharmacyBetaMembership(
     }
     throw error;
   }
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('beta membership grant conflict');
   }
   const saved = await getPharmacyBetaMembership(db, input.lineAccountId, membershipId, nowDate);
@@ -374,13 +396,16 @@ export async function transitionPharmacyBetaMembership(
     now?: Date;
   },
 ): Promise<PharmacyBetaMembership> {
-  if (!validInputId(input.lineAccountId) || !validInputId(input.membershipId) ||
-      !validInputId(input.actorStaffId) || !Number.isSafeInteger(input.expectedVersion) ||
-      input.expectedVersion < 1) {
+  if (
+    !validInputId(input.lineAccountId) ||
+    !validInputId(input.membershipId) ||
+    !validInputId(input.actorStaffId) ||
+    !Number.isSafeInteger(input.expectedVersion) ||
+    input.expectedVersion < 1
+  ) {
     throw new Error('invalid beta membership transition');
   }
-  if (input.action === 'revoke' &&
-      (!input.reasonCode || !REASON_PATTERN.test(input.reasonCode))) {
+  if (input.action === 'revoke' && (!input.reasonCode || !REASON_PATTERN.test(input.reasonCode))) {
     throw new Error('invalid beta membership revoke reason');
   }
   const nowDate = input.now ?? new Date();
@@ -392,62 +417,74 @@ export async function transitionPharmacyBetaMembership(
     throw new Error('beta membership expired');
   }
 
-  const expectedStatus = input.action === 'suspend' ? 'active' :
-    input.action === 'resume' ? 'suspended' : null;
+  const expectedStatus = input.action === 'suspend' ? 'active' : input.action === 'resume' ? 'suspended' : null;
   if (expectedStatus && current.status !== expectedStatus) {
     throw new Error('beta membership transition conflict');
   }
-  const nextStatus = input.action === 'suspend' ? 'suspended' :
-    input.action === 'resume' ? 'active' : 'revoked';
+  const nextStatus = input.action === 'suspend' ? 'suspended' : input.action === 'resume' ? 'active' : 'revoked';
   const now = nowDate.toISOString();
   const transitionId = crypto.randomUUID();
-  const update = input.action === 'revoke'
-    ? db.prepare(
-      `UPDATE pharmacy_beta_memberships
+  const update =
+    input.action === 'revoke'
+      ? db
+          .prepare(
+            `UPDATE pharmacy_beta_memberships
           SET status = 'revoked', revoked_at = ?, revoke_reason_code = ?,
               version = version + 1, last_transition_id = ?, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND status IN ('active','suspended')
           AND version = ? AND revoked_at IS NULL`,
-    ).bind(
-      now, input.reasonCode, transitionId, now,
-      input.membershipId, input.lineAccountId, input.expectedVersion,
-    )
-    : db.prepare(
-      `UPDATE pharmacy_beta_memberships
+          )
+          .bind(
+            now,
+            input.reasonCode,
+            transitionId,
+            now,
+            input.membershipId,
+            input.lineAccountId,
+            input.expectedVersion,
+          )
+      : db
+          .prepare(
+            `UPDATE pharmacy_beta_memberships
           SET status = ?, version = version + 1,
               last_transition_id = ?, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND status = ?
           AND expires_at > ? AND version = ? AND revoked_at IS NULL`,
-    ).bind(
-      nextStatus, transitionId, now, input.membershipId, input.lineAccountId,
-      expectedStatus, now, input.expectedVersion,
-    );
-  const audit = tenantAuditStatement(db, {
-    lineAccountId: input.lineAccountId,
-    actorStaffId: input.actorStaffId,
-    action: input.action === 'suspend'
-      ? 'beta_membership_suspended'
-      : input.action === 'resume'
-        ? 'beta_membership_resumed'
-        : 'beta_membership_revoked',
-    resourceType: 'beta_membership',
-    resourceId: input.membershipId,
-    detail: {
-      fromStatus: current.status,
-      toStatus: nextStatus,
-      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+          )
+          .bind(
+            nextStatus,
+            transitionId,
+            now,
+            input.membershipId,
+            input.lineAccountId,
+            expectedStatus,
+            now,
+            input.expectedVersion,
+          );
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action:
+        input.action === 'suspend'
+          ? 'beta_membership_suspended'
+          : input.action === 'resume'
+            ? 'beta_membership_resumed'
+            : 'beta_membership_revoked',
+      resourceType: 'beta_membership',
+      resourceId: input.membershipId,
+      detail: {
+        fromStatus: current.status,
+        toStatus: nextStatus,
+        ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      },
     },
-  }, auditGuard(
-    input.membershipId,
-    input.lineAccountId,
-    input.expectedVersion + 1,
-    nextStatus,
-    transitionId,
-  ));
+    auditGuard(input.membershipId, input.lineAccountId, input.expectedVersion + 1, nextStatus, transitionId),
+  );
 
   const results = await db.batch([update, audit]);
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('beta membership transition conflict');
   }
   const saved = await getPharmacyBetaMembership(db, input.lineAccountId, input.membershipId, nowDate);

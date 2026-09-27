@@ -1,13 +1,11 @@
 import { Hono, type Context } from 'hono';
 import type { Env } from '../../index.js';
-import {
-  isPharmacyTenant,
-  resolveAccessiblePharmacyTenant,
-} from '../../custom/pharmacy/growth-loop/access.js';
+import { isPharmacyTenant, resolveAccessiblePharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
 import { recordTenantAudit } from '../../lib/tenant-audit.js';
 
 const images = new Hono<Env>();
-const PUBLIC_IMAGE_KEY = /^(?:tenants\/[a-zA-Z0-9:_-]+\/(?:accounts\/[a-zA-Z0-9:_-]+\/)?uploads\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpe?g|gif|webp)$/i;
+const PUBLIC_IMAGE_KEY =
+  /^(?:tenants\/[a-zA-Z0-9:_-]+\/(?:accounts\/[a-zA-Z0-9:_-]+\/)?uploads\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpe?g|gif|webp)$/i;
 const INCOMING_IMAGE_KEY = /^tenants\/[^/]+\/accounts\/([^/]+)\/incoming\/[^/]+\.(?:png|jpe?g|gif|webp)$/i;
 
 function safePathSegment(value: string): string {
@@ -18,11 +16,7 @@ function tenantPrefix(tenantId: string): string {
   return `tenants/${safePathSegment(tenantId)}/`;
 }
 
-async function serveImage(
-  bucket: R2Bucket,
-  key: string,
-  cacheControl: string,
-): Promise<Response> {
+async function serveImage(bucket: R2Bucket, key: string, cacheControl: string): Promise<Response> {
   const object = await bucket.get(key);
   if (!object) {
     return Response.json({ success: false, error: 'Image not found' }, { status: 404 });
@@ -51,7 +45,7 @@ images.post('/api/images', async (c) => {
       if (!lineAccountId) {
         return c.json({ success: false, error: 'line_account_id is required' }, 400);
       }
-      if (await resolveAccessiblePharmacyTenant(c.env.DB, c.get('staff'), lineAccountId) !== tenantId) {
+      if ((await resolveAccessiblePharmacyTenant(c.env.DB, c.get('staff'), lineAccountId)) !== tenantId) {
         return c.json({ success: false, error: 'Forbidden' }, 403);
       }
     }
@@ -95,7 +89,13 @@ images.post('/api/images', async (c) => {
 
     const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(mimeType)) {
-      return c.json({ success: false, error: `Unsupported image type: ${mimeType}. Allowed: ${allowedTypes.join(', ')}` }, 400);
+      return c.json(
+        {
+          success: false,
+          error: `Unsupported image type: ${mimeType}. Allowed: ${allowedTypes.join(', ')}`,
+        },
+        400,
+      );
     }
 
     const ext = mimeType.split('/')[1] === 'jpeg' ? 'jpg' : mimeType.split('/')[1];
@@ -123,10 +123,13 @@ images.post('/api/images', async (c) => {
     const workerUrl = c.env.WORKER_URL || new URL(c.req.url).origin;
     const url = `${workerUrl}/images/${key}`;
 
-    return c.json({
-      success: true,
-      data: { id, key, url, mimeType, size: data.byteLength },
-    }, 201);
+    return c.json(
+      {
+        success: true,
+        data: { id, key, url, mimeType, size: data.byteLength },
+      },
+      201,
+    );
   } catch {
     console.error('POST /api/images failed');
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -145,8 +148,11 @@ images.get('/images/:key{.+}', async (c) => {
 // Incoming patient images are private and bound to the authenticated tenant.
 images.get('/api/images/:key{.+}', async (c) => {
   const key = c.req.param('key');
-  if (!key.startsWith(tenantPrefix(c.get('tenantId'))) || !INCOMING_IMAGE_KEY.test(key) ||
-      !await canReadIncomingImage(c, key)) {
+  if (
+    !key.startsWith(tenantPrefix(c.get('tenantId'))) ||
+    !INCOMING_IMAGE_KEY.test(key) ||
+    !(await canReadIncomingImage(c, key))
+  ) {
     return c.json({ success: false, error: 'Image not found' }, 404);
   }
   return serveImage(c.env.IMAGES, key, 'private, no-store');
@@ -159,7 +165,7 @@ images.delete('/api/images/:key{.+}', async (c) => {
     if (!key.startsWith(tenantPrefix(c.get('tenantId')))) {
       return c.json({ success: false, error: 'Image not found' }, 404);
     }
-    if (INCOMING_IMAGE_KEY.test(key) && !await canReadIncomingImage(c, key)) {
+    if (INCOMING_IMAGE_KEY.test(key) && !(await canReadIncomingImage(c, key))) {
       return c.json({ success: false, error: 'Image not found' }, 404);
     }
     await c.env.IMAGES.delete(key);

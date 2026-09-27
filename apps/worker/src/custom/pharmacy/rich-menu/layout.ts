@@ -44,15 +44,10 @@ const LARGE_BOUNDS: Record<4 | 5 | 6, PharmacyRichMenuBounds[]> = {
     { x: 833, y: 843, width: 834, height: 843 },
     { x: 1667, y: 843, width: 833, height: 843 },
   ],
-  6: [
-    ...COMPACT_BOUNDS[3],
-    ...COMPACT_BOUNDS[3].map((area) => ({ ...area, y: 843 })),
-  ],
+  6: [...COMPACT_BOUNDS[3], ...COMPACT_BOUNDS[3].map((area) => ({ ...area, y: 843 }))],
 };
 
-export function getPharmacyRichMenuPresentation(
-  orderedActions: readonly PharmacyRichMenuActionKey[],
-): {
+export function getPharmacyRichMenuPresentation(orderedActions: readonly PharmacyRichMenuActionKey[]): {
   size: PharmacyRichMenuSize;
   width: 2500;
   height: 843 | 1686;
@@ -62,9 +57,7 @@ export function getPharmacyRichMenuPresentation(
   const cells = orderedActions.length + 1;
   if (cells < 1 || cells > 6) throw new Error('pharmacy rich-menu must contain 1-6 cells');
   const size = cells <= 3 ? 'compact' : 'large';
-  const bounds = cells <= 3
-    ? COMPACT_BOUNDS[cells as 1 | 2 | 3]
-    : LARGE_BOUNDS[cells as 4 | 5 | 6];
+  const bounds = cells <= 3 ? COMPACT_BOUNDS[cells as 1 | 2 | 3] : LARGE_BOUNDS[cells as 4 | 5 | 6];
   return {
     size,
     width: 2500,
@@ -118,18 +111,15 @@ export function derivePharmacyRichMenuLayout(
 function permutations(values: readonly PharmacyRichMenuActionKey[]): PharmacyRichMenuActionKey[][] {
   // ponytail: factorial work is bounded to five release-only tiles; replace if the allowlist grows.
   if (values.length < 2) return [[...values]];
-  return values.flatMap((value, index) => permutations([
-    ...values.slice(0, index),
-    ...values.slice(index + 1),
-  ]).map((rest) => [value, ...rest]));
+  return values.flatMap((value, index) =>
+    permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((rest) => [value, ...rest]),
+  );
 }
 
 export function listPharmacyRichMenuVariantOrders(): PharmacyRichMenuActionKey[][] {
   const variants: PharmacyRichMenuActionKey[][] = [];
   for (let mask = 0; mask < 1 << DIRECT_CAPABILITIES.length; mask += 1) {
-    const enabled = new Set<PharmacyCapability>(
-      DIRECT_CAPABILITIES.filter((_, index) => mask & (1 << index)),
-    );
+    const enabled = new Set<PharmacyCapability>(DIRECT_CAPABILITIES.filter((_, index) => mask & (1 << index)));
     const actions = DEFAULT_PHARMACY_RICH_MENU_ORDER.filter((key) => enabled.has(CAPABILITY_BY_ACTION[key]));
     variants.push(...permutations(actions));
   }

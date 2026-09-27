@@ -71,14 +71,8 @@ export function buildAliasId(groupId: string, orderIndex: number, generation?: s
   return `lhx-${groupId.slice(0, 8)}-${generation ? `${generation}-` : ''}${orderIndex}`;
 }
 
-export function resolveSwitcherActions(
-  pages: PageInput[],
-  groupId: string,
-  generation?: string,
-): PageInput[] {
-  const aliasByPageId = new Map(
-    pages.map((p) => [p.id, buildAliasId(groupId, p.orderIndex, generation)]),
-  );
+export function resolveSwitcherActions(pages: PageInput[], groupId: string, generation?: string): PageInput[] {
+  const aliasByPageId = new Map(pages.map((p) => [p.id, buildAliasId(groupId, p.orderIndex, generation)]));
   return pages.map((page) => ({
     ...page,
     areas: page.areas.map((area) => {
@@ -112,12 +106,7 @@ export type PublishRichMenuOptions = {
   generation?: string;
   remoteMenuName?: string;
   preserveRemoteOnError?: boolean;
-  onProgress?: (
-    phase: PublishProgressPhase,
-    pageId: string,
-    richMenuId: string,
-    aliasId: string,
-  ) => Promise<void>;
+  onProgress?: (phase: PublishProgressPhase, pageId: string, richMenuId: string, aliasId: string) => Promise<void>;
 };
 
 export function buildLineRichMenuPayload(group: GroupInput, page: PageInput, name: string) {
@@ -138,21 +127,27 @@ function canonicalJson(value: unknown): string {
   if (value && typeof value === 'object') {
     return `{${Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
   }
   return JSON.stringify(value) ?? 'undefined';
 }
 
-export function matchesLineRichMenuPayload(remote: unknown, expected: ReturnType<typeof buildLineRichMenuPayload>): boolean {
+export function matchesLineRichMenuPayload(
+  remote: unknown,
+  expected: ReturnType<typeof buildLineRichMenuPayload>,
+): boolean {
   if (!remote || typeof remote !== 'object') return false;
   const value = remote as Record<string, unknown>;
-  return canonicalJson({
-    size: value.size,
-    selected: value.selected,
-    name: value.name,
-    chatBarText: value.chatBarText,
-    areas: value.areas,
-  }) === canonicalJson(expected);
+  return (
+    canonicalJson({
+      size: value.size,
+      selected: value.selected,
+      name: value.name,
+      chatBarText: value.chatBarText,
+      areas: value.areas,
+    }) === canonicalJson(expected)
+  );
 }
 
 async function readR2Object(r2: R2Like, key: string): Promise<Uint8Array> {
@@ -189,9 +184,9 @@ export async function publishRichMenuGroup(
       }
 
       // 1. richmenu 作成
-      const created = await line.createRichMenu(buildLineRichMenuPayload(
-        group, page, options.remoteMenuName ?? `${group.id.slice(0, 8)} - ${page.name}`,
-      ));
+      const created = await line.createRichMenu(
+        buildLineRichMenuPayload(group, page, options.remoteMenuName ?? `${group.id.slice(0, 8)} - ${page.name}`),
+      );
       const newRichMenuId = created.richMenuId;
       const aliasId = buildAliasId(group.id, page.orderIndex, generation);
       const resource = {
@@ -276,10 +271,7 @@ export type UnpublishResult = {
  * 削除そのものが失敗 (5xx 等) した場合は warnings に記録するが処理を続行する。
  * 完全失敗時は最後に throw。
  */
-export async function unpublishRichMenuGroup(
-  group: GroupInput,
-  line: LineRichMenuClient,
-): Promise<UnpublishResult> {
+export async function unpublishRichMenuGroup(group: GroupInput, line: LineRichMenuClient): Promise<UnpublishResult> {
   const warnings: string[] = [];
   const pages: UnpublishResult['pages'] = [];
 
@@ -296,9 +288,7 @@ export async function unpublishRichMenuGroup(
       try {
         await line.deleteRichMenu(page.lineRichMenuId);
       } catch (e) {
-        warnings.push(
-          `delete richmenu ${page.lineRichMenuId} failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        warnings.push(`delete richmenu ${page.lineRichMenuId} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     pages.push({ pageId: page.id, clearedRichMenuId: page.lineRichMenuId });
@@ -317,9 +307,7 @@ export async function unpublishRichMenuGroup(
       }
     }
   } catch (e) {
-    warnings.push(
-      `default lookup/clear failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`,
-    );
+    warnings.push(`default lookup/clear failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return { pages, warnings };

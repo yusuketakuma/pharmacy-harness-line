@@ -3,9 +3,10 @@ import { api, type BookingHistoryItem } from '../lib/api.js';
 import HistoryCard from '../components/HistoryCard.js';
 
 export default function BookingHistory() {
-  const [data, setData] = useState<{ upcoming: BookingHistoryItem[]; past: BookingHistoryItem[] } | null>(
-    null,
-  );
+  const [data, setData] = useState<{
+    upcoming: BookingHistoryItem[];
+    past: BookingHistoryItem[];
+  } | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
   useEffect(() => {
@@ -40,9 +41,7 @@ export default function BookingHistory() {
           ))}
         </ul>
       )}
-      <p className="text-xs text-gray-500 pt-4">
-        変更・キャンセルはお店に LINE で直接ご連絡ください。
-      </p>
+      <p className="text-xs text-gray-500 pt-4">変更・キャンセルはお店に LINE で直接ご連絡ください。</p>
     </div>
   );
 }

@@ -1,0 +1,2 @@
+# F42 bounded comparison microbenchmark
+Before measurement: compare old raw vs normalized WHERE/ORDER BY on canonical synthetic UTC rows, same output/limit100, SQLite local, existing owner/queue index shapes. Sizes500/5000/10000, warmup3 and alternating9 runs. Acceptance median W <= max(2*P,P+15ms); correctness output IDs must match on canonical fixtures. EXPLAIN both. This isolates comparison/sort cost; excludes other validity/hold/purge-log checks and does not establish full native cron latency or production SLO.

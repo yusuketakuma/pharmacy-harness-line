@@ -42,11 +42,14 @@ export async function processDueReminders(
   const nowIso = params.now.toISOString();
   const staleClaimAt = new Date(params.now.getTime() - CLAIM_STALE_MS).toISOString();
   const retryHorizonAt = new Date(params.now.getTime() - LINE_RETRY_HORIZON_MS).toISOString();
-  await db.prepare(
-    `UPDATE booking_reminders
+  await db
+    .prepare(
+      `UPDATE booking_reminders
         SET status='failed_permanent', last_error='LINE_RETRY_HORIZON_EXPIRED'
       WHERE status IN ('processing','failed') AND first_attempted_at <= ?`,
-  ).bind(retryHorizonAt).run();
+    )
+    .bind(retryHorizonAt)
+    .run();
 
   // status は 'pending' に加え 'failed'（一時エラーで失敗、retry 残あり）も拾う。
   // 'failed_permanent' / 'sent' / 'cancelled' は再送対象外。
@@ -96,15 +99,18 @@ export async function processDueReminders(
   let sent = 0;
   let failed = 0;
   for (const row of due.results) {
-    const claim = await db.prepare(
-      `UPDATE booking_reminders
+    const claim = await db
+      .prepare(
+        `UPDATE booking_reminders
           SET retry_count = retry_count + 1, status='processing', claimed_at=?,
               first_attempted_at=COALESCE(first_attempted_at, ?), last_error=NULL
         WHERE id = ? AND retry_count = ?
           AND (status IN ('pending','failed')
                OR (status='processing' AND claimed_at <= ?))
           AND (first_attempted_at IS NULL OR first_attempted_at > ?)`,
-    ).bind(nowIso, nowIso, row.id, row.retry_count, staleClaimAt, retryHorizonAt).run();
+      )
+      .bind(nowIso, nowIso, row.id, row.retry_count, staleClaimAt, retryHorizonAt)
+      .run();
     if ((claim.meta?.changes ?? 0) !== 1) continue;
     const claimedRetry = row.retry_count + 1;
     const kind: NotificationKind = row.kind;

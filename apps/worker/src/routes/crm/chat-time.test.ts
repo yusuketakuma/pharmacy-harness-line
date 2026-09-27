@@ -12,17 +12,28 @@ let sqlite: TestSqliteDatabase;
 let db: D1Database;
 let app: Hono<Env>;
 function friend(id = 'friend-a') {
-  sqlite.prepare(`INSERT INTO friends(id,line_user_id,provider_line_user_id,display_name,line_account_id,is_following)
-    VALUES(?,?,?,?,'account-a',1)`).run(id, id, id, id);
+  sqlite
+    .prepare(`INSERT INTO friends(id,line_user_id,provider_line_user_id,display_name,line_account_id,is_following)
+    VALUES(?,?,?,?,'account-a',1)`)
+    .run(id, id, id, id);
 }
-function message(id: string, at: string, direction = 'incoming', friendId = 'friend-a', source = direction === 'incoming' ? 'user' : 'manual', deliveryType: string | null = null) {
-  sqlite.prepare(`INSERT INTO messages_log(id,friend_id,line_account_id,direction,message_type,content,source,delivery_type,created_at)
-    VALUES(?,?,'account-a',?,'text',?,?,?,?)`).run(id, friendId, direction, id, source, deliveryType, at);
+function message(
+  id: string,
+  at: string,
+  direction = 'incoming',
+  friendId = 'friend-a',
+  source = direction === 'incoming' ? 'user' : 'manual',
+  deliveryType: string | null = null,
+) {
+  sqlite
+    .prepare(`INSERT INTO messages_log(id,friend_id,line_account_id,direction,message_type,content,source,delivery_type,created_at)
+    VALUES(?,?,'account-a',?,'text',?,?,?,?)`)
+    .run(id, friendId, direction, id, source, deliveryType, at);
 }
 async function get(path: string) {
   const response = await app.request(path, {}, { DB: db } as Env['Bindings']);
   expect(response.status).toBe(200);
-  return response.json() as Promise<{data: any}>;
+  return response.json() as Promise<{ data: any }>;
 }
 beforeEach(() => {
   sqlite = new Sqlite(':memory:');
@@ -45,7 +56,10 @@ beforeEach(() => {
   app.route('/', chats);
   friend();
 });
-afterEach(() => { sqlite.close(); vi.restoreAllMocks(); });
+afterEach(() => {
+  sqlite.close();
+  vi.restoreAllMocks();
+});
 
 describe('chat timestamps compare instants while preserving stored strings', () => {
   it.each([
@@ -60,31 +74,42 @@ describe('chat timestamps compare instants while preserving stored strings', () 
     const first = (await get('/api/conversations/friend-a?limit=1')).data.messages;
     expect(first.map((m: any) => m.id)).toEqual(['outgoing']);
     expect(first[0].createdAt).toBe(outgoing);
-    const second = (await get('/api/conversations/friend-a?limit=1&before=' + encodeURIComponent(first[0].createdAt))).data.messages;
+    const second = (await get('/api/conversations/friend-a?limit=1&before=' + encodeURIComponent(first[0].createdAt)))
+      .data.messages;
     expect(second.map((m: any) => m.id)).toEqual(['incoming']);
     const detail = (await get('/api/conversations/friend-a')).data.messages;
     expect(detail.map((m: any) => m.id)).toEqual(['incoming', 'outgoing']);
     const chat = (await get('/api/chats/friend-a')).data;
     expect(chat.messages.map((m: any) => m.id)).toEqual(['incoming', 'outgoing']);
     const list = (await get('/api/chats')).data;
-    expect(list[0]).toMatchObject({ lastMessageDirection: 'outgoing', lastMessageContent: 'outgoing', lastMessageAt: outgoing });
-    expect((await get('/api/conversations?minHoursSince=0')).data).toEqual({total: 0, items: []});
+    expect(list[0]).toMatchObject({
+      lastMessageDirection: 'outgoing',
+      lastMessageContent: 'outgoing',
+      lastMessageAt: outgoing,
+    });
+    expect((await get('/api/conversations?minHoursSince=0')).data).toEqual({ total: 0, items: [] });
     expect((await countUnanswered(db, 'tenant-a')).total).toBe(0);
   });
 
   it('uses one clock for list cursors, even when chat metadata is newer than its preview', async () => {
-    friend('friend-b'); friend('friend-c');
+    friend('friend-b');
+    friend('friend-c');
     message('a', '2023-01-01T09:00:00.000+09:00');
     message('b', '2023-01-01T00:00:30.000Z', 'incoming', 'friend-b');
     message('c', '2023-01-01T09:00:30.000+09:00', 'incoming', 'friend-c');
-    sqlite.prepare(`INSERT INTO chats(id,friend_id,last_message_at,status) VALUES('chat-a','friend-a','2023-01-01T00:01:00.000Z','unread')`).run();
+    sqlite
+      .prepare(
+        `INSERT INTO chats(id,friend_id,last_message_at,status) VALUES('chat-a','friend-a','2023-01-01T00:01:00.000Z','unread')`,
+      )
+      .run();
     const ids: string[] = [];
     let cursor = '';
     for (let page = 0; page < 3; page++) {
       const list = (await get('/api/chats?limit=1' + cursor)).data;
       expect(list).toHaveLength(1);
       ids.push(list[0].id);
-      cursor = '&beforeAt=' + encodeURIComponent(new Date(list[0].lastMessageAt).toISOString()) + '&beforeId=' + list[0].id;
+      cursor =
+        '&beforeAt=' + encodeURIComponent(new Date(list[0].lastMessageAt).toISOString()) + '&beforeId=' + list[0].id;
     }
     expect(ids).toEqual(['friend-c', 'friend-b', 'friend-a']);
     expect((await get('/api/chats?limit=1' + cursor)).data).toEqual([]);
@@ -97,7 +122,8 @@ describe('chat timestamps compare instants while preserving stored strings', () 
       ('empty-b','friend-b','unread','2023-01-01T09:00:00.000+09:00');`);
     const list = (await get('/api/chats?status=unread')).data;
     expect(list.map((x: any) => [x.id, x.lastMessageAt, x.lastMessageContent])).toEqual([
-      ['friend-b', '2023-01-01T09:00:00.000+09:00', null], ['friend-a', null, null],
+      ['friend-b', '2023-01-01T09:00:00.000+09:00', null],
+      ['friend-a', null, null],
     ]);
   });
 
@@ -111,15 +137,24 @@ describe('chat timestamps compare instants while preserving stored strings', () 
     const queue = (await get('/api/conversations?minHoursSince=0')).data;
     expect(queue.total).toBe(2);
     expect(queue.items.map((x: any) => x.friendId)).toEqual(['friend-b', 'friend-a']);
-    expect(queue.items[1]).toMatchObject({lastIncomingAt: '2023-01-01T00:02:00.000Z', lastIncomingPreview: 'newer'});
+    expect(queue.items[1]).toMatchObject({
+      lastIncomingAt: '2023-01-01T00:02:00.000Z',
+      lastIncomingPreview: 'newer',
+    });
     const inbox = await computeUnansweredInbox(db, 'tenant-a');
-    expect(inbox.rows.map(x => x.friendId)).toEqual(['friend-a', 'friend-b']);
-    expect(inbox.rows[0]).toMatchObject({lastIncomingAt:'2023-01-01T00:02:00.000Z',lastManualAt:'2023-01-01T09:01:00.000+09:00',lastIncomingContent:'newer'});
+    expect(inbox.rows.map((x) => x.friendId)).toEqual(['friend-a', 'friend-b']);
+    expect(inbox.rows[0]).toMatchObject({
+      lastIncomingAt: '2023-01-01T00:02:00.000Z',
+      lastManualAt: '2023-01-01T09:01:00.000+09:00',
+      lastIncomingContent: 'newer',
+    });
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2023-01-01T00:03:40.000Z'));
     expect((await countUnanswered(db, 'tenant-a')).oldestWaitMinutes).toBe(2);
-    expect((await computeUnansweredInbox(db, 'tenant-a', {minWaitMinutes:2})).rows.map(x => x.friendId)).toEqual(['friend-b']);
+    expect((await computeUnansweredInbox(db, 'tenant-a', { minWaitMinutes: 2 })).rows.map((x) => x.friendId)).toEqual([
+      'friend-b',
+    ]);
     message('manual-latest', '2023-01-01T00:02:01.000Z', 'outgoing');
-    expect((await computeUnansweredInbox(db, 'tenant-a')).rows.map(x => x.friendId)).toEqual(['friend-b']);
+    expect((await computeUnansweredInbox(db, 'tenant-a')).rows.map((x) => x.friendId)).toEqual(['friend-b']);
     expect((await get('/api/conversations?minHoursSince=0')).data.total).toBe(1);
   });
 

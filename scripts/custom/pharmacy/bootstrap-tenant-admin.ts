@@ -22,6 +22,7 @@ export async function runTenantAdminBootstrap(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runTenantAdminBootstrap(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runTenantAdminBootstrap(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

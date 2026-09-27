@@ -169,11 +169,7 @@ export default function Booking({
         <DateTimePicker
           menuId={menu.id}
           staffId={staff.id}
-          ctaLabel={
-            peekMode
-              ? '空き状況の確認モードです（タップで予約に進めます）'
-              : 'step 3 / 4'
-          }
+          ctaLabel={peekMode ? '空き状況の確認モードです（タップで予約に進めます）' : 'step 3 / 4'}
           selected={slot}
           onSelect={(picked) => {
             setSlot(picked);
@@ -185,11 +181,18 @@ export default function Booking({
       {step === 'datetime' && peekMode && slot && (
         <div
           className="fixed bottom-0 left-0 right-0 px-4 py-3 sb-slide-up"
-          style={{ background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(8px)', borderTop: '1px solid #e5e7eb' }}
+          style={{
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            borderTop: '1px solid #e5e7eb',
+          }}
         >
           <div className="max-w-md mx-auto">
             <p className="text-xs text-gray-600 mb-2">
-              選択中: <span className="font-semibold">{slot.date} {slot.start}</span>
+              選択中:{' '}
+              <span className="font-semibold">
+                {slot.date} {slot.start}
+              </span>
             </p>
             <button
               onClick={exitPeekToBooking}

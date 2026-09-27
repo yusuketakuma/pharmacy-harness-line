@@ -81,11 +81,7 @@ export default function Confirm({
           placeholder="髪型の希望、アレルギー、その他"
         />
       </label>
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>}
       <button
         onClick={handleSubmit}
         disabled={submitting}
@@ -94,22 +90,12 @@ export default function Confirm({
       >
         {submitting ? '送信中…' : '予約をリクエスト'}
       </button>
-      <p className="text-xs text-gray-400 text-center">
-        確定すると LINE に通知が届きます
-      </p>
+      <p className="text-xs text-gray-400 text-center">確定すると LINE に通知が届きます</p>
     </div>
   );
 }
 
-function Row({
-  label,
-  value,
-  valueClassName,
-}: {
-  label: string;
-  value: string;
-  valueClassName?: string;
-}) {
+function Row({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div className="flex justify-between items-center pb-3 border-b border-gray-100 last:border-b-0 last:pb-0">
       <dt className="text-gray-500 text-xs">{label}</dt>

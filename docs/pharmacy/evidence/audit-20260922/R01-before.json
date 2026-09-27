@@ -1,0 +1,18 @@
+{
+  "P": "6a35d2e",
+  "source_files": [
+    "packages/line-sdk/src/client.ts",
+    "apps/worker/src/services/line-proxy-send.ts",
+    "packages/line-sdk/src/index.ts"
+  ],
+  "source_lines": 523,
+  "policy_implementations": 2,
+  "dist_js_bytes": 16501,
+  "dist_concat_gzip_bytes": 3985,
+  "preservation_budget": {
+    "gzip_increment_bytes_max": 1024,
+    "old_exports": "all retained; one additive helper allowed",
+    "import_side_effects": "no network/storage/process startup",
+    "cycles": "errors module depends only on Response/Error globals"
+  }
+}

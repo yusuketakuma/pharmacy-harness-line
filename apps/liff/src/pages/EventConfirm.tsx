@@ -4,8 +4,12 @@ import { api, type EventDetail, type EventSlot } from '../lib/api.js';
 
 function formatJp(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
   });
 }
 
@@ -50,7 +54,9 @@ export default function EventConfirm() {
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id, slotId]);
 
   async function submit() {
@@ -69,16 +75,23 @@ export default function EventConfirm() {
       const code = e.body?.error;
       const msg = (() => {
         switch (code) {
-          case 'slot_full': return 'すでに満員になりました。別の日時をお選びください。';
-          case 'over_friend_limit': return 'このイベントへの予約上限に達しています。';
-          case 'slot_started': return 'この枠は既に開始されています。';
-          case 'slot_inactive': return 'この枠は受付を締め切りました。';
-          case 'event_unpublished': return 'このイベントは現在受付を停止しています。';
+          case 'slot_full':
+            return 'すでに満員になりました。別の日時をお選びください。';
+          case 'over_friend_limit':
+            return 'このイベントへの予約上限に達しています。';
+          case 'slot_started':
+            return 'この枠は既に開始されています。';
+          case 'slot_inactive':
+            return 'この枠は受付を締め切りました。';
+          case 'event_unpublished':
+            return 'このイベントは現在受付を停止しています。';
           case 'unauthorized':
           case 'friend_not_found':
             return 'LINE 認証に失敗しました。一度 LINE のトークルームに戻り、友だち追加が完了していることを確認してから再度お試しください。';
-          case 'idempotent_in_progress': return '前回のリクエストを処理中です。少しお待ちください。';
-          default: return err instanceof Error ? err.message : String(err);
+          case 'idempotent_in_progress':
+            return '前回のリクエストを処理中です。少しお待ちください。';
+          default:
+            return err instanceof Error ? err.message : String(err);
         }
       })();
       setError(msg);
@@ -91,10 +104,7 @@ export default function EventConfirm() {
     return (
       <div className="p-8 text-center">
         <div className="text-red-700 mb-4">{error}</div>
-        <button
-          onClick={() => navigate(`/events/${id}`)}
-          className="px-4 py-2 border rounded"
-        >
+        <button onClick={() => navigate(`/events/${id}`)} className="px-4 py-2 border rounded">
           イベントページに戻る
         </button>
       </div>
@@ -139,11 +149,7 @@ export default function EventConfirm() {
       >
         {submitting ? '送信中...' : '予約をリクエスト'}
       </button>
-      <button
-        onClick={() => navigate(-1)}
-        disabled={submitting}
-        className="mt-2 w-full py-2 text-gray-600 text-sm"
-      >
+      <button onClick={() => navigate(-1)} disabled={submitting} className="mt-2 w-full py-2 text-gray-600 text-sm">
         戻る
       </button>
     </div>

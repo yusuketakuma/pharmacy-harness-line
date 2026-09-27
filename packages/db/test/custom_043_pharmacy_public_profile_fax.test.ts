@@ -10,7 +10,9 @@ describe('custom_043 pharmacy public profile fax', () => {
   it('adds a bounded fax number', () => {
     const db = new Database(':memory:');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    const column = db.prepare('PRAGMA table_info(pharmacy_public_profiles)').all()
+    const column = db
+      .prepare('PRAGMA table_info(pharmacy_public_profiles)')
+      .all()
       .find((value) => (value as { name: string }).name === 'fax_number');
     expect(column).toBeDefined();
   });

@@ -75,9 +75,7 @@ const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
  */
 function ulid(): string {
   const t = Date.now().toString(36).toUpperCase().padStart(10, '0');
-  const r = Array.from({ length: 16 }, () =>
-    CROCKFORD_BASE32[Math.floor(Math.random() * 32)],
-  ).join('');
+  const r = Array.from({ length: 16 }, () => CROCKFORD_BASE32[Math.floor(Math.random() * 32)]).join('');
   return `${t}${r}`;
 }
 
@@ -116,78 +114,44 @@ export async function createSnapshot(
   return id;
 }
 
-export async function getSnapshot(
-  d1: D1Like,
-  id: string,
-): Promise<SnapshotRow | null> {
-  const row = await d1
-    .prepare('SELECT * FROM update_history WHERE id = ?')
-    .bind(id)
-    .first<SnapshotRow>();
+export async function getSnapshot(d1: D1Like, id: string): Promise<SnapshotRow | null> {
+  const row = await d1.prepare('SELECT * FROM update_history WHERE id = ?').bind(id).first<SnapshotRow>();
   return row ?? null;
 }
 
-export async function updateStatus(
-  d1: D1Like,
-  id: string,
-  status: SnapshotRow['status'],
-): Promise<void> {
+export async function updateStatus(d1: D1Like, id: string, status: SnapshotRow['status']): Promise<void> {
   // `running` keeps completed_at NULL; any terminal state stamps it.
   const completedAt = status === 'running' ? null : Date.now();
   await d1
-    .prepare(
-      'UPDATE update_history SET status = ?, completed_at = ? WHERE id = ?',
-    )
+    .prepare('UPDATE update_history SET status = ?, completed_at = ? WHERE id = ?')
     .bind(status, completedAt, id)
     .run();
 }
 
-export async function appendEvent(
-  d1: D1Like,
-  id: string,
-  ev: UpdateEvent,
-): Promise<void> {
+export async function appendEvent(d1: D1Like, id: string, ev: UpdateEvent): Promise<void> {
   // Append "<json>\n" to events_jsonl in-database so concurrent appends don't
   // race against a read-modify-write cycle in app code. `char(10)` is portable
   // across D1 (SQLite) and better-sqlite3.
   await d1
-    .prepare(
-      "UPDATE update_history SET events_jsonl = events_jsonl || ? || char(10) WHERE id = ?",
-    )
+    .prepare('UPDATE update_history SET events_jsonl = events_jsonl || ? || char(10) WHERE id = ?')
     .bind(JSON.stringify(ev), id)
     .run();
 }
 
-export async function setError(
-  d1: D1Like,
-  id: string,
-  error: string,
-): Promise<void> {
-  await d1
-    .prepare('UPDATE update_history SET error = ? WHERE id = ?')
-    .bind(error, id)
-    .run();
+export async function setError(d1: D1Like, id: string, error: string): Promise<void> {
+  await d1.prepare('UPDATE update_history SET error = ? WHERE id = ?').bind(error, id).run();
 }
 
-export async function setReleaseEvidence(
-  d1: D1Like,
-  id: string,
-  evidence: ReleaseEvidence,
-): Promise<void> {
+export async function setReleaseEvidence(d1: D1Like, id: string, evidence: ReleaseEvidence): Promise<void> {
   await d1
     .prepare('UPDATE update_history SET release_evidence_json = ? WHERE id = ?')
     .bind(JSON.stringify(evidence), id)
     .run();
 }
 
-export async function listRecent(
-  d1: D1Like,
-  limit = 20,
-): Promise<SnapshotRow[]> {
+export async function listRecent(d1: D1Like, limit = 20): Promise<SnapshotRow[]> {
   const result = await d1
-    .prepare(
-      'SELECT * FROM update_history ORDER BY started_at DESC LIMIT ?',
-    )
+    .prepare('SELECT * FROM update_history ORDER BY started_at DESC LIMIT ?')
     .bind(limit)
     .all<SnapshotRow>();
   return result.results;

@@ -1,27 +1,16 @@
 import type { Message } from '@line-crm/line-sdk';
-import {
-  addTagToFriend,
-  computeNextDeliveryAt,
-  getScenarioSteps,
-  jstNow,
-  type DeliveryMode,
-} from '@line-crm/db';
+import { addTagToFriend, computeNextDeliveryAt, getScenarioSteps, jstNow, type DeliveryMode } from '@line-crm/db';
 
 const LINE_RETRY_HORIZON_MS = 24 * 60 * 60_000;
 const LINE_RETRY_SAFETY_MARGIN_MS = 60_000;
-// The minute cron is the only durable retry after request-time processing.
+// The scheduled cron tick is the only durable retry after request-time processing.
 // Keep a small scheduling margin; an expired-token 400 is terminalized below.
 const LINE_REPLY_RETRY_HORIZON_MS = 65_000;
 const LINE_REPLY_PREPARE_LEASE_MS = 15_000;
 // ponytail: one cron-sized batch; shard by account only if a measured backlog exceeds one tick.
 const OUTBOUND_REPLAY_BATCH_SIZE = 100;
 
-type DeliveryResult =
-  | 'sent'
-  | 'already_sent'
-  | 'in_flight'
-  | 'reconciliation_required'
-  | 'not_sent';
+type DeliveryResult = 'sent' | 'already_sent' | 'in_flight' | 'reconciliation_required' | 'not_sent';
 
 interface TrackedMessageParams {
   db: D1Database;
@@ -88,22 +77,19 @@ export interface TrackedLinePushRequest {
   messages: Message[];
 }
 
-type TrackedLinePushSender = (
-  request: TrackedLinePushRequest,
-  retryKey: string,
-) => Promise<void>;
+type TrackedLinePushSender = (request: TrackedLinePushRequest, retryKey: string) => Promise<void>;
 
-export async function retireExpiredOutboundLineDeliveries(
-  db: D1Database,
-  now: Date = new Date(),
-): Promise<number> {
+export async function retireExpiredOutboundLineDeliveries(db: D1Database, now: Date = new Date()): Promise<number> {
   const nowIso = now.toISOString();
-  const result = await db.prepare(
-    `UPDATE outbound_line_deliveries
+  const result = await db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET outcome = 'retired', settled_at = ?, stop_reason = 'retry_window_expired',
             updated_at = ?
       WHERE outcome = 'open' AND retry_until <= ?`,
-  ).bind(nowIso, nowIso, nowIso).run();
+    )
+    .bind(nowIso, nowIso, nowIso)
+    .run();
   return result.meta?.changes ?? 0;
 }
 
@@ -115,31 +101,33 @@ async function prepareDelivery(
 ): Promise<{ created: boolean; row: DeliveryRow; payload: PayloadRow | null; nowIso: string }> {
   const now = params.now ?? new Date();
   const nowIso = now.toISOString();
-  const retryWindow = deliveryType === 'reply'
-    ? LINE_REPLY_RETRY_HORIZON_MS
-    : LINE_RETRY_HORIZON_MS - LINE_RETRY_SAFETY_MARGIN_MS;
+  const retryWindow =
+    deliveryType === 'reply' ? LINE_REPLY_RETRY_HORIZON_MS : LINE_RETRY_HORIZON_MS - LINE_RETRY_SAFETY_MARGIN_MS;
   const retryUntil = new Date(now.getTime() + retryWindow).toISOString();
   const prepareToken = crypto.randomUUID();
   const retryKey = deliveryType === 'push' ? params.operationId : null;
-  const operation = params.db.prepare(
-    `INSERT OR IGNORE INTO outbound_line_deliveries
+  const operation = params.db
+    .prepare(
+      `INSERT OR IGNORE INTO outbound_line_deliveries
       (id, tenant_id, line_account_id, source, delivery_type, outcome, retry_key,
        prepare_token, attempt_count, retry_until, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'open', ?, ?, 0, ?, ?, ?)`,
-  ).bind(
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    params.source,
-    deliveryType,
-    retryKey,
-    prepareToken,
-    retryUntil,
-    nowIso,
-    nowIso,
-  );
-  const payload = params.db.prepare(
-    `INSERT INTO outbound_line_delivery_payloads
+    )
+    .bind(
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      params.source,
+      deliveryType,
+      retryKey,
+      prepareToken,
+      retryUntil,
+      nowIso,
+      nowIso,
+    );
+  const payload = params.db
+    .prepare(
+      `INSERT INTO outbound_line_delivery_payloads
       (operation_id, tenant_id, line_account_id, friend_id, message_type, log_content,
        log_delivery_type, request_json, broadcast_id, scenario_enrollment_id, scenario_step_id, scenario_claim_token,
        template_id_at_send, created_at)
@@ -148,26 +136,27 @@ async function prepareDelivery(
         SELECT 1 FROM outbound_line_deliveries
          WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND prepare_token = ?
       )`,
-  ).bind(
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    params.friendId,
-    params.messageType,
-    params.content,
-    logDeliveryType,
-    requestJson,
-    params.broadcastId ?? null,
-    params.scenarioEnrollmentId ?? null,
-    params.scenarioStepId ?? null,
-    params.scenarioClaimToken ?? null,
-    params.templateIdAtSend ?? null,
-    nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    prepareToken,
-  );
+    )
+    .bind(
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      params.friendId,
+      params.messageType,
+      params.content,
+      logDeliveryType,
+      requestJson,
+      params.broadcastId ?? null,
+      params.scenarioEnrollmentId ?? null,
+      params.scenarioStepId ?? null,
+      params.scenarioClaimToken ?? null,
+      params.templateIdAtSend ?? null,
+      nowIso,
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      prepareToken,
+    );
   let prepared: D1Result[] | null = null;
   let prepareError: unknown = null;
   try {
@@ -176,12 +165,16 @@ async function prepareDelivery(
     if (deliveryType !== 'reply') throw error;
     prepareError = error;
   }
-  const readRow = () => params.db.prepare(
-    `SELECT outcome, source, delivery_type, retry_key, request_json, prepare_token, retry_until,
+  const readRow = () =>
+    params.db
+      .prepare(
+        `SELECT outcome, source, delivery_type, retry_key, request_json, prepare_token, retry_until,
             stop_reason, attempt_count, updated_at
        FROM outbound_line_deliveries
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-  ).bind(params.operationId, params.tenantId, params.lineAccountId).first<DeliveryRow>();
+      )
+      .bind(params.operationId, params.tenantId, params.lineAccountId)
+      .first<DeliveryRow>();
   let row: DeliveryRow | null;
   try {
     row = await readRow();
@@ -193,14 +186,17 @@ async function prepareDelivery(
   if (!row || row.delivery_type !== deliveryType) {
     throw new Error('OUTBOUND_LINE_DELIVERY_SCOPE_MISMATCH');
   }
-  let created = (prepared?.[0]?.meta?.changes ?? 0) === 1
-    || row.prepare_token === prepareToken;
-  const readPayload = () => params.db.prepare(
-    `SELECT friend_id, message_type, log_content, log_delivery_type, request_json, broadcast_id,
+  let created = (prepared?.[0]?.meta?.changes ?? 0) === 1 || row.prepare_token === prepareToken;
+  const readPayload = () =>
+    params.db
+      .prepare(
+        `SELECT friend_id, message_type, log_content, log_delivery_type, request_json, broadcast_id,
             scenario_enrollment_id, scenario_step_id, scenario_claim_token,
             template_id_at_send
        FROM outbound_line_delivery_payloads WHERE operation_id = ?`,
-  ).bind(params.operationId).first<PayloadRow>();
+      )
+      .bind(params.operationId)
+      .first<PayloadRow>();
   let storedPayload: PayloadRow | null;
   try {
     storedPayload = await readPayload();
@@ -208,26 +204,28 @@ async function prepareDelivery(
     if (deliveryType !== 'reply') throw error;
     storedPayload = await readPayload();
   }
-  if (!created && deliveryType === 'reply' && row.outcome === 'open'
-    && row.attempt_count === 0) {
+  if (!created && deliveryType === 'reply' && row.outcome === 'open' && row.attempt_count === 0) {
     const staleBefore = new Date(now.getTime() - LINE_REPLY_PREPARE_LEASE_MS).toISOString();
-    const reclaimed = await params.db.prepare(
-      `UPDATE outbound_line_deliveries
+    const reclaimed = await params.db
+      .prepare(
+        `UPDATE outbound_line_deliveries
           SET prepare_token = ?, updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?
           AND delivery_type = 'reply' AND outcome = 'open' AND attempt_count = ?
           AND prepare_token = ? AND updated_at <= ? AND retry_until > ?`,
-    ).bind(
-      prepareToken,
-      nowIso,
-      params.operationId,
-      params.tenantId,
-      params.lineAccountId,
-      row.attempt_count,
-      row.prepare_token,
-      staleBefore,
-      nowIso,
-    ).run();
+      )
+      .bind(
+        prepareToken,
+        nowIso,
+        params.operationId,
+        params.tenantId,
+        params.lineAccountId,
+        row.attempt_count,
+        row.prepare_token,
+        staleBefore,
+        nowIso,
+      )
+      .run();
     if ((reclaimed.meta?.changes ?? 0) === 1) {
       row.prepare_token = prepareToken;
       row.updated_at = nowIso;
@@ -241,18 +239,15 @@ async function retireMissingPayload(
   params: Pick<TrackedMessageParams, 'db' | 'operationId' | 'tenantId' | 'lineAccountId'>,
   nowIso: string,
 ): Promise<'reconciliation_required'> {
-  await params.db.prepare(
-    `UPDATE outbound_line_deliveries
+  await params.db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET outcome = 'retired', settled_at = ?, stop_reason = 'payload_unavailable',
             updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND outcome = 'open'`,
-  ).bind(
-    nowIso,
-    nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-  ).run();
+    )
+    .bind(nowIso, nowIso, params.operationId, params.tenantId, params.lineAccountId)
+    .run();
   return 'reconciliation_required';
 }
 
@@ -262,29 +257,32 @@ async function settleAccepted(
   payload: PayloadRow,
   nowIso: string,
 ): Promise<void> {
-  const log = params.db.prepare(
-    `INSERT INTO messages_log
+  const log = params.db
+    .prepare(
+      `INSERT INTO messages_log
       (id, friend_id, direction, message_type, content, broadcast_id,
        scenario_step_id, delivery_type, source, template_id_at_send, line_account_id,
        outbound_operation_id, created_at)
      VALUES (?, ?, 'outgoing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(outbound_operation_id) WHERE outbound_operation_id IS NOT NULL DO NOTHING`,
-  ).bind(
-    params.operationId,
-    payload.friend_id,
-    payload.message_type,
-    payload.log_content,
-    payload.broadcast_id,
-    payload.scenario_step_id,
-    payload.log_delivery_type,
-    row.source,
-    payload.template_id_at_send,
-    params.lineAccountId,
-    params.operationId,
-    nowIso,
-  );
-  const settle = params.db.prepare(
-    `UPDATE outbound_line_deliveries
+    )
+    .bind(
+      params.operationId,
+      payload.friend_id,
+      payload.message_type,
+      payload.log_content,
+      payload.broadcast_id,
+      payload.scenario_step_id,
+      payload.log_delivery_type,
+      row.source,
+      payload.template_id_at_send,
+      params.lineAccountId,
+      params.operationId,
+      nowIso,
+    );
+  const settle = params.db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET outcome = 'accepted', settled_at = ?, stop_reason = NULL, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?
         AND outcome IN ('open', 'retired')
@@ -293,25 +291,28 @@ async function settleAccepted(
            WHERE outbound_operation_id = ? AND friend_id = ? AND line_account_id = ?
              AND delivery_type = ? AND source = ?
         )`,
-  ).bind(
-    nowIso,
-    nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    params.operationId,
-    payload.friend_id,
-    params.lineAccountId,
-    payload.log_delivery_type,
-    row.source,
-  );
+    )
+    .bind(
+      nowIso,
+      nowIso,
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      params.operationId,
+      payload.friend_id,
+      params.lineAccountId,
+      payload.log_delivery_type,
+      row.source,
+    );
   try {
     const results = await params.db.batch([log, settle]);
     if ((results[1]?.meta?.changes ?? 0) === 0) {
-      const row = await params.db.prepare(
-        `SELECT outcome FROM outbound_line_deliveries
+      const row = await params.db
+        .prepare(
+          `SELECT outcome FROM outbound_line_deliveries
           WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-      ).bind(params.operationId, params.tenantId, params.lineAccountId)
+        )
+        .bind(params.operationId, params.tenantId, params.lineAccountId)
         .first<{ outcome: string }>();
       if (row?.outcome !== 'accepted') throw new Error('fenced settlement lost');
     }
@@ -357,31 +358,35 @@ export async function deliverTrackedLineBroadcast(params: {
 }): Promise<DeliveryResult> {
   const now = params.now ?? new Date();
   const nowIso = now.toISOString();
-  const retryUntil = new Date(
-    now.getTime() + LINE_RETRY_HORIZON_MS - LINE_RETRY_SAFETY_MARGIN_MS,
-  ).toISOString();
-  await params.db.prepare(
-    `INSERT OR IGNORE INTO outbound_line_deliveries
+  const retryUntil = new Date(now.getTime() + LINE_RETRY_HORIZON_MS - LINE_RETRY_SAFETY_MARGIN_MS).toISOString();
+  await params.db
+    .prepare(
+      `INSERT OR IGNORE INTO outbound_line_deliveries
       (id, tenant_id, line_account_id, source, delivery_type, outcome, retry_key,
        request_json, prepare_token, attempt_count, retry_until, created_at, updated_at)
      VALUES (?, ?, ?, 'broadcast', 'broadcast', 'open', ?, ?, ?, 0, ?, ?, ?)`,
-  ).bind(
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    params.operationId,
-    JSON.stringify(params.request),
-    crypto.randomUUID(),
-    retryUntil,
-    nowIso,
-    nowIso,
-  ).run();
-  const row = await params.db.prepare(
-    `SELECT outcome, source, delivery_type, retry_key, request_json, prepare_token,
+    )
+    .bind(
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      params.operationId,
+      JSON.stringify(params.request),
+      crypto.randomUUID(),
+      retryUntil,
+      nowIso,
+      nowIso,
+    )
+    .run();
+  const row = await params.db
+    .prepare(
+      `SELECT outcome, source, delivery_type, retry_key, request_json, prepare_token,
             retry_until, stop_reason, attempt_count, updated_at
        FROM outbound_line_deliveries
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-  ).bind(params.operationId, params.tenantId, params.lineAccountId).first<DeliveryRow>();
+    )
+    .bind(params.operationId, params.tenantId, params.lineAccountId)
+    .first<DeliveryRow>();
   if (!row || row.delivery_type !== 'broadcast' || !row.retry_key) {
     throw new Error('OUTBOUND_LINE_DELIVERY_SCOPE_MISMATCH');
   }
@@ -394,50 +399,46 @@ export async function deliverTrackedLineBroadcast(params: {
     return 'reconciliation_required';
   }
 
-  const attempt = await params.db.prepare(
-    `UPDATE outbound_line_deliveries
+  const attempt = await params.db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET attempt_count = attempt_count + 1,
             first_attempted_at = COALESCE(first_attempted_at, ?),
             attempted_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?
         AND delivery_type = 'broadcast' AND outcome = 'open' AND retry_until > ?`,
-  ).bind(
-    nowIso,
-    nowIso,
-    nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    nowIso,
-  ).run();
+    )
+    .bind(nowIso, nowIso, nowIso, params.operationId, params.tenantId, params.lineAccountId, nowIso)
+    .run();
   if ((attempt.meta?.changes ?? 0) !== 1) {
-    const current = await params.db.prepare(
-      `SELECT outcome FROM outbound_line_deliveries
+    const current = await params.db
+      .prepare(
+        `SELECT outcome FROM outbound_line_deliveries
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-    ).bind(params.operationId, params.tenantId, params.lineAccountId)
+      )
+      .bind(params.operationId, params.tenantId, params.lineAccountId)
       .first<{ outcome: string }>();
     return current?.outcome === 'accepted' ? 'already_sent' : 'reconciliation_required';
   }
 
   await params.send(request, row.retry_key);
   try {
-    const settled = await params.db.prepare(
-      `UPDATE outbound_line_deliveries
+    const settled = await params.db
+      .prepare(
+        `UPDATE outbound_line_deliveries
           SET outcome = 'accepted', settled_at = ?, stop_reason = NULL, updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?
           AND delivery_type = 'broadcast' AND outcome = 'open'`,
-    ).bind(
-      nowIso,
-      nowIso,
-      params.operationId,
-      params.tenantId,
-      params.lineAccountId,
-    ).run();
+      )
+      .bind(nowIso, nowIso, params.operationId, params.tenantId, params.lineAccountId)
+      .run();
     if ((settled.meta?.changes ?? 0) !== 1) {
-      const current = await params.db.prepare(
-        `SELECT outcome FROM outbound_line_deliveries
+      const current = await params.db
+        .prepare(
+          `SELECT outcome FROM outbound_line_deliveries
           WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-      ).bind(params.operationId, params.tenantId, params.lineAccountId)
+        )
+        .bind(params.operationId, params.tenantId, params.lineAccountId)
         .first<{ outcome: string }>();
       if (current?.outcome !== 'accepted') throw new Error('fenced settlement lost');
     }
@@ -447,11 +448,13 @@ export async function deliverTrackedLineBroadcast(params: {
   return 'sent';
 }
 
-export async function deliverTrackedLinePush(params: TrackedMessageParams & {
-  logDeliveryType?: 'test';
-  request: TrackedLinePushRequest;
-  send: (request: TrackedLinePushRequest, retryKey: string) => Promise<void>;
-}): Promise<DeliveryResult> {
+export async function deliverTrackedLinePush(
+  params: TrackedMessageParams & {
+    logDeliveryType?: 'test';
+    request: TrackedLinePushRequest;
+    send: (request: TrackedLinePushRequest, retryKey: string) => Promise<void>;
+  },
+): Promise<DeliveryResult> {
   const prepared = await prepareDelivery(
     params,
     'push',
@@ -468,27 +471,32 @@ export async function deliverTrackedLinePush(params: TrackedMessageParams & {
 
   const request = parseTrackedLinePushRequest(prepared.payload.request_json);
   if (!request) return retireMissingPayload(params, prepared.nowIso);
-  const attempt = await params.db.prepare(
-    `UPDATE outbound_line_deliveries
+  const attempt = await params.db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET attempt_count = attempt_count + 1,
             first_attempted_at = COALESCE(first_attempted_at, ?),
             attempted_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?
         AND outcome = 'open' AND retry_until > ?`,
-  ).bind(
-    prepared.nowIso,
-    prepared.nowIso,
-    prepared.nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    prepared.nowIso,
-  ).run();
+    )
+    .bind(
+      prepared.nowIso,
+      prepared.nowIso,
+      prepared.nowIso,
+      params.operationId,
+      params.tenantId,
+      params.lineAccountId,
+      prepared.nowIso,
+    )
+    .run();
   if ((attempt.meta?.changes ?? 0) !== 1) {
-    const current = await params.db.prepare(
-      `SELECT outcome FROM outbound_line_deliveries
+    const current = await params.db
+      .prepare(
+        `SELECT outcome FROM outbound_line_deliveries
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-    ).bind(params.operationId, params.tenantId, params.lineAccountId)
+      )
+      .bind(params.operationId, params.tenantId, params.lineAccountId)
       .first<{ outcome: string }>();
     return current?.outcome === 'accepted' ? 'already_sent' : 'reconciliation_required';
   }
@@ -501,13 +509,12 @@ export async function deliverTrackedLinePush(params: TrackedMessageParams & {
 export async function reconcileAttemptedBroadcastTestPushes(params: {
   db: D1Database;
   now?: Date;
-  resolveSender: (scope: { tenantId: string; lineAccountId: string }) => Promise<
-    TrackedLinePushSender | null
-  >;
+  resolveSender: (scope: { tenantId: string; lineAccountId: string }) => Promise<TrackedLinePushSender | null>;
 }): Promise<{ accepted: number; pending: number; retired: number }> {
   const nowIso = (params.now ?? new Date()).toISOString();
-  const rows = await params.db.prepare(
-    `SELECT delivery.id AS operation_id, delivery.tenant_id, delivery.line_account_id,
+  const rows = await params.db
+    .prepare(
+      `SELECT delivery.id AS operation_id, delivery.tenant_id, delivery.line_account_id,
             delivery.outcome, delivery.source, delivery.delivery_type, delivery.retry_key,
             delivery.prepare_token, delivery.retry_until, delivery.stop_reason,
             delivery.attempt_count, delivery.updated_at,
@@ -526,7 +533,9 @@ export async function reconcileAttemptedBroadcastTestPushes(params: {
         AND (payload.operation_id IS NULL OR payload.log_delivery_type = 'test')
       ORDER BY delivery.updated_at ASC
       LIMIT ?`,
-  ).bind(OUTBOUND_REPLAY_BATCH_SIZE).all<AttemptedPushRow>();
+    )
+    .bind(OUTBOUND_REPLAY_BATCH_SIZE)
+    .all<AttemptedPushRow>();
   const senders = new Map<string, TrackedLinePushSender | null>();
   const result = { accepted: 0, pending: 0, retired: 0 };
 
@@ -538,27 +547,30 @@ export async function reconcileAttemptedBroadcastTestPushes(params: {
       lineAccountId: row.line_account_id,
     };
     if (row.retry_until <= nowIso) {
-      const retired = await params.db.prepare(
-        `UPDATE outbound_line_deliveries
+      const retired = await params.db
+        .prepare(
+          `UPDATE outbound_line_deliveries
             SET outcome = 'retired', settled_at = ?, stop_reason = 'retry_window_expired',
                 updated_at = ?
           WHERE id = ? AND tenant_id = ? AND line_account_id = ?
             AND outcome = 'open' AND retry_until <= ?`,
-      ).bind(
-        nowIso,
-        nowIso,
-        row.operation_id,
-        row.tenant_id,
-        row.line_account_id,
-        nowIso,
-      ).run();
+        )
+        .bind(nowIso, nowIso, row.operation_id, row.tenant_id, row.line_account_id, nowIso)
+        .run();
       result.retired += retired.meta?.changes ?? 0;
       continue;
     }
 
     const request = parseTrackedLinePushRequest(row.request_json);
-    if (!row.payload_operation_id || !row.friend_id || !row.message_type
-      || row.log_content == null || !row.log_delivery_type || !request || !row.retry_key) {
+    if (
+      !row.payload_operation_id ||
+      !row.friend_id ||
+      !row.message_type ||
+      row.log_content == null ||
+      !row.log_delivery_type ||
+      !request ||
+      !row.retry_key
+    ) {
       await retireMissingPayload(delivery, nowIso);
       result.retired++;
       continue;
@@ -581,19 +593,15 @@ export async function reconcileAttemptedBroadcastTestPushes(params: {
       continue;
     }
 
-    const attempt = await params.db.prepare(
-      `UPDATE outbound_line_deliveries
+    const attempt = await params.db
+      .prepare(
+        `UPDATE outbound_line_deliveries
           SET attempt_count = attempt_count + 1, attempted_at = ?, updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?
           AND outcome = 'open' AND attempt_count > 0 AND retry_until > ?`,
-    ).bind(
-      nowIso,
-      nowIso,
-      row.operation_id,
-      row.tenant_id,
-      row.line_account_id,
-      nowIso,
-    ).run();
+      )
+      .bind(nowIso, nowIso, row.operation_id, row.tenant_id, row.line_account_id, nowIso)
+      .run();
     if ((attempt.meta?.changes ?? 0) !== 1) {
       result.pending++;
       continue;
@@ -623,17 +631,18 @@ export async function reconcileAttemptedBroadcastTestPushes(params: {
   return result;
 }
 
-export async function deliverTrackedLineReply(params: TrackedMessageParams & {
-  beforeSend?: () => Promise<boolean>;
-  isDeterministicRejection?: (error: unknown) => boolean;
-  send: () => Promise<void>;
-}): Promise<DeliveryResult> {
+export async function deliverTrackedLineReply(
+  params: TrackedMessageParams & {
+    beforeSend?: () => Promise<boolean>;
+    isDeterministicRejection?: (error: unknown) => boolean;
+    send: () => Promise<void>;
+  },
+): Promise<DeliveryResult> {
   const prepared = await prepareDelivery(params, 'reply', null, 'reply');
   if (prepared.row.outcome === 'accepted') return 'already_sent';
   if (prepared.row.outcome === 'retired') {
-    return prepared.row.stop_reason === 'reply_rejected'
-      || (prepared.row.stop_reason === 'local_precondition_failed'
-        && prepared.row.attempt_count === 0)
+    return prepared.row.stop_reason === 'reply_rejected' ||
+      (prepared.row.stop_reason === 'local_precondition_failed' && prepared.row.attempt_count === 0)
       ? 'not_sent'
       : 'reconciliation_required';
   }
@@ -642,16 +651,13 @@ export async function deliverTrackedLineReply(params: TrackedMessageParams & {
     await retireExpiredOutboundLineDeliveries(params.db, new Date(prepared.nowIso));
     return prepared.row.attempt_count === 0 ? 'not_sent' : 'reconciliation_required';
   }
-  const replacedScenarioClaim = prepared.row.attempt_count === 0
-    && params.scenarioClaimToken != null
-    && prepared.payload.scenario_claim_token != null
-    && params.scenarioClaimToken !== prepared.payload.scenario_claim_token;
+  const replacedScenarioClaim =
+    prepared.row.attempt_count === 0 &&
+    params.scenarioClaimToken != null &&
+    prepared.payload.scenario_claim_token != null &&
+    params.scenarioClaimToken !== prepared.payload.scenario_claim_token;
   if (replacedScenarioClaim) {
-    return retireLocalPreconditionFailure(
-      params,
-      prepared.nowIso,
-      prepared.row.prepare_token,
-    );
+    return retireLocalPreconditionFailure(params, prepared.nowIso, prepared.row.prepare_token);
   }
   if (!prepared.created) {
     return prepared.row.attempt_count === 0 ? 'in_flight' : 'reconciliation_required';
@@ -662,19 +668,11 @@ export async function deliverTrackedLineReply(params: TrackedMessageParams & {
     try {
       ready = await params.beforeSend();
     } catch (error) {
-      await retireLocalPreconditionFailure(
-        params,
-        prepared.nowIso,
-        prepared.row.prepare_token,
-      ).catch(() => undefined);
+      await retireLocalPreconditionFailure(params, prepared.nowIso, prepared.row.prepare_token).catch(() => undefined);
       throw error;
     }
     if (!ready) {
-      return retireLocalPreconditionFailure(
-        params,
-        prepared.nowIso,
-        prepared.row.prepare_token,
-      );
+      return retireLocalPreconditionFailure(params, prepared.nowIso, prepared.row.prepare_token);
     }
   }
 
@@ -686,47 +684,50 @@ export async function deliverTrackedLineReply(params: TrackedMessageParams & {
 
   let attemptCommitted = false;
   try {
-    const attempt = await params.db.prepare(
-      `UPDATE outbound_line_deliveries
+    const attempt = await params.db
+      .prepare(
+        `UPDATE outbound_line_deliveries
           SET attempt_count = attempt_count + 1,
               first_attempted_at = COALESCE(first_attempted_at, ?),
               attempted_at = ?, updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?
           AND outcome = 'open' AND attempt_count = ? AND prepare_token = ?
           AND retry_until > ?`,
-    ).bind(
-      attemptNowIso,
-      attemptNowIso,
-      attemptNowIso,
-      params.operationId,
-      params.tenantId,
-      params.lineAccountId,
-      prepared.row.attempt_count,
-      prepared.row.prepare_token,
-      attemptNowIso,
-    ).run();
+      )
+      .bind(
+        attemptNowIso,
+        attemptNowIso,
+        attemptNowIso,
+        params.operationId,
+        params.tenantId,
+        params.lineAccountId,
+        prepared.row.attempt_count,
+        prepared.row.prepare_token,
+        attemptNowIso,
+      )
+      .run();
     attemptCommitted = (attempt.meta?.changes ?? 0) === 1;
   } catch (error) {
-    const attemptState = await params.db.prepare(
-      `SELECT outcome, attempt_count, prepare_token
+    const attemptState = await params.db
+      .prepare(
+        `SELECT outcome, attempt_count, prepare_token
          FROM outbound_line_deliveries
         WHERE id = ? AND tenant_id = ? AND line_account_id = ?`,
-    ).bind(
-      params.operationId,
-      params.tenantId,
-      params.lineAccountId,
-    ).first<Pick<DeliveryRow, 'outcome' | 'attempt_count' | 'prepare_token'>>().catch(() => null);
-    attemptCommitted = attemptState?.outcome === 'open'
-      && attemptState.attempt_count === prepared.row.attempt_count + 1
-      && attemptState.prepare_token === prepared.row.prepare_token;
-    if (!attemptCommitted && attemptState?.outcome === 'open'
-      && attemptState.attempt_count === prepared.row.attempt_count
-      && attemptState.prepare_token === prepared.row.prepare_token) {
-      await retireLocalPreconditionFailure(
-        params,
-        attemptNowIso,
-        prepared.row.prepare_token,
-      ).catch(() => undefined);
+      )
+      .bind(params.operationId, params.tenantId, params.lineAccountId)
+      .first<Pick<DeliveryRow, 'outcome' | 'attempt_count' | 'prepare_token'>>()
+      .catch(() => null);
+    attemptCommitted =
+      attemptState?.outcome === 'open' &&
+      attemptState.attempt_count === prepared.row.attempt_count + 1 &&
+      attemptState.prepare_token === prepared.row.prepare_token;
+    if (
+      !attemptCommitted &&
+      attemptState?.outcome === 'open' &&
+      attemptState.attempt_count === prepared.row.attempt_count &&
+      attemptState.prepare_token === prepared.row.prepare_token
+    ) {
+      await retireLocalPreconditionFailure(params, attemptNowIso, prepared.row.prepare_token).catch(() => undefined);
     }
     if (!attemptCommitted) throw error;
   }
@@ -740,19 +741,23 @@ export async function deliverTrackedLineReply(params: TrackedMessageParams & {
     await params.send();
   } catch (error) {
     const deterministicRejection = params.isDeterministicRejection?.(error) === true;
-    await params.db.prepare(
-      `UPDATE outbound_line_deliveries
+    await params.db
+      .prepare(
+        `UPDATE outbound_line_deliveries
           SET outcome = 'retired', settled_at = ?, stop_reason = ?,
               updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND outcome = 'open'`,
-    ).bind(
-      attemptNowIso,
-      deterministicRejection ? 'reply_rejected' : 'reply_outcome_unknown',
-      attemptNowIso,
-      params.operationId,
-      params.tenantId,
-      params.lineAccountId,
-    ).run().catch(() => undefined);
+      )
+      .bind(
+        attemptNowIso,
+        deterministicRejection ? 'reply_rejected' : 'reply_outcome_unknown',
+        attemptNowIso,
+        params.operationId,
+        params.tenantId,
+        params.lineAccountId,
+      )
+      .run()
+      .catch(() => undefined);
     if (deterministicRejection) return 'not_sent';
     throw error;
   }
@@ -767,21 +772,16 @@ async function retireLocalPreconditionFailure(
   prepareToken: string,
   maxAttemptCount = 0,
 ): Promise<'not_sent'> {
-  await params.db.prepare(
-    `UPDATE outbound_line_deliveries
+  await params.db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET outcome = 'retired', settled_at = ?, stop_reason = 'local_precondition_failed',
             updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ?
         AND outcome = 'open' AND attempt_count <= ? AND prepare_token = ?`,
-  ).bind(
-    nowIso,
-    nowIso,
-    params.operationId,
-    params.tenantId,
-    params.lineAccountId,
-    maxAttemptCount,
-    prepareToken,
-  ).run();
+    )
+    .bind(nowIso, nowIso, params.operationId, params.tenantId, params.lineAccountId, maxAttemptCount, prepareToken)
+    .run();
   return 'not_sent';
 }
 
@@ -801,8 +801,9 @@ interface AcceptedScenarioReplyRow {
 
 /** Repair the local scenario projection after a reply was durably accepted. */
 export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<number> {
-  const rows = await db.prepare(
-    `SELECT fs.id AS enrollment_id, payload.friend_id, fs.scenario_id,
+  const rows = await db
+    .prepare(
+      `SELECT fs.id AS enrollment_id, payload.friend_id, fs.scenario_id,
             fs.current_step_order, fs.started_at, payload.scenario_step_id,
             log.created_at AS accepted_at, scenario.delivery_mode,
             step.step_order, step.on_reach_tag_id,
@@ -839,7 +840,8 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
         AND fs.current_step_order < step.step_order
       ORDER BY operation.settled_at ASC
       LIMIT 100`,
-  ).all<AcceptedScenarioReplyRow>();
+    )
+    .all<AcceptedScenarioReplyRow>();
 
   let reconciled = 0;
   for (const row of rows.results) {
@@ -853,35 +855,37 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
       const enrolledAt = new Date(new Date(row.started_at).getTime() + 9 * 60 * 60_000);
       const acceptedAt = new Date(new Date(row.accepted_at).getTime() + 9 * 60 * 60_000);
       if (!Number.isFinite(enrolledAt.getTime()) || !Number.isFinite(acceptedAt.getTime())) continue;
-      const nextDelivery = computeNextDeliveryAt(
-        { delivery_mode: row.delivery_mode },
-        nextStep,
-        { enrolledAt, previousDeliveredAt: acceptedAt, now: acceptedAt },
-      ).toISOString().slice(0, -1) + '+09:00';
-      result = await db.prepare(
-        `UPDATE friend_scenarios
+      const nextDelivery =
+        computeNextDeliveryAt({ delivery_mode: row.delivery_mode }, nextStep, {
+          enrolledAt,
+          previousDeliveredAt: acceptedAt,
+          now: acceptedAt,
+        })
+          .toISOString()
+          .slice(0, -1) + '+09:00';
+      result = await db
+        .prepare(
+          `UPDATE friend_scenarios
             SET current_step_order = ?, next_delivery_at = ?, status = 'active',
                 delivery_first_attempted_at = NULL, delivery_claim_token = NULL,
                 updated_at = ?
           WHERE id = ? AND status = 'paused' AND current_step_order = ?
             AND delivery_claim_token = ?`,
-      ).bind(
-        row.step_order,
-        nextDelivery,
-        now,
-        row.enrollment_id,
-        row.current_step_order,
-        row.claim_token,
-      ).run();
+        )
+        .bind(row.step_order, nextDelivery, now, row.enrollment_id, row.current_step_order, row.claim_token)
+        .run();
     } else {
-      result = await db.prepare(
-        `UPDATE friend_scenarios
+      result = await db
+        .prepare(
+          `UPDATE friend_scenarios
             SET status = 'completed', next_delivery_at = NULL,
                 delivery_first_attempted_at = NULL, delivery_claim_token = NULL,
                 updated_at = ?
           WHERE id = ? AND status = 'paused' AND current_step_order = ?
             AND delivery_claim_token = ?`,
-      ).bind(now, row.enrollment_id, row.current_step_order, row.claim_token).run();
+        )
+        .bind(now, row.enrollment_id, row.current_step_order, row.claim_token)
+        .run();
     }
     if ((result.meta?.changes ?? 0) !== 1) continue;
     reconciled++;
@@ -898,8 +902,9 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
 export async function reconcileUnsentScenarioReplies(db: D1Database): Promise<number> {
   const operationNow = new Date().toISOString();
   const scenarioNow = jstNow();
-  const retireOpen = db.prepare(
-    `UPDATE outbound_line_deliveries
+  const retireOpen = db
+    .prepare(
+      `UPDATE outbound_line_deliveries
         SET outcome = 'retired', settled_at = ?, stop_reason = 'local_precondition_failed',
             updated_at = ?
       WHERE outcome = 'open' AND delivery_type = 'reply' AND source = 'scenario'
@@ -930,9 +935,11 @@ export async function reconcileUnsentScenarioReplies(db: D1Database): Promise<nu
              AND fs.status = 'paused'
              AND fs.current_step_order < step.step_order
         )`,
-  ).bind(operationNow, operationNow);
-  const resume = db.prepare(
-    `UPDATE friend_scenarios
+    )
+    .bind(operationNow, operationNow);
+  const resume = db
+    .prepare(
+      `UPDATE friend_scenarios
         SET status = 'active', delivery_first_attempted_at = NULL,
             delivery_claim_token = NULL, updated_at = ?
       WHERE status = 'paused'
@@ -1000,7 +1007,8 @@ export async function reconcileUnsentScenarioReplies(db: D1Database): Promise<nu
                ))
              )
         )`,
-  ).bind(scenarioNow);
+    )
+    .bind(scenarioNow);
   const results = await db.batch([retireOpen, resume]);
   return results[1]?.meta?.changes ?? 0;
 }

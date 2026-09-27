@@ -21,10 +21,15 @@ type StoredFriend = {
 
 function makeDb(initialFriends: StoredFriend[] = []) {
   let setting: string | null = null;
-  const friends = new Map(initialFriends.map((f) => [f.id, {
-    ...f,
-    provider_line_user_id: f.provider_line_user_id ?? f.line_user_id,
-  }]));
+  const friends = new Map(
+    initialFriends.map((f) => [
+      f.id,
+      {
+        ...f,
+        provider_line_user_id: f.provider_line_user_id ?? f.line_user_id,
+      },
+    ]),
+  );
 
   const execute = (sql: string, args: unknown[]) => {
     if (sql.includes('INSERT INTO account_settings')) {
@@ -38,8 +43,9 @@ function makeDb(initialFriends: StoredFriend[] = []) {
     }
     if (sql.includes('INSERT INTO friends')) {
       const [id, physicalLineUserId, providerLineUserId, accountId] = args as [string, string, string, string];
-      const existing = [...friends.values()].find((row) =>
-        row.provider_line_user_id === providerLineUserId && row.line_account_id === accountId);
+      const existing = [...friends.values()].find(
+        (row) => row.provider_line_user_id === providerLineUserId && row.line_account_id === accountId,
+      );
       if (!existing) {
         friends.set(id, {
           id,
@@ -84,19 +90,29 @@ function makeDb(initialFriends: StoredFriend[] = []) {
           if (sql.includes('WHERE provider_line_user_id IN')) {
             const accountId = args.at(-1) as string;
             const requested = new Set(args.slice(0, -1) as string[]);
-            return { results: [...friends.values()]
-              .filter((f) => f.line_account_id === accountId && requested.has(f.provider_line_user_id!))
-              .map((f) => ({ ...f, line_user_id: f.provider_line_user_id })) };
+            return {
+              results: [...friends.values()]
+                .filter((f) => f.line_account_id === accountId && requested.has(f.provider_line_user_id!))
+                .map((f) => ({ ...f, line_user_id: f.provider_line_user_id })),
+            };
           }
           if (sql.includes('AND display_name IS NULL')) {
             const [accountId, afterId, limit] = args as [string, string, number];
             return {
               results: [...friends.values()]
-                .filter((f) => f.line_account_id === accountId && f.is_following === 1 &&
-                  f.display_name === null && f.id > afterId)
+                .filter(
+                  (f) =>
+                    f.line_account_id === accountId &&
+                    f.is_following === 1 &&
+                    f.display_name === null &&
+                    f.id > afterId,
+                )
                 .sort((a, b) => a.id.localeCompare(b.id))
                 .slice(0, limit)
-                .map(({ id, provider_line_user_id }) => ({ id, line_user_id: provider_line_user_id })),
+                .map(({ id, provider_line_user_id }) => ({
+                  id,
+                  line_user_id: provider_line_user_id,
+                })),
             };
           }
           throw new Error(`Unhandled all SQL: ${sql}`);
@@ -104,15 +120,20 @@ function makeDb(initialFriends: StoredFriend[] = []) {
         run: vi.fn().mockImplementation(async () => execute(sql, args)),
       }),
     })),
-    batch: vi.fn().mockImplementation(async (statements: Array<{ sql: string; args: unknown[] }>) =>
-      statements.map((statement) => execute(statement.sql, statement.args))),
+    batch: vi
+      .fn()
+      .mockImplementation(async (statements: Array<{ sql: string; args: unknown[] }>) =>
+        statements.map((statement) => execute(statement.sql, statement.args)),
+      ),
   } as unknown as D1Database;
 
   return {
     db,
     friends,
-    getFriend: (lineUserId: string, accountId: string) => [...friends.values()].find((friend) =>
-      friend.provider_line_user_id === lineUserId && friend.line_account_id === accountId),
+    getFriend: (lineUserId: string, accountId: string) =>
+      [...friends.values()].find(
+        (friend) => friend.provider_line_user_id === lineUserId && friend.line_account_id === accountId,
+      ),
     getSetting: () => setting,
   };
 }
@@ -135,7 +156,8 @@ describe('persisted one-time follower import', () => {
     const { db, getFriend } = makeDb();
     const lineUserId = uid('a');
     const client = {
-      getFollowerIds: vi.fn()
+      getFollowerIds: vi
+        .fn()
         .mockResolvedValueOnce({ userIds: [] })
         .mockResolvedValueOnce({ userIds: [lineUserId] }),
       getProfile: vi.fn().mockResolvedValue({
@@ -164,18 +186,21 @@ describe('persisted one-time follower import', () => {
 
   test('creates an account-local friend when the same LINE user follows another account', async () => {
     const lineUserId = uid('b');
-    const { db, friends, getFriend } = makeDb([{
-      id: 'friend-a',
-      line_user_id: 'friend-key:a',
-      provider_line_user_id: lineUserId,
-      line_account_id: 'acc-a',
-      is_following: 1,
-      display_name: 'Account A',
-      picture_url: null,
-      status_message: null,
-    }]);
+    const { db, friends, getFriend } = makeDb([
+      {
+        id: 'friend-a',
+        line_user_id: 'friend-key:a',
+        provider_line_user_id: lineUserId,
+        line_account_id: 'acc-a',
+        is_following: 1,
+        display_name: 'Account A',
+        picture_url: null,
+        status_message: null,
+      },
+    ]);
     const client = {
-      getFollowerIds: vi.fn()
+      getFollowerIds: vi
+        .fn()
         .mockResolvedValueOnce({ userIds: [] })
         .mockResolvedValueOnce({ userIds: [lineUserId] }),
       getProfile: vi.fn().mockResolvedValue({ displayName: 'Account B' }),

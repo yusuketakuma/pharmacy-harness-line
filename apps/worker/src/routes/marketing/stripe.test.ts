@@ -50,10 +50,7 @@ describe('stripe webhook receipt/effect split', () => {
       // addScore commits its ledger insert + cache update via db.batch(), so the
       // synthetic failure has to land on the batch that carries friend_scores.
       async batch(statements: Array<{ __sql?: string }>) {
-        if (
-          failScore &&
-          statements.some((s) => s.__sql?.includes('INSERT OR IGNORE INTO friend_scores'))
-        ) {
+        if (failScore && statements.some((s) => s.__sql?.includes('INSERT OR IGNORE INTO friend_scores'))) {
           failScore = false;
           throw new Error('synthetic scoring failure');
         }
@@ -79,20 +76,15 @@ describe('stripe webhook receipt/effect split', () => {
       .prepare(`SELECT effects_completed_at FROM stripe_events WHERE stripe_event_id = 'evt-1'`)
       .get() as { effects_completed_at: string | null };
     expect(receipt.effects_completed_at).toBeNull();
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(0);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(0);
 
     // Stripe retry: effects resume instead of being swallowed by the receipt.
     const retry = await post();
     expect(retry.status).toBe(200);
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(1);
-    expect(
-      (sqlite.prepare(`SELECT score FROM friends WHERE id = 'friend-a'`).get() as { score: number })
-        .score,
-    ).toBe(10);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(1);
+    expect((sqlite.prepare(`SELECT score FROM friends WHERE id = 'friend-a'`).get() as { score: number }).score).toBe(
+      10,
+    );
     const done = sqlite
       .prepare(`SELECT effects_completed_at FROM stripe_events WHERE stripe_event_id = 'evt-1'`)
       .get() as { effects_completed_at: string | null };
@@ -102,14 +94,12 @@ describe('stripe webhook receipt/effect split', () => {
     const again = await post();
     expect(again.status).toBe(200);
     expect(await again.json()).toMatchObject({ data: { message: 'Already processed' } });
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(1);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(1);
     expect(
       (
-        sqlite
-          .prepare(`SELECT COUNT(*) AS c FROM engagement_events WHERE source_event_id = 'evt-1'`)
-          .get() as { c: number }
+        sqlite.prepare(`SELECT COUNT(*) AS c FROM engagement_events WHERE source_event_id = 'evt-1'`).get() as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
   });
@@ -156,24 +146,19 @@ describe('stripe webhook receipt/effect split', () => {
 
     // First delivery: every effect applied, then the completion marker blew up.
     expect((await post()).status).toBe(500);
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(1);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(1);
 
     // The retry re-runs every effect; dedupe keys keep each exactly-once.
     expect((await post()).status).toBe(200);
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(1);
-    expect(
-      (sqlite.prepare(`SELECT score FROM friends WHERE id = 'friend-a'`).get() as { score: number })
-        .score,
-    ).toBe(10);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(1);
+    expect((sqlite.prepare(`SELECT score FROM friends WHERE id = 'friend-a'`).get() as { score: number }).score).toBe(
+      10,
+    );
     expect(
       (
-        sqlite
-          .prepare(`SELECT COUNT(*) AS c FROM engagement_events WHERE source_event_id = 'evt-1'`)
-          .get() as { c: number }
+        sqlite.prepare(`SELECT COUNT(*) AS c FROM engagement_events WHERE source_event_id = 'evt-1'`).get() as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
   });
@@ -182,21 +167,39 @@ describe('stripe webhook receipt/effect split', () => {
     const sqlite = setup();
     // A second tenant with its own account/friend and a stripe event each.
     sqlite
-      .prepare("INSERT INTO tenants (id, tenant_code, display_name) VALUES ('tenant-a', 'tenant-a', 'tenant-a'), ('tenant-b', 'tenant-b', 'tenant-b')")
+      .prepare(
+        "INSERT INTO tenants (id, tenant_code, display_name) VALUES ('tenant-a', 'tenant-a', 'tenant-a'), ('tenant-b', 'tenant-b', 'tenant-b')",
+      )
       .run();
     sqlite
-      .prepare("INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret) VALUES ('account-b','channel-b','B','synthetic-token','synthetic-secret')")
+      .prepare(
+        "INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret) VALUES ('account-b','channel-b','B','synthetic-token','synthetic-secret')",
+      )
       .run();
     sqlite
-      .prepare("INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES ('tenant-a', 'account-a'), ('tenant-b', 'account-b')")
+      .prepare(
+        "INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES ('tenant-a', 'account-a'), ('tenant-b', 'account-b')",
+      )
       .run();
     sqlite
-      .prepare("INSERT INTO friends (id, line_user_id, provider_line_user_id, line_account_id) VALUES ('friend-b','line-user-b','user-b','account-b')")
+      .prepare(
+        "INSERT INTO friends (id, line_user_id, provider_line_user_id, line_account_id) VALUES ('friend-b','line-user-b','user-b','account-b')",
+      )
       .run();
     const db = d1FromSqlite(sqlite);
     const { createStripeEvent } = await import('@line-crm/db');
-    await createStripeEvent(db, { stripeEventId: 'evt-a', eventType: 'payment_intent.succeeded', friendId: 'friend-a', amount: 100 });
-    await createStripeEvent(db, { stripeEventId: 'evt-b', eventType: 'payment_intent.succeeded', friendId: 'friend-b', amount: 200 });
+    await createStripeEvent(db, {
+      stripeEventId: 'evt-a',
+      eventType: 'payment_intent.succeeded',
+      friendId: 'friend-a',
+      amount: 100,
+    });
+    await createStripeEvent(db, {
+      stripeEventId: 'evt-b',
+      eventType: 'payment_intent.succeeded',
+      friendId: 'friend-b',
+      amount: 200,
+    });
 
     const app = new Hono<Env>();
     app.use('*', async (c, next) => {
@@ -205,10 +208,9 @@ describe('stripe webhook receipt/effect split', () => {
     });
     app.route('/', stripe);
 
-    const res = await app.fetch(
-      new Request('https://example.invalid/api/integrations/stripe/events'),
-      { DB: db } as never,
-    );
+    const res = await app.fetch(new Request('https://example.invalid/api/integrations/stripe/events'), {
+      DB: db,
+    } as never);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ stripeEventId: string }> };
     expect(body.data.map((e) => e.stripeEventId)).toEqual(['evt-a']);

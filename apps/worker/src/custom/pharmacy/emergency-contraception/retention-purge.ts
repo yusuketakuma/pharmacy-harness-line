@@ -110,9 +110,9 @@ export async function purgeEmergencyIntakesPastRetention(
   const nowIso = now.toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? PURGE_BATCH_LIMIT)));
 
-  const accounts = await db.prepare(
-    `SELECT line_account_id, retention_days FROM pharmacy_emergency_settings`,
-  ).all<AccountRetentionSetting>();
+  const accounts = await db
+    .prepare(`SELECT line_account_id, retention_days FROM pharmacy_emergency_settings`)
+    .all<AccountRetentionSetting>();
 
   const result = { purged: 0, failed: 0, skippedFormat: 0, skippedLegalHold: 0 };
 
@@ -123,8 +123,9 @@ export async function purgeEmergencyIntakesPastRetention(
       const cutoff = retentionCutoff(now, account.retention_days);
       const cutoffOrderKey = cutoff.slice(0, -1).replace(/0+$/u, '');
 
-      const formatSkipped = await db.prepare(
-        `SELECT COUNT(*) AS n
+      const formatSkipped = await db
+        .prepare(
+          `SELECT COUNT(*) AS n
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
             AND NOT (${VALID_CREATED_AT})
@@ -133,11 +134,14 @@ export async function purgeEmergencyIntakesPastRetention(
                WHERE purged.resource_type = 'emergency_intake'
                  AND purged.resource_id = intake.id
             )`,
-      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB).first<{ n: number }>();
+        )
+        .bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB)
+        .first<{ n: number }>();
       result.skippedFormat += formatSkipped?.n ?? 0;
 
-      const due = await db.prepare(
-        `SELECT intake.id AS id, intake.created_at AS created_at,
+      const due = await db
+        .prepare(
+          `SELECT intake.id AS id, intake.created_at AS created_at,
                 EXISTS (
                   SELECT 1 FROM pharmacy_data_subject_requests dsr
                    WHERE ${ACTIVE_LEGAL_HOLD}
@@ -153,7 +157,8 @@ export async function purgeEmergencyIntakesPastRetention(
             )
           ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
           LIMIT ?`,
-      ).bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, limit)
+        )
+        .bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, limit)
         .all<PurgeCandidateRow>();
 
       const rows = due.results ?? [];
@@ -162,8 +167,9 @@ export async function purgeEmergencyIntakesPastRetention(
 
       // Exclude holds before limiting candidates so an old held window cannot
       // prevent later, unheld intakes from reaching their retention deadline.
-      const eligible = await db.prepare(
-        `SELECT intake.id AS id
+      const eligible = await db
+        .prepare(
+          `SELECT intake.id AS id
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
             AND ${VALID_CREATED_AT}
@@ -179,7 +185,8 @@ export async function purgeEmergencyIntakesPastRetention(
             )
           ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
           LIMIT ?`,
-      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso, limit)
+        )
+        .bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso, limit)
         .all<Pick<PurgeCandidateRow, 'id'>>();
       const toPurge = eligible.results ?? [];
       if (toPurge.length === 0) continue;
@@ -187,8 +194,9 @@ export async function purgeEmergencyIntakesPastRetention(
       const statements = toPurge.flatMap((row) => [
         // Marker-first is safe because D1 batch is atomic. Rechecking the hold
         // here closes the gap between candidate selection and redaction.
-        db.prepare(
-          `INSERT OR IGNORE INTO pharmacy_emergency_retention_purge_log
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_emergency_retention_purge_log
              (id, line_account_id, resource_type, resource_id, age_reference_at,
               retention_days, purged_at)
            SELECT ?, intake.line_account_id, 'emergency_intake', intake.id,
@@ -201,12 +209,21 @@ export async function purgeEmergencyIntakesPastRetention(
                 SELECT 1 FROM pharmacy_data_subject_requests dsr
                  WHERE ${ACTIVE_LEGAL_HOLD}
               )`,
-        ).bind(
-          crypto.randomUUID(), account.retention_days, nowIso,
-          row.id, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso,
-        ),
-        db.prepare(
-          `UPDATE pharmacy_emergency_intakes
+          )
+          .bind(
+            crypto.randomUUID(),
+            account.retention_days,
+            nowIso,
+            row.id,
+            account.line_account_id,
+            UTC_DATE_GLOB,
+            UTC_TIME_GLOB,
+            cutoffOrderKey,
+            nowIso,
+          ),
+        db
+          .prepare(
+            `UPDATE pharmacy_emergency_intakes
               SET encrypted_payload = '', risk_flags_json = '[]', updated_at = ?
             WHERE id = ? AND line_account_id = ?
               AND (encrypted_payload <> '' OR risk_flags_json <> '[]')
@@ -216,11 +233,12 @@ export async function purgeEmergencyIntakesPastRetention(
                    AND purged.line_account_id = pharmacy_emergency_intakes.line_account_id
                    AND purged.resource_id = pharmacy_emergency_intakes.id
               )`,
-        ).bind(nowIso, row.id, account.line_account_id),
+          )
+          .bind(nowIso, row.id, account.line_account_id),
       ]);
       const batchResults = await db.batch(statements);
       result.purged += batchResults.reduce(
-        (count, item, index) => count + (index % 2 === 1 ? item.meta?.changes ?? 0 : 0),
+        (count, item, index) => count + (index % 2 === 1 ? (item.meta?.changes ?? 0) : 0),
         0,
       );
     } catch {

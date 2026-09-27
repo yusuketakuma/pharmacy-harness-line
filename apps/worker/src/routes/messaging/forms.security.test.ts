@@ -57,8 +57,7 @@ const baseForm = {
   on_submit_scenario_id: 'scenario-secret-id',
   on_submit_message_type: 'text',
   on_submit_message_content: '完了しました',
-  on_submit_webhook_url:
-    'https://verify.example.test/api/engagement-gates/gate-1/verify?username={x_username}',
+  on_submit_webhook_url: 'https://verify.example.test/api/engagement-gates/gate-1/verify?username={x_username}',
   on_submit_webhook_headers: JSON.stringify({ Authorization: 'Bearer secret' }),
   on_submit_webhook_fail_message: '条件を満たしていません',
   save_to_metadata: 1,
@@ -103,9 +102,7 @@ function app(asAdmin = false) {
 
 beforeEach(() => {
   mocks.getFormById.mockResolvedValue({ ...baseForm });
-  mocks.getFormByIdForLineAccount.mockImplementation(
-    async (db: D1Database, id: string) => mocks.getFormById(db, id),
-  );
+  mocks.getFormByIdForLineAccount.mockImplementation(async (db: D1Database, id: string) => mocks.getFormById(db, id));
   mocks.verifyCallerLineUserId.mockResolvedValue(null);
   mocks.getFriendByLineUserId.mockResolvedValue(null);
   mocks.getFriendById.mockResolvedValue(null);
@@ -130,7 +127,7 @@ describe('public form representation', () => {
     const res = await app().request('/api/forms/form-1', {}, bindings);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
     expect(body.data).toMatchObject({
       id: 'form-1',
       hasSubmitWebhook: true,
@@ -150,7 +147,7 @@ describe('public form representation', () => {
     const res = await app().request('/api/forms/form-1', {}, bindings);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
     expect(body.data.consultationWebinarSlug).toBe('ritz-voice-1-l1b');
   });
 
@@ -159,7 +156,7 @@ describe('public form representation', () => {
     const res = await app(true).request('/api/forms/form-1', {}, bindings);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
     expect(body.data.onSubmitWebhookUrl).toBe(baseForm.on_submit_webhook_url);
     expect(body.data.onSubmitWebhookHeaders).toBe(baseForm.on_submit_webhook_headers);
     expect(body.data.onSubmitTagId).toBe('tag-secret-id');
@@ -180,21 +177,21 @@ describe('LIFF identity enforcement', () => {
     mocks.getFormByIdForLineAccount.mockResolvedValue(null);
     const { bindings } = env();
 
-    const res = await app().request('/api/forms/form-b/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-b/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: { x_username: 'alice' } }),
       },
-      body: JSON.stringify({ data: { x_username: 'alice' } }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(404);
-    expect(mocks.getFormByIdForLineAccount).toHaveBeenCalledWith(
-      bindings.DB,
-      'form-b',
-      'account-a',
-    );
+    expect(mocks.getFormByIdForLineAccount).toHaveBeenCalledWith(bindings.DB, 'form-b', 'account-a');
     expect(mocks.createFormSubmission).not.toHaveBeenCalled();
   });
 
@@ -210,14 +207,18 @@ describe('LIFF identity enforcement', () => {
     const { bindings, first } = env();
     first.mockResolvedValue({ mode: 'pharmacy' } as never);
 
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: { x_username: 'user' } }),
       },
-      body: JSON.stringify({ data: { x_username: 'user' } }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(403);
     expect(mocks.createFormSubmission).not.toHaveBeenCalled();
@@ -262,14 +263,18 @@ describe('LIFF identity enforcement', () => {
       meeting_time_1: '14:30',
     };
 
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data }),
       },
-      body: JSON.stringify({ data }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(201);
     expect(mocks.createFormSubmission).toHaveBeenCalledWith(bindings.DB, {
@@ -281,11 +286,15 @@ describe('LIFF identity enforcement', () => {
 
   test('rejects partial metadata writes without a valid LINE ID token', async () => {
     const { bindings, prepare } = env();
-    const res = await app().request('/api/forms/form-1/partial', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendId: 'victim-friend', data: { score: 999 } }),
-    }, bindings);
+    const res = await app().request(
+      '/api/forms/form-1/partial',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: 'victim-friend', data: { score: 999 } }),
+      },
+      bindings,
+    );
 
     expect(res.status).toBe(401);
     expect(mocks.getFriendByLineUserId).not.toHaveBeenCalled();
@@ -300,14 +309,18 @@ describe('LIFF identity enforcement', () => {
     });
     const { bindings, bind } = env();
 
-    const res = await app().request('/api/forms/form-1/partial', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/partial',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ friendId: 'victim-friend', data: { score: 42 } }),
       },
-      body: JSON.stringify({ friendId: 'victim-friend', data: { score: 42 } }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(200);
     expect(mocks.getFriendByLineUserId).toHaveBeenCalledWith(bindings.DB, 'line-real');
@@ -320,11 +333,15 @@ describe('LIFF identity enforcement', () => {
 
   test('rejects submit without a valid LINE ID token even when a friendId is supplied', async () => {
     const { bindings } = env();
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendId: 'victim-friend', data: { x_username: 'alice' } }),
-    }, bindings);
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: 'victim-friend', data: { x_username: 'alice' } }),
+      },
+      bindings,
+    );
 
     expect(res.status).toBe(401);
     expect(mocks.createFormSubmission).not.toHaveBeenCalled();
@@ -338,28 +355,33 @@ describe('LIFF identity enforcement', () => {
       display_name: 'Real User',
       metadata: '{}',
     });
-    const webhookFetch = vi.fn<
-      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-    >(async () => new Response(
-      JSON.stringify({ eligible: false }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    ));
+    const webhookFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        new Response(JSON.stringify({ eligible: false }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
     vi.stubGlobal('fetch', webhookFetch);
     const { bindings } = env();
 
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          friendId: 'victim-friend',
+          lineUserId: 'victim-line-user',
+          _skipWebhook: true,
+          data: { x_username: 'alice' },
+        }),
       },
-      body: JSON.stringify({
-        friendId: 'victim-friend',
-        lineUserId: 'victim-line-user',
-        _skipWebhook: true,
-        data: { x_username: 'alice' },
-      }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(201);
     expect(webhookFetch).toHaveBeenCalledOnce();
@@ -373,15 +395,18 @@ describe('LIFF identity enforcement', () => {
         Authorization: 'Bearer secret',
       },
     });
-    expect(mocks.createFormSubmission).toHaveBeenCalledWith(bindings.DB, expect.objectContaining({
-      formId: 'form-1',
-      friendId: 'friend-real',
-    }));
+    expect(mocks.createFormSubmission).toHaveBeenCalledWith(
+      bindings.DB,
+      expect.objectContaining({
+        formId: 'form-1',
+        friendId: 'friend-real',
+      }),
+    );
     expect(mocks.createFormSubmission).not.toHaveBeenCalledWith(
       bindings.DB,
       expect.objectContaining({ friendId: 'victim-friend' }),
     );
-    expect((await res.json() as { data: { webhookPassed: boolean } }).data.webhookPassed).toBe(false);
+    expect(((await res.json()) as { data: { webhookPassed: boolean } }).data.webhookPassed).toBe(false);
   });
 
   test('webhook rejection reply goes through the Harness proxy', async () => {
@@ -393,9 +418,7 @@ describe('LIFF identity enforcement', () => {
       display_name: 'Real User',
       metadata: '{}',
     });
-    const fetchMock = vi.fn<
-      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-    >(async (input) => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
       const url = String(input);
       if (url.startsWith('https://verify.example.test/')) {
         return new Response(JSON.stringify({ eligible: false }), {
@@ -408,14 +431,18 @@ describe('LIFF identity enforcement', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { bindings } = env();
 
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: { x_username: 'alice' } }),
       },
-      body: JSON.stringify({ data: { x_username: 'alice' } }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(201);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -450,43 +477,62 @@ describe('LIFF identity enforcement', () => {
     };
     mocks.getFriendByLineUserId.mockResolvedValue(friend);
     mocks.getFriendById.mockResolvedValue(friend);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      eligible: true,
-      join_url: 'https://meet.example.test/join',
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              eligible: true,
+              join_url: 'https://meet.example.test/join',
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
     const { bindings } = env();
 
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-line-id-token',
-        'Content-Type': 'application/json',
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid-line-id-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: { x_username: 'alice' } }),
       },
-      body: JSON.stringify({ data: { x_username: 'alice' } }),
-    }, bindings);
+      bindings,
+    );
 
     expect(res.status).toBe(201);
     expect(mocks.dispatchLineProxyLocally).toHaveBeenCalledTimes(2);
-    const retryKeys = mocks.dispatchLineProxyLocally.mock.calls.map(
-      ([request]) => (request as Request).headers.get('X-Line-Retry-Key'),
+    const retryKeys = mocks.dispatchLineProxyLocally.mock.calls.map(([request]) =>
+      (request as Request).headers.get('X-Line-Retry-Key'),
     );
-    expect(new Set(retryKeys)).toEqual(new Set([
-      await createBroadcastRetryKey('form-submission', 'submission-1', 'meet-link'),
-      await createBroadcastRetryKey('form-submission', 'submission-1', 'confirmation'),
-    ]));
+    expect(new Set(retryKeys)).toEqual(
+      new Set([
+        await createBroadcastRetryKey('form-submission', 'submission-1', 'meet-link'),
+        await createBroadcastRetryKey('form-submission', 'submission-1', 'confirmation'),
+      ]),
+    );
   });
 });
 
 describe('webhook URL / header validation (INJ-1)', () => {
   const post = (body: Record<string, unknown>) =>
-    app(true).request('/api/forms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'f', ...body }),
-    }, env().bindings);
+    app(true).request(
+      '/api/forms',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'f', ...body }),
+      },
+      env().bindings,
+    );
 
   test('rejects http:// webhook URL on create', async () => {
     expect((await post({ onSubmitWebhookUrl: 'http://example.test/hook' })).status).toBe(400);
@@ -507,25 +553,41 @@ describe('webhook URL / header validation (INJ-1)', () => {
   });
 
   test('rejects http:// webhook URL on update', async () => {
-    const res = await app(true).request('/api/forms/form-1', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ onSubmitWebhookUrl: 'http://example.test/hook' }),
-    }, env().bindings);
+    const res = await app(true).request(
+      '/api/forms/form-1',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onSubmitWebhookUrl: 'http://example.test/hook' }),
+      },
+      env().bindings,
+    );
     expect(res.status).toBe(400);
   });
 
   test('does not fetch a stored non-https webhook URL at submit time', async () => {
-    mocks.getFormById.mockResolvedValue({ ...baseForm, on_submit_webhook_url: 'http://169.254.169.254/latest' });
+    mocks.getFormById.mockResolvedValue({
+      ...baseForm,
+      on_submit_webhook_url: 'http://169.254.169.254/latest',
+    });
     mocks.verifyCallerLineUserId.mockResolvedValue('line-real');
-    mocks.getFriendByLineUserId.mockResolvedValue({ id: 'friend-real', line_user_id: null, display_name: 'U', metadata: '{}' });
+    mocks.getFriendByLineUserId.mockResolvedValue({
+      id: 'friend-real',
+      line_user_id: null,
+      display_name: 'U',
+      metadata: '{}',
+    });
     const webhookFetch = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', webhookFetch);
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: { x_username: 'a' } }),
-    }, env().bindings);
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: { x_username: 'a' } }),
+      },
+      env().bindings,
+    );
     expect(webhookFetch).not.toHaveBeenCalled();
     expect(res.status).toBe(201);
   });

@@ -5,10 +5,7 @@ import { loadPharmacyRichMenuCatalogImage, PHARMACY_RICH_MENU_CATALOG_VERSION } 
 import { sha256Hex } from './hash.js';
 import { derivePharmacyRichMenuLayout } from './layout.js';
 import { diagnosePharmacyRichMenuActions, hashPharmacyRichMenuManifest } from './profile.js';
-import {
-  getPharmacyRichMenuDraftBinding,
-  getPharmacyRichMenuLayout,
-} from './repository.js';
+import { getPharmacyRichMenuDraftBinding, getPharmacyRichMenuLayout } from './repository.js';
 
 export type PharmacyRichMenuPublishReadiness = {
   status: 'READY' | 'BLOCKED';
@@ -50,14 +47,16 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
   if (binding.catalogVersion !== PHARMACY_RICH_MENU_CATALOG_VERSION) reasons.push('CATALOG_VERSION_STALE');
   if (reasons.length > 0 || !capabilities) return blocked(reasons);
 
-  const { effectiveOrder, variantKey } = derivePharmacyRichMenuLayout(
-    layout.preferredOrder, capabilities.capabilities,
-  );
+  const { effectiveOrder, variantKey } = derivePharmacyRichMenuLayout(layout.preferredOrder, capabilities.capabilities);
   if (variantKey !== binding.catalogVariantKey) return blocked(['CATALOG_VARIANT_STALE']);
-  const page = input.group.pages.find((candidate) => candidate.id === input.group.default_page_id) ??
-    input.group.pages[0];
-  if (input.group.pages.length !== 1 || !page?.image_r2_key || page.image_content_type !== 'image/jpeg' ||
-      !page.image_r2_key.startsWith(`rich-menus/${input.accountId}/${input.group.id}/`)) {
+  const page =
+    input.group.pages.find((candidate) => candidate.id === input.group.default_page_id) ?? input.group.pages[0];
+  if (
+    input.group.pages.length !== 1 ||
+    !page?.image_r2_key ||
+    page.image_content_type !== 'image/jpeg' ||
+    !page.image_r2_key.startsWith(`rich-menus/${input.accountId}/${input.group.id}/`)
+  ) {
     return blocked(['SAVED_IMAGE_BINDING_INVALID']);
   }
   const areas: RichMenuAreaInput[] = page.areas.map((area) => ({
@@ -69,7 +68,7 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
     actionData: area.actionData,
   }));
   reasons.push(...diagnosePharmacyRichMenuActions(areas, input.liffId, effectiveOrder));
-  if (await hashPharmacyRichMenuManifest(areas) !== binding.manifestHash) {
+  if ((await hashPharmacyRichMenuManifest(areas)) !== binding.manifestHash) {
     reasons.push('ACTION_MANIFEST_CHANGED');
   }
 
@@ -79,8 +78,11 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
   } catch {
     return blocked([...reasons, 'CATALOG_UNVERIFIED']);
   }
-  if (catalogImage.objectKey !== binding.catalogObjectKey || catalogImage.imageHash !== binding.imageHash ||
-      catalogImage.size !== binding.menuSize) {
+  if (
+    catalogImage.objectKey !== binding.catalogObjectKey ||
+    catalogImage.imageHash !== binding.imageHash ||
+    catalogImage.size !== binding.menuSize
+  ) {
     reasons.push('CATALOG_BINDING_CHANGED');
   }
   let saved: R2ObjectBody | null;
@@ -92,27 +94,33 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
   if (!saved) return blocked([...reasons, 'SAVED_IMAGE_MISSING']);
   const bytes = new Uint8Array(await saved.arrayBuffer());
   const validation = validateRichMenuImage(bytes, bytes.byteLength);
-  if (saved.httpMetadata?.contentType !== 'image/jpeg' || !validation.ok ||
-      validation.size !== binding.menuSize || validation.format !== 'jpeg' ||
-      await sha256Hex(bytes) !== binding.imageHash) {
+  if (
+    saved.httpMetadata?.contentType !== 'image/jpeg' ||
+    !validation.ok ||
+    validation.size !== binding.menuSize ||
+    validation.format !== 'jpeg' ||
+    (await sha256Hex(bytes)) !== binding.imageHash
+  ) {
     reasons.push('SAVED_IMAGE_CHANGED');
   }
   if (reasons.length > 0) return blocked(reasons);
   return {
     status: 'READY',
     reasonCodes: [],
-    evidenceDigest: await sha256Hex(JSON.stringify({
-      groupId: input.group.id,
-      groupStatus: input.group.status,
-      groupUpdatedAt: input.group.updated_at,
-      layoutRevision: binding.layoutRevision,
-      capabilityRevision: binding.capabilityRevision,
-      liffIdHash: binding.liffIdHash,
-      catalogVersion: binding.catalogVersion,
-      menuSize: binding.menuSize,
-      catalogVariantKey: binding.catalogVariantKey,
-      manifestHash: binding.manifestHash,
-      imageHash: binding.imageHash,
-    })),
+    evidenceDigest: await sha256Hex(
+      JSON.stringify({
+        groupId: input.group.id,
+        groupStatus: input.group.status,
+        groupUpdatedAt: input.group.updated_at,
+        layoutRevision: binding.layoutRevision,
+        capabilityRevision: binding.capabilityRevision,
+        liffIdHash: binding.liffIdHash,
+        catalogVersion: binding.catalogVersion,
+        menuSize: binding.menuSize,
+        catalogVariantKey: binding.catalogVariantKey,
+        manifestHash: binding.manifestHash,
+        imageHash: binding.imageHash,
+      }),
+    ),
   };
 }

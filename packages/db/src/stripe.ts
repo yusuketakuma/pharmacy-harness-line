@@ -13,7 +13,10 @@ export interface StripeEventRow {
   effects_completed_at: string | null;
 }
 
-export async function getStripeEvents(db: D1Database, opts: { friendId?: string; eventType?: string; limit?: number; tenantId?: string } = {}): Promise<StripeEventRow[]> {
+export async function getStripeEvents(
+  db: D1Database,
+  opts: { friendId?: string; eventType?: string; limit?: number; tenantId?: string } = {},
+): Promise<StripeEventRow[]> {
   const limit = opts.limit ?? 100;
   const filters: string[] = [];
   const params: unknown[] = [];
@@ -45,25 +48,45 @@ export async function getStripeEvents(db: D1Database, opts: { friendId?: string;
 }
 
 export async function getStripeEventByStripeId(db: D1Database, stripeEventId: string): Promise<StripeEventRow | null> {
-  return db.prepare(`SELECT * FROM stripe_events WHERE stripe_event_id = ?`).bind(stripeEventId).first<StripeEventRow>();
+  return db
+    .prepare(`SELECT * FROM stripe_events WHERE stripe_event_id = ?`)
+    .bind(stripeEventId)
+    .first<StripeEventRow>();
 }
 
 export async function createStripeEvent(
   db: D1Database,
-  input: { stripeEventId: string; eventType: string; friendId?: string; amount?: number; currency?: string; metadata?: string },
+  input: {
+    stripeEventId: string;
+    eventType: string;
+    friendId?: string;
+    amount?: number;
+    currency?: string;
+    metadata?: string;
+  },
 ): Promise<StripeEventRow> {
   const id = crypto.randomUUID();
   const now = jstNow();
-  await db.prepare(`INSERT INTO stripe_events (id, stripe_event_id, event_type, friend_id, amount, currency, metadata, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, input.stripeEventId, input.eventType, input.friendId ?? null, input.amount ?? null, input.currency ?? null, input.metadata ?? null, now).run();
+  await db
+    .prepare(
+      `INSERT INTO stripe_events (id, stripe_event_id, event_type, friend_id, amount, currency, metadata, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      input.stripeEventId,
+      input.eventType,
+      input.friendId ?? null,
+      input.amount ?? null,
+      input.currency ?? null,
+      input.metadata ?? null,
+      now,
+    )
+    .run();
   return (await db.prepare(`SELECT * FROM stripe_events WHERE id = ?`).bind(id).first<StripeEventRow>())!;
 }
 
 /** Mark the receipt's side effects complete after every retry-safe step ran. */
-export async function markStripeEventEffectsComplete(
-  db: D1Database,
-  stripeEventId: string,
-): Promise<void> {
+export async function markStripeEventEffectsComplete(db: D1Database, stripeEventId: string): Promise<void> {
   await db
     .prepare(`UPDATE stripe_events SET effects_completed_at = ? WHERE stripe_event_id = ?`)
     .bind(jstNow(), stripeEventId)

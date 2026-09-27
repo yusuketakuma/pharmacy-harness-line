@@ -4,10 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('provisioned tenant login UI', () => {
   const login = readFileSync(join(process.cwd(), 'src', 'app', 'login', 'page.tsx'), 'utf8');
-  const platformLogin = readFileSync(
-    join(process.cwd(), 'src', 'app', 'platform-admin', 'login', 'page.tsx'),
-    'utf8',
-  );
+  const platformLogin = readFileSync(join(process.cwd(), 'src', 'app', 'platform-admin', 'login', 'page.tsx'), 'utf8');
   const guard = readFileSync(join(process.cwd(), 'src', 'components', 'auth-guard.tsx'), 'utf8');
   const staffApi = readFileSync(join(process.cwd(), '..', 'worker', 'src', 'routes', 'admin', 'staff.ts'), 'utf8');
 
@@ -18,8 +15,9 @@ describe('provisioned tenant login UI', () => {
     expect(login).not.toContain('管理者ID');
     expect(login).not.toContain('従来のAPIキーでログイン');
     expect(login).not.toContain('JSON.stringify({ apiKey, pharmacyCode })');
-    expect(`${login}\n${guard}\n${readFileSync(join(process.cwd(), 'src', 'components', 'layout', 'sidebar.tsx'), 'utf8')}`)
-      .not.toContain('lh_api_key');
+    expect(
+      `${login}\n${guard}\n${readFileSync(join(process.cwd(), 'src', 'components', 'layout', 'sidebar.tsx'), 'utf8')}`,
+    ).not.toContain('lh_api_key');
   });
 
   it('requires a new password before opening the dashboard', () => {
@@ -44,8 +42,9 @@ describe('provisioned tenant login UI', () => {
   });
 
   it('does not expose owner-only staff controls to the shared admin flow', () => {
-    expect(readFileSync(join(process.cwd(), 'src', 'components', 'layout', 'sidebar.tsx'), 'utf8'))
-      .toContain("item.href === '/staff' && staffRole !== 'owner'");
+    expect(readFileSync(join(process.cwd(), 'src', 'components', 'layout', 'sidebar.tsx'), 'utf8')).toContain(
+      "item.href === '/staff' && staffRole !== 'owner'",
+    );
     expect(staffApi).toContain("requireRole('owner')");
   });
 });

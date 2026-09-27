@@ -1,6 +1,6 @@
-import { readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * Locate and read wrangler's own OAuth access token so setup can call the
@@ -42,7 +42,7 @@ export function getWranglerConfigDir(opts: WranglerOAuthEnv = {}): string {
   const home = opts.home ?? homedir();
   const isDirectory = opts.isDirectory ?? defaultIsDirectory;
 
-  const legacyDir = join(home, ".wrangler");
+  const legacyDir = join(home, '.wrangler');
   if (isDirectory(legacyDir)) {
     return legacyDir;
   }
@@ -50,14 +50,14 @@ export function getWranglerConfigDir(opts: WranglerOAuthEnv = {}): string {
   let xdgConfigBase: string;
   if (env.XDG_CONFIG_HOME) {
     xdgConfigBase = env.XDG_CONFIG_HOME;
-  } else if (platform === "darwin") {
-    xdgConfigBase = join(home, "Library", "Preferences");
-  } else if (platform === "win32") {
-    xdgConfigBase = join(env.APPDATA ?? join(home, "AppData", "Roaming"), "xdg.config");
+  } else if (platform === 'darwin') {
+    xdgConfigBase = join(home, 'Library', 'Preferences');
+  } else if (platform === 'win32') {
+    xdgConfigBase = join(env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'xdg.config');
   } else {
-    xdgConfigBase = join(home, ".config");
+    xdgConfigBase = join(home, '.config');
   }
-  return join(xdgConfigBase, ".wrangler");
+  return join(xdgConfigBase, '.wrangler');
 }
 
 /**
@@ -86,14 +86,12 @@ export function parseWranglerAuthToml(content: string): {
  * treat null as "cannot pre-check via the API" and fall back to the plain
  * deploy path.
  */
-export function readWranglerOAuthToken(
-  opts: WranglerOAuthEnv & { now?: () => number } = {},
-): string | null {
-  const tomlPath = join(getWranglerConfigDir(opts), "config", "default.toml");
+export function readWranglerOAuthToken(opts: WranglerOAuthEnv & { now?: () => number } = {}): string | null {
+  const tomlPath = join(getWranglerConfigDir(opts), 'config', 'default.toml');
 
   let content: string;
   try {
-    content = readFileSync(tomlPath, "utf-8");
+    content = readFileSync(tomlPath, 'utf-8');
   } catch {
     return null;
   }

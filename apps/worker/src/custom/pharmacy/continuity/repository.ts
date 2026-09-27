@@ -62,8 +62,9 @@ export async function openContinuityObligation(
   actorId: string,
   now = new Date(),
 ): Promise<ContinuityObligation | null> {
-  const source = await db.prepare(
-    `SELECT pp.patient_id, pp.owner_friend_id,
+  const source = await db
+    .prepare(
+      `SELECT pp.patient_id, pp.owner_friend_id,
             r.representative_consent_at AS consent_at
        FROM pharmacy_prescription_submissions s
        INNER JOIN pharmacy_prescription_patients pp
@@ -75,11 +76,13 @@ export async function openContinuityObligation(
         AND r.owner_friend_id = pp.owner_friend_id
       WHERE s.id = ? AND s.line_account_id = ? AND s.status = 'closed'
       LIMIT 1`,
-  ).bind(sourceSubmissionId, lineAccountId).first<{
-    patient_id: string;
-    owner_friend_id: string;
-    consent_at: string;
-  }>();
+    )
+    .bind(sourceSubmissionId, lineAccountId)
+    .first<{
+      patient_id: string;
+      owner_friend_id: string;
+      consent_at: string;
+    }>();
   if (!source?.consent_at) return null;
 
   const id = crypto.randomUUID();
@@ -88,19 +91,31 @@ export async function openContinuityObligation(
   const to = addDays(now, 90);
   const nextContactAt = addDays(now, 28).toISOString();
   await db.batch([
-    db.prepare(
-      `INSERT INTO pharmacy_continuity_obligations
+    db
+      .prepare(
+        `INSERT INTO pharmacy_continuity_obligations
          (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
           status, expected_next_from, expected_next_to, next_contact_at,
           consent_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
        ON CONFLICT DO NOTHING`,
-    ).bind(
-      id, lineAccountId, source.owner_friend_id, source.patient_id, sourceSubmissionId,
-      dateOnly(from), dateOnly(to), nextContactAt, source.consent_at, createdAt, createdAt,
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_continuity_events
+      )
+      .bind(
+        id,
+        lineAccountId,
+        source.owner_friend_id,
+        source.patient_id,
+        sourceSubmissionId,
+        dateOnly(from),
+        dateOnly(to),
+        nextContactAt,
+        source.consent_at,
+        createdAt,
+        createdAt,
+      ),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_continuity_events
          (id, obligation_id, line_account_id, event_type, submission_id,
           actor_type, actor_id, created_at)
        SELECT ?, o.id, o.line_account_id, 'opened', o.source_submission_id,
@@ -112,15 +127,17 @@ export async function openContinuityObligation(
             SELECT 1 FROM pharmacy_continuity_events existing
              WHERE existing.obligation_id = o.id AND existing.event_type = 'opened'
           )`,
-    ).bind(
-      crypto.randomUUID(), actorId, createdAt, lineAccountId, source.patient_id,
-    ),
+      )
+      .bind(crypto.randomUUID(), actorId, createdAt, lineAccountId, source.patient_id),
   ]);
-  return db.prepare(
-    `${OBLIGATION_SELECT}
+  return db
+    .prepare(
+      `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND source_submission_id = ?
       ORDER BY created_at DESC, id DESC LIMIT 1`,
-  ).bind(lineAccountId, sourceSubmissionId).first<ContinuityObligation>();
+    )
+    .bind(lineAccountId, sourceSubmissionId)
+    .first<ContinuityObligation>();
 }
 
 export async function linkContinuitySubmission(
@@ -130,47 +147,52 @@ export async function linkContinuitySubmission(
   ownerFriendId: string,
   actorType: 'system' | 'staff' | 'patient' = 'system',
 ): Promise<ContinuityObligation | null> {
-  const patient = await db.prepare(
-    `SELECT patient_id, owner_friend_id
+  const patient = await db
+    .prepare(
+      `SELECT patient_id, owner_friend_id
        FROM pharmacy_prescription_patients
       WHERE submission_id = ? AND line_account_id = ? AND owner_friend_id = ?`,
-  ).bind(submissionId, lineAccountId, ownerFriendId).first<{
-    patient_id: string;
-    owner_friend_id: string;
-  }>();
+    )
+    .bind(submissionId, lineAccountId, ownerFriendId)
+    .first<{
+      patient_id: string;
+      owner_friend_id: string;
+    }>();
   if (!patient) return null;
-  const obligation = await db.prepare(
-    `${OBLIGATION_SELECT}
+  const obligation = await db
+    .prepare(
+      `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND patient_id = ? AND owner_friend_id = ?
         AND status = 'active'
       ORDER BY created_at DESC, id DESC LIMIT 1`,
-  ).bind(lineAccountId, patient.patient_id, ownerFriendId).first<ContinuityObligation>();
+    )
+    .bind(lineAccountId, patient.patient_id, ownerFriendId)
+    .first<ContinuityObligation>();
   if (!obligation) return null;
   const now = new Date().toISOString();
   const [transition] = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_continuity_obligations
+    db
+      .prepare(
+        `UPDATE pharmacy_continuity_obligations
           SET status = 'linked', candidate_submission_id = ?, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND status = 'active'
           AND candidate_submission_id IS NULL`,
-    ).bind(submissionId, now, obligation.id, lineAccountId),
-    db.prepare(
-      `INSERT INTO pharmacy_continuity_events
+      )
+      .bind(submissionId, now, obligation.id, lineAccountId),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_continuity_events
          (id, obligation_id, line_account_id, event_type, submission_id,
           actor_type, created_at)
        SELECT ?, o.id, o.line_account_id, 'linked', ?, ?, ?
          FROM pharmacy_continuity_obligations o
         WHERE o.id = ? AND o.line_account_id = ? AND o.status = 'linked'
           AND o.candidate_submission_id = ? AND o.updated_at = ?`,
-    ).bind(
-      crypto.randomUUID(), submissionId, actorType, now,
-      obligation.id, lineAccountId, submissionId, now,
-    ),
+      )
+      .bind(crypto.randomUUID(), submissionId, actorType, now, obligation.id, lineAccountId, submissionId, now),
   ]);
   if ((transition?.meta?.changes ?? 0) !== 1) {
-    return obligation.status === 'linked' && obligation.candidate_submission_id === submissionId
-      ? obligation
-      : null;
+    return obligation.status === 'linked' && obligation.candidate_submission_id === submissionId ? obligation : null;
   }
   return rowWithStatus(obligation as unknown as Record<string, unknown>, 'linked', submissionId);
 }
@@ -182,21 +204,27 @@ export async function completeContinuityAfterClose(
   actorId: string,
   now = new Date(),
 ): Promise<ContinuityObligation | null> {
-  const linked = await db.prepare(
-    `${OBLIGATION_SELECT}
+  const linked = await db
+    .prepare(
+      `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND candidate_submission_id = ? AND status = 'linked'
       LIMIT 1`,
-  ).bind(lineAccountId, submissionId).first<ContinuityObligation>();
+    )
+    .bind(lineAccountId, submissionId)
+    .first<ContinuityObligation>();
   if (linked) {
     const timestamp = now.toISOString();
     await db.batch([
-      db.prepare(
-        `UPDATE pharmacy_continuity_obligations
+      db
+        .prepare(
+          `UPDATE pharmacy_continuity_obligations
             SET status = 'fulfilled', updated_at = ?
           WHERE id = ? AND line_account_id = ? AND status = 'linked'`,
-      ).bind(timestamp, linked.id, lineAccountId),
-      db.prepare(
-        `INSERT INTO pharmacy_continuity_events
+        )
+        .bind(timestamp, linked.id, lineAccountId),
+      db
+        .prepare(
+          `INSERT INTO pharmacy_continuity_events
            (id, obligation_id, line_account_id, event_type, submission_id,
             actor_type, actor_id, created_at)
          SELECT ?, o.id, o.line_account_id, 'fulfilled', ?, 'staff', ?, ?
@@ -207,11 +235,18 @@ export async function completeContinuityAfterClose(
                WHERE existing.obligation_id = ? AND existing.line_account_id = ?
                  AND existing.event_type = 'fulfilled' AND existing.submission_id = ?
             )`,
-      ).bind(
-        crypto.randomUUID(), submissionId, actorId, timestamp,
-        linked.id, lineAccountId,
-        linked.id, lineAccountId, submissionId,
-      ),
+        )
+        .bind(
+          crypto.randomUUID(),
+          submissionId,
+          actorId,
+          timestamp,
+          linked.id,
+          lineAccountId,
+          linked.id,
+          lineAccountId,
+          submissionId,
+        ),
     ]);
   }
   return openContinuityObligation(db, lineAccountId, submissionId, actorId, now);
@@ -221,8 +256,9 @@ export async function listContinuityObligations(
   db: D1Database,
   lineAccountId: string,
 ): Promise<ContinuityObligation[]> {
-  const result = await db.prepare(
-    `SELECT o.id, o.line_account_id, o.owner_friend_id, o.patient_id, o.source_submission_id,
+  const result = await db
+    .prepare(
+      `SELECT o.id, o.line_account_id, o.owner_friend_id, o.patient_id, o.source_submission_id,
             o.candidate_submission_id, o.status, o.expected_next_from, o.expected_next_to,
             o.next_contact_at, o.consent_at, o.last_reminded_at, o.reminder_count,
             o.created_at, o.updated_at, f.display_name AS patient_display_name
@@ -232,7 +268,9 @@ export async function listContinuityObligations(
       WHERE o.line_account_id = ?
       ORDER BY CASE o.status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
                o.next_contact_at, o.id`,
-  ).bind(lineAccountId).all<ContinuityObligation>();
+    )
+    .bind(lineAccountId)
+    .all<ContinuityObligation>();
   return result.results;
 }
 
@@ -242,8 +280,9 @@ export async function listPatientContinuity(
   ownerFriendId: string,
 ): Promise<ContinuityObligation[]> {
   const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
-  const result = await db.prepare(
-    `${OBLIGATION_SELECT}
+  const result = await db
+    .prepare(
+      `${OBLIGATION_SELECT}
       INNER JOIN pharmacy_patients AS patient
         ON patient.id = obligation.patient_id
        AND patient.line_account_id = obligation.line_account_id
@@ -254,7 +293,9 @@ export async function listPatientContinuity(
         AND obligation.status IN ('active','linked','paused')
         ${authorityPredicate}
       ORDER BY obligation.next_contact_at, obligation.id`,
-  ).bind(lineAccountId, ownerFriendId, ownerFriendId, new Date().toISOString()).all<ContinuityObligation>();
+    )
+    .bind(lineAccountId, ownerFriendId, ownerFriendId, new Date().toISOString())
+    .all<ContinuityObligation>();
   return result.results;
 }
 
@@ -267,8 +308,9 @@ export async function pausePatientContinuity(
   const now = new Date().toISOString();
   const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   const [transition, event] = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_continuity_obligations
+    db
+      .prepare(
+        `UPDATE pharmacy_continuity_obligations
           SET status = 'paused', updated_at = ?
         WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
           AND status IN ('active','linked')
@@ -280,9 +322,11 @@ export async function pausePatientContinuity(
                AND patient.archived_at IS NULL
                ${authorityPredicate}
           )`,
-    ).bind(now, obligationId, lineAccountId, ownerFriendId, ownerFriendId, now),
-    db.prepare(
-      `INSERT INTO pharmacy_continuity_events
+      )
+      .bind(now, obligationId, lineAccountId, ownerFriendId, ownerFriendId, now),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_continuity_events
          (id, obligation_id, line_account_id, event_type, actor_type, actor_id, created_at)
        SELECT ?, o.id, o.line_account_id, 'paused', 'patient', ?, ?
          FROM pharmacy_continuity_obligations o
@@ -296,11 +340,18 @@ export async function pausePatientContinuity(
                AND patient.archived_at IS NULL
                ${authorityPredicate}
           )`,
-    ).bind(
-      crypto.randomUUID(), ownerFriendId, now,
-      obligationId, lineAccountId, ownerFriendId, now,
-      ownerFriendId, now,
-    ),
+      )
+      .bind(
+        crypto.randomUUID(),
+        ownerFriendId,
+        now,
+        obligationId,
+        lineAccountId,
+        ownerFriendId,
+        now,
+        ownerFriendId,
+        now,
+      ),
   ]);
   if ((transition?.meta?.changes ?? 0) !== 1 || (event?.meta?.changes ?? 0) !== 1) {
     throw new Error('continuity pause conflict');

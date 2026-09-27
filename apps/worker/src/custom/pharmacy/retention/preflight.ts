@@ -2,8 +2,7 @@ import type { RecoveryPreflight, RecoveryScope } from '../recovery/operations.js
 import { RETENTION_SOURCE_INVENTORY } from '../data-subject-requests/legal-hold.js';
 
 const MAX_INVENTORY_ROWS = 10_000;
-const UTC_TIMESTAMP_GLOB =
-  '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
+const UTC_TIMESTAMP_GLOB = '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
 // D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
 const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 const REQUIRED_TABLES = [
@@ -48,30 +47,34 @@ export async function buildRetentionPreflight(
     operationCreatedAt: string;
   },
 ): Promise<RecoveryPreflight> {
-  const backup = await db.prepare(
-    `SELECT manifest_digest, expected_row_count, expected_object_count
+  const backup = await db
+    .prepare(
+      `SELECT manifest_digest, expected_row_count, expected_object_count
        FROM pharmacy_recovery_backup_generations
       WHERE generation_id = ? AND tenant_id = ? AND line_account_id = ?
         AND environment = ? AND status = 'verified' LIMIT 1`,
-  ).bind(
-    input.backupGenerationId, input.scope.tenantId, input.scope.lineAccountId,
-    input.scope.environment,
-  ).first<BackupRow>();
+    )
+    .bind(input.backupGenerationId, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment)
+    .first<BackupRow>();
   if (!backup) throw new Error('verified backup generation not found');
 
-  const schema = await db.prepare(
-    `SELECT name, sql FROM sqlite_schema
+  const schema = await db
+    .prepare(
+      `SELECT name, sql FROM sqlite_schema
       WHERE type = 'table' AND name IN (${REQUIRED_TABLES.map(() => '?').join(', ')})
       ORDER BY name`,
-  ).bind(...REQUIRED_TABLES).all<{ name: string; sql: string }>();
+    )
+    .bind(...REQUIRED_TABLES)
+    .all<{ name: string; sql: string }>();
   if ((schema.results ?? []).length !== REQUIRED_TABLES.length) {
     throw new Error('retention schema inventory is incomplete');
   }
 
   const cutoff = cutoffAt(input.operationCreatedAt);
   // ponytail: 10k rows per source keeps the admin preflight bounded; page the digest if beta reaches it.
-  const prescriptions = await db.prepare(
-    `SELECT file.id, file.r2_key, file.sha256, file.revision, file.state, file.created_at,
+  const prescriptions = await db
+    .prepare(
+      `SELECT file.id, file.r2_key, file.sha256, file.revision, file.state, file.created_at,
             submission.friend_id,
             (SELECT COUNT(*) FROM pharmacy_prescription_patients AS patient_count
               WHERE patient_count.submission_id = file.submission_id
@@ -95,12 +98,12 @@ export async function buildRetentionPreflight(
              AND finalized.status = 'FINALIZED_DELETED'
         )
       ORDER BY file.created_at, file.id LIMIT ?`,
-  ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff,
-    MAX_INVENTORY_ROWS + 1,
-  ).all<Record<string, unknown>>();
-  const incoming = await db.prepare(
-    `SELECT object.r2_key, object.message_id, object.stored_at,
+    )
+    .bind(input.scope.tenantId, input.scope.lineAccountId, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, MAX_INVENTORY_ROWS + 1)
+    .all<Record<string, unknown>>();
+  const incoming = await db
+    .prepare(
+      `SELECT object.r2_key, object.message_id, object.stored_at,
             disposition.status, disposition.hold_epoch, disposition.stored_sha256
        FROM pharmacy_incoming_image_objects AS object
        LEFT JOIN pharmacy_incoming_image_dispositions AS disposition
@@ -110,28 +113,31 @@ export async function buildRetentionPreflight(
         AND (disposition.status IS NULL OR disposition.status IN
           ('TRACKED', 'CANCELLED_HELD', 'CANCELLED_UNKNOWN', 'CANCELLED_STALE'))
       ORDER BY object.stored_at, object.r2_key LIMIT ?`,
-  ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, cutoff, MAX_INVENTORY_ROWS + 1,
-  ).all<Record<string, unknown>>();
-  const holds = await db.prepare(
-    `SELECT owner_friend_id, patient_key, epoch, status, release_at, updated_at
+    )
+    .bind(input.scope.tenantId, input.scope.lineAccountId, cutoff, MAX_INVENTORY_ROWS + 1)
+    .all<Record<string, unknown>>();
+  const holds = await db
+    .prepare(
+      `SELECT owner_friend_id, patient_key, epoch, status, release_at, updated_at
        FROM pharmacy_retention_hold_epochs
       WHERE tenant_id = ? AND line_account_id = ?
       ORDER BY owner_friend_id, patient_key LIMIT ?`,
-  ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, MAX_INVENTORY_ROWS + 1,
-  ).all<Record<string, unknown>>();
-  const requests = await db.prepare(
-    `SELECT id, owner_friend_id, patient_id, request_type, status, legal_hold,
+    )
+    .bind(input.scope.tenantId, input.scope.lineAccountId, MAX_INVENTORY_ROWS + 1)
+    .all<Record<string, unknown>>();
+  const requests = await db
+    .prepare(
+      `SELECT id, owner_friend_id, patient_id, request_type, status, legal_hold,
             legal_hold_release_at, version, updated_at
        FROM pharmacy_data_subject_requests
       WHERE tenant_id = ? AND line_account_id = ?
       ORDER BY id LIMIT ?`,
-  ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, MAX_INVENTORY_ROWS + 1,
-  ).all<Record<string, unknown>>();
-  const inventories = [prescriptions.results, incoming.results, holds.results, requests.results]
-    .map((rows) => rows ?? []);
+    )
+    .bind(input.scope.tenantId, input.scope.lineAccountId, MAX_INVENTORY_ROWS + 1)
+    .all<Record<string, unknown>>();
+  const inventories = [prescriptions.results, incoming.results, holds.results, requests.results].map(
+    (rows) => rows ?? [],
+  );
   if (inventories.some((rows) => rows.length > MAX_INVENTORY_ROWS)) {
     throw new Error('retention preflight inventory limit exceeded');
   }

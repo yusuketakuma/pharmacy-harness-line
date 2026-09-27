@@ -30,11 +30,7 @@ function clampLoadingSeconds(value: number | undefined): number {
   return Math.min(60, Math.max(5, n));
 }
 
-async function startLoadingAnimation(
-  accessToken: string,
-  chatId: string,
-  loadingSeconds: number,
-): Promise<void> {
+async function startLoadingAnimation(accessToken: string, chatId: string, loadingSeconds: number): Promise<void> {
   const response = await fetch('https://api.line.me/v2/bot/chat/loading/start', {
     method: 'POST',
     headers: {
@@ -62,13 +58,10 @@ type ChatLike = {
 
 type FriendResource = { id: string; line_account_id: string | null };
 
-async function requireFriendAccess(
-  c: Context<Env>,
-  friend: FriendResource,
-): Promise<Response | null> {
+async function requireFriendAccess(c: Context<Env>, friend: FriendResource): Promise<Response | null> {
   const tenantId = c.get('tenantId');
   if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
-  if (!friend.line_account_id || !await accountResourceOwnedByStaff(c, tenantId, friend.line_account_id)) {
+  if (!friend.line_account_id || !(await accountResourceOwnedByStaff(c, tenantId, friend.line_account_id))) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   return null;
@@ -79,11 +72,11 @@ async function resolveAuthorizedChat(
   id: string,
 ): Promise<{ chat: ChatLike; friend: FriendResource } | Response> {
   const existing = await getChatById(c.env.DB, id);
-  const friend = await getFriendById(c.env.DB, existing?.friend_id ?? id) as FriendResource | null;
+  const friend = (await getFriendById(c.env.DB, existing?.friend_id ?? id)) as FriendResource | null;
   if (!friend) return c.json({ success: false, error: 'Chat not found' }, 404);
   const denied = await requireFriendAccess(c, friend);
   if (denied) return denied;
-  const chat = existing ?? await resolveOrCreateChat(c.env.DB, id);
+  const chat = existing ?? (await resolveOrCreateChat(c.env.DB, id));
   if (!chat) return c.json({ success: false, error: 'Chat not found' }, 404);
   return { chat, friend };
 }
@@ -190,7 +183,16 @@ chats.put('/api/operators/:id', async (c) => {
     await updateOperator(c.env.DB, id, body);
     const updated = await getOperatorById(c.env.DB, id);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
-    return c.json({ success: true, data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, isActive: Boolean(updated.is_active) } });
+    return c.json({
+      success: true,
+      data: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        role: updated.role,
+        isActive: Boolean(updated.is_active),
+      },
+    });
   } catch {
     log('operator_update_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -224,20 +226,18 @@ chats.get('/api/chats', async (c) => {
     const status = c.req.query('status') ?? undefined;
     const operatorId = c.req.query('operatorId') ?? undefined;
     const lineAccountId = c.req.query('lineAccountId') ?? undefined;
-    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (lineAccountId && !(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
-    const unansweredOnly =
-      c.req.query('unansweredOnly') === 'true' || c.req.query('unansweredOnly') === '1';
+    const unansweredOnly = c.req.query('unansweredOnly') === 'true' || c.req.query('unansweredOnly') === '1';
 
-    let unansweredMap: Map<string, { lastIncomingAt: string; lastIncomingContent: string; lastIncomingType: string }> | null = null;
+    let unansweredMap: Map<
+      string,
+      { lastIncomingAt: string; lastIncomingContent: string; lastIncomingType: string }
+    > | null = null;
     if (unansweredOnly) {
       const { getUnansweredRowsMap } = await import('../../services/unanswered-inbox.js');
-      unansweredMap = await getUnansweredRowsMap(
-        c.env.DB,
-        tenantId,
-        pharmacyTenant ? staff!.id : undefined,
-      );
+      unansweredMap = await getUnansweredRowsMap(c.env.DB, tenantId, pharmacyTenant ? staff!.id : undefined);
       // 空 Map のとき = 未対応ゼロ。早期 return で空配列を返す。
       if (unansweredMap.size === 0) {
         return c.json({ success: true, data: [] });
@@ -343,13 +343,19 @@ chats.get('/api/chats', async (c) => {
         INNER JOIN friends f ON f.id = d.friend_id
         INNER JOIN tenant_line_accounts AS tenant_mapping
                 ON tenant_mapping.line_account_id = f.line_account_id
-        ${pageNeedsChats ? `LEFT JOIN chats c ON c.id = (
+        ${
+          pageNeedsChats
+            ? `LEFT JOIN chats c ON c.id = (
           SELECT id FROM chats WHERE friend_id = f.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1
-        )` : ''}
+        )`
+            : ''
+        }
         WHERE tenant_mapping.tenant_id = ?
-        ${pharmacyTenant
-          ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
-          : ''}
+        ${
+          pharmacyTenant
+            ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
+            : ''
+        }
         ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
         ${useCursor ? 'AND (d.latest_at < julianday(?) OR (d.latest_at = julianday(?) AND d.friend_id < ?))' : ''}
         ORDER BY d.latest_at DESC, d.friend_id DESC
@@ -404,7 +410,9 @@ chats.get('/api/chats', async (c) => {
     allBindings.push(...conditionBindings);
     if (useCursor) allBindings.push(beforeAt, beforeAt, beforeId);
     allBindings.push(limit);
-    const result = await c.env.DB.prepare(sql).bind(...allBindings).all();
+    const result = await c.env.DB.prepare(sql)
+      .bind(...allBindings)
+      .all();
 
     let data = result.results.map((ch: Record<string, unknown>) => ({
       id: ch.id as string,
@@ -455,7 +463,7 @@ chats.get('/api/chats/:id', async (c) => {
   try {
     const rawId = c.req.param('id');
     const initialChat = await getChatById(c.env.DB, rawId);
-    const accessFriend = await getFriendById(c.env.DB, initialChat?.friend_id ?? rawId) as FriendResource | null;
+    const accessFriend = (await getFriendById(c.env.DB, initialChat?.friend_id ?? rawId)) as FriendResource | null;
     if (!accessFriend) return c.json({ success: false, error: 'Chat not found' }, 404);
     const denied = await requireFriendAccess(c, accessFriend);
     if (denied) return denied;
@@ -470,10 +478,20 @@ chats.get('/api/chats/:id', async (c) => {
       if (!friendRow) return c.json({ success: false, error: 'Chat not found' }, 404);
       friendId = friendRow.id;
       // 同じ friend に紐づく chats 行があれば採用（lazy-create 後の再読みで status/notes を拾うため）
-      const existing = await c.env.DB
-        .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
+      const existing = await c.env.DB.prepare(
+        `SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`,
+      )
         .bind(friendRow.id)
-        .first<{ id: string; friend_id: string; operator_id: string | null; status: string; notes: string | null; last_message_at: string | null; created_at: string; updated_at: string }>();
+        .first<{
+          id: string;
+          friend_id: string;
+          operator_id: string | null;
+          status: string;
+          notes: string | null;
+          last_message_at: string | null;
+          created_at: string;
+          updated_at: string;
+        }>();
       if (existing) {
         chatRow = existing as Awaited<ReturnType<typeof getChatById>>;
       }
@@ -488,21 +506,21 @@ chats.get('/api/chats/:id', async (c) => {
     const lastMessageAt = chatRow?.last_message_at ?? null;
     const createdAt = chatRow?.created_at ?? null;
 
-    const friend = await c.env.DB
-      .prepare(`SELECT display_name, picture_url, provider_line_user_id AS line_user_id FROM friends WHERE id = ?`)
+    const friend = await c.env.DB.prepare(
+      `SELECT display_name, picture_url, provider_line_user_id AS line_user_id FROM friends WHERE id = ?`,
+    )
       .bind(resolvedFriendId)
       .first<{ display_name: string | null; picture_url: string | null; line_user_id: string }>();
 
     // 新しい1000件を取って昇順に戻す。LIMIT 200 ASC だと古い200件だけで broadcast/scenario 等の
     // 新しい push が欠落していた（Shu で 481件中 281件欠落のバグあり）。一覧側と同様に test 配信は除外。
     // 現状の最重量ユーザー(481件)の2倍バッファ。これ以上の履歴はページング未実装（Phase 2 TODO）。
-    const messages = await c.env.DB
-      .prepare(
-        `SELECT id, friend_id, direction, message_type, content, created_at
+    const messages = await c.env.DB.prepare(
+      `SELECT id, friend_id, direction, message_type, content, created_at
          FROM messages_log
          WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')
          ORDER BY julianday(created_at) DESC, id DESC LIMIT 1000`,
-      )
+    )
       .bind(resolvedFriendId)
       .all();
     messages.results = (messages.results as Record<string, unknown>[]).reverse();
@@ -538,12 +556,14 @@ chats.post('/api/chats', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
-    const body = await c.req.json<{ friendId: string; operatorId?: string; lineAccountId?: string | null }>();
+    const body = await c.req.json<{
+      friendId: string;
+      operatorId?: string;
+      lineAccountId?: string | null;
+    }>();
     if (!body.friendId) return c.json({ success: false, error: 'friendId is required' }, 400);
     const requestedLineAccountId = body.lineAccountId ?? null;
-    const accountScope = requestedLineAccountId === null
-      ? ''
-      : ' AND mapping.line_account_id = ?';
+    const accountScope = requestedLineAccountId === null ? '' : ' AND mapping.line_account_id = ?';
     const pair = await c.env.DB.prepare(
       `SELECT friend.id, friend.line_account_id
          FROM friends AS friend
@@ -552,24 +572,23 @@ chats.post('/api/chats', async (c) => {
         WHERE mapping.tenant_id = ?
           AND friend.id = ?${accountScope}
         LIMIT 1`,
-    ).bind(
-      tenantId,
-      body.friendId,
-      ...(requestedLineAccountId === null ? [] : [requestedLineAccountId]),
-    ).first<{ id: string; line_account_id: string | null }>();
+    )
+      .bind(tenantId, body.friendId, ...(requestedLineAccountId === null ? [] : [requestedLineAccountId]))
+      .first<{ id: string; line_account_id: string | null }>();
     if (!pair) return c.json({ success: false, error: 'Forbidden' }, 403);
     const denied = !pair.line_account_id
       ? c.json({ success: false, error: 'Forbidden' }, 403)
       : await requireFriendAccess(c, {
-        id: pair.id,
-        line_account_id: pair.line_account_id,
-      });
+          id: pair.id,
+          line_account_id: pair.line_account_id,
+        });
     if (denied) return denied;
     const item = await createChat(c.env.DB, body);
     // Save line_account_id if provided
     if (body.lineAccountId) {
       await c.env.DB.prepare(`UPDATE chats SET line_account_id = ? WHERE id = ?`)
-        .bind(body.lineAccountId, item.id).run();
+        .bind(body.lineAccountId, item.id)
+        .run();
     }
     return c.json({ success: true, data: { id: item.id, friendId: item.friend_id, status: item.status } }, 201);
   } catch {
@@ -585,14 +604,24 @@ chats.put('/api/chats/:id', async (c) => {
     const authorized = await resolveAuthorizedChat(c, id);
     if (authorized instanceof Response) return authorized;
     const { chat: resolved } = authorized;
-    const body = await c.req.json<{ operatorId?: string | null; status?: string; notes?: string }>();
+    const body = await c.req.json<{
+      operatorId?: string | null;
+      status?: string;
+      notes?: string;
+    }>();
     await updateChat(c.env.DB, resolved.id, body);
     const updated = await getChatById(c.env.DB, resolved.id);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({
       success: true,
       // 公開 ID は friend_id に統一
-      data: { id: updated.friend_id, friendId: updated.friend_id, operatorId: updated.operator_id, status: updated.status, notes: updated.notes },
+      data: {
+        id: updated.friend_id,
+        friendId: updated.friend_id,
+        operatorId: updated.operator_id,
+        status: updated.status,
+        notes: updated.notes,
+      },
     });
   } catch {
     log('chat_update_failed', {}, 'error');
@@ -630,11 +659,7 @@ chats.post('/api/chats/:id/loading', async (c) => {
       return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
 
-    await startLoadingAnimation(
-      accessToken,
-      friend.line_user_id,
-      loadingSeconds,
-    );
+    await startLoadingAnimation(accessToken, friend.line_user_id, loadingSeconds);
 
     return c.json({ success: true, data: { started: true, loadingSeconds } });
   } catch {
@@ -700,9 +725,7 @@ chats.post('/api/chats/:id/send', async (c) => {
       return c.json({ success: false, error: 'Unsupported messageType' }, 400);
     }
 
-    const operationId = await createBroadcastRetryKey(
-      'manual', tenantId, lineAccountId, friend.id, idempotencyKey,
-    );
+    const operationId = await createBroadcastRetryKey('manual', tenantId, lineAccountId, friend.id, idempotencyKey);
     const delivery = await deliverTrackedLinePush({
       db: c.env.DB,
       operationId,
@@ -713,11 +736,7 @@ chats.post('/api/chats/:id/send', async (c) => {
       content: body.content,
       source: 'manual',
       request: { to: friend.line_user_id, messages: [message] },
-      send: (request, retryKey) => lineClient.pushMessage(
-        request.to,
-        request.messages,
-        retryKey,
-      ).then(() => undefined),
+      send: (request, retryKey) => lineClient.pushMessage(request.to, request.messages, retryKey).then(() => undefined),
     });
     if (delivery === 'reconciliation_required' || delivery === 'in_flight') {
       return c.json({ success: false, error: 'Message delivery requires reconciliation' }, 409);

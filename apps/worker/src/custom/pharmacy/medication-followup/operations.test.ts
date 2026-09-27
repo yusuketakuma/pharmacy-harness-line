@@ -2,10 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { d1FromSqlite, DB_PACKAGE_ROOT, openTestSqlite, type TestSqliteDatabase } from '../test-sqlite.js';
-import {
-  getMedicationFollowUpOperations,
-  saveMedicationFollowUpOperations,
-} from './repository.js';
+import { getMedicationFollowUpOperations, saveMedicationFollowUpOperations } from './repository.js';
 
 const NOW = new Date('2026-09-20T01:00:00.000Z');
 
@@ -71,20 +68,26 @@ describe('medication follow-up operations repository', () => {
     try {
       const saved = await saveMedicationFollowUpOperations(db, baseInput);
       expect(saved).toMatchObject({
-        line_account_id: 'account-a', primary_staff_id: 'staff-a',
-        enabled: 1, version: 1,
+        line_account_id: 'account-a',
+        primary_staff_id: 'staff-a',
+        enabled: 1,
+        version: 1,
       });
-      const audit = sqlite.prepare(
-        `SELECT action, line_account_id, actor_staff_id, detail_json
+      const audit = sqlite
+        .prepare(
+          `SELECT action, line_account_id, actor_staff_id, detail_json
            FROM tenant_admin_audit_events`,
-      ).all() as Array<Record<string, unknown>>;
+        )
+        .all() as Array<Record<string, unknown>>;
       expect(audit).toHaveLength(1);
       expect(audit[0]).toMatchObject({
         action: 'pharmacy_followup_operations_saved',
-        line_account_id: 'account-a', actor_staff_id: 'staff-a',
+        line_account_id: 'account-a',
+        actor_staff_id: 'staff-a',
       });
       expect(JSON.parse(audit[0].detail_json as string)).toMatchObject({
-        enabled: true, created: true,
+        enabled: true,
+        created: true,
       });
     } finally {
       sqlite.close();
@@ -96,22 +99,30 @@ describe('medication follow-up operations repository', () => {
     try {
       await saveMedicationFollowUpOperations(db, baseInput);
       const saved = await saveMedicationFollowUpOperations(db, {
-        ...baseInput, expectedVersion: 1, serviceHoursText: '10:00-19:00',
+        ...baseInput,
+        expectedVersion: 1,
+        serviceHoursText: '10:00-19:00',
         backupStaffId: 'staff-d',
       });
       expect(saved.version).toBe(2);
       expect(saved.service_hours_text).toBe('10:00-19:00');
       expect(saved.backup_staff_id).toBe('staff-d');
 
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, expectedVersion: 1,
-      })).rejects.toThrow('follow-up operations conflict');
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, expectedVersion: 0,
-      })).rejects.toThrow('follow-up operations conflict');
-      expect(sqlite.prepare(
-        `SELECT COUNT(*) AS n FROM tenant_admin_audit_events`,
-      ).get()).toEqual({ n: 2 });
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow('follow-up operations conflict');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          expectedVersion: 0,
+        }),
+      ).rejects.toThrow('follow-up operations conflict');
+      expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM tenant_admin_audit_events`).get()).toEqual({
+        n: 2,
+      });
     } finally {
       sqlite.close();
     }
@@ -120,13 +131,17 @@ describe('medication follow-up operations repository', () => {
   it('rolls back the audit row when the staff scope trigger rejects the write', async () => {
     const { sqlite, db } = setup();
     try {
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, primaryStaffId: 'staff-b', enabled: false,
-      })).rejects.toThrow('invalid follow-up operations staff');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          primaryStaffId: 'staff-b',
+          enabled: false,
+        }),
+      ).rejects.toThrow('invalid follow-up operations staff');
       expect(await getMedicationFollowUpOperations(db, 'account-a')).toBeNull();
-      expect(sqlite.prepare(
-        `SELECT COUNT(*) AS n FROM tenant_admin_audit_events`,
-      ).get()).toEqual({ n: 0 });
+      expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM tenant_admin_audit_events`).get()).toEqual({
+        n: 0,
+      });
     } finally {
       sqlite.close();
     }
@@ -135,12 +150,18 @@ describe('medication follow-up operations repository', () => {
   it('permits disabled preconfiguration but blocks enabling inactive memberships', async () => {
     const { sqlite, db } = setup();
     try {
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, primaryStaffId: 'staff-c', enabled: true,
-      })).rejects.toThrow('invalid follow-up operations staff');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          primaryStaffId: 'staff-c',
+          enabled: true,
+        }),
+      ).rejects.toThrow('invalid follow-up operations staff');
 
       const saved = await saveMedicationFollowUpOperations(db, {
-        ...baseInput, primaryStaffId: 'staff-c', enabled: false,
+        ...baseInput,
+        primaryStaffId: 'staff-c',
+        enabled: false,
       });
       expect(saved.enabled).toBe(0);
     } finally {
@@ -151,12 +172,17 @@ describe('medication follow-up operations repository', () => {
   it('requires the patient-facing estimate before operations can be enabled', async () => {
     const { sqlite, db } = setup();
     try {
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, responseSla: { concern_minutes: 60 },
-      })).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          responseSla: { concern_minutes: 60 },
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
 
       const saved = await saveMedicationFollowUpOperations(db, {
-        ...baseInput, responseSla: { concern_minutes: 60 }, enabled: false,
+        ...baseInput,
+        responseSla: { concern_minutes: 60 },
+        enabled: false,
       });
       expect(saved.enabled).toBe(0);
     } finally {
@@ -167,21 +193,36 @@ describe('medication follow-up operations repository', () => {
   it('rejects a backup equal to the primary and malformed SLA payloads', async () => {
     const { sqlite, db } = setup();
     try {
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, backupStaffId: 'staff-a',
-      })).rejects.toThrow('invalid follow-up operations');
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, responseSla: { unknown_key: 5 },
-      })).rejects.toThrow('invalid follow-up operations');
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, responseSla: { typical_minutes: 30.5 },
-      })).rejects.toThrow('invalid follow-up operations');
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, responseSla: { typical_minutes: 0 },
-      })).rejects.toThrow('invalid follow-up operations');
-      await expect(saveMedicationFollowUpOperations(db, {
-        ...baseInput, afterHoursMessageCode: 'free_text',
-      })).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          backupStaffId: 'staff-a',
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          responseSla: { unknown_key: 5 },
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          responseSla: { typical_minutes: 30.5 },
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          responseSla: { typical_minutes: 0 },
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
+      await expect(
+        saveMedicationFollowUpOperations(db, {
+          ...baseInput,
+          afterHoursMessageCode: 'free_text',
+        }),
+      ).rejects.toThrow('invalid follow-up operations');
     } finally {
       sqlite.close();
     }
@@ -191,10 +232,12 @@ describe('medication follow-up operations repository', () => {
     const sqlite = openTestSqlite();
     const db = d1FromSqlite(sqlite);
     try {
-      await expect(getMedicationFollowUpOperations(db, 'account-a'))
-        .rejects.toThrow('follow-up operations schema unavailable');
-      await expect(saveMedicationFollowUpOperations(db, baseInput))
-        .rejects.toThrow('follow-up operations schema unavailable');
+      await expect(getMedicationFollowUpOperations(db, 'account-a')).rejects.toThrow(
+        'follow-up operations schema unavailable',
+      );
+      await expect(saveMedicationFollowUpOperations(db, baseInput)).rejects.toThrow(
+        'follow-up operations schema unavailable',
+      );
     } finally {
       sqlite.close();
     }

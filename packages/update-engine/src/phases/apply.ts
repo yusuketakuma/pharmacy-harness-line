@@ -50,11 +50,7 @@ export interface ApplyResult {
  * event and kicking off rollback. We intentionally do NOT catch + emit
  * here so retry/rollback policy stays in one place upstream.
  */
-export async function runApply(
-  ctx: UpdateContext,
-  bundle: ParsedBundle,
-  ev: EventEmitter,
-): Promise<ApplyResult> {
+export async function runApply(ctx: UpdateContext, bundle: ParsedBundle, ev: EventEmitter): Promise<ApplyResult> {
   // Step 1: Migrations. Iterate the manifest's declared order (NOT the
   // bundle's map iteration order) so customers can rely on numeric
   // prefixes (e.g. 041_x.sql before 042_y.sql) controlling apply order
@@ -65,15 +61,12 @@ export async function runApply(
     names: ctx.target.migrations,
     migrations: bundle.migrations,
     requireChecksumLedger: true,
-    onMigrationStart: (name) =>
-      ev.emit({ step: 'migration', status: 'running', name }),
+    onMigrationStart: (name) => ev.emit({ step: 'migration', status: 'running', name }),
     onMigrationDone: (result) =>
       ev.emit({
         step: 'migration',
         status: 'done',
-        name: result.alreadyApplied
-          ? `${result.name} (already applied)`
-          : result.name,
+        name: result.alreadyApplied ? `${result.name} (already applied)` : result.name,
       }),
   });
 
@@ -87,17 +80,16 @@ export async function runApply(
     scriptName: ctx.workerName,
   });
   if (bundle.workerAssetFiles.size === 0 && !ctx.liffPagesProject) {
-    throw new Error(
-      'release bundle has no worker-assets files; worker-assets installs cannot be updated safely',
-    );
+    throw new Error('release bundle has no worker-assets files; worker-assets installs cannot be updated safely');
   }
-  const assetsJwt = bundle.workerAssetFiles.size > 0
-    ? await uploadWorkerAssets({
-        creds: ctx.creds,
-        scriptName: ctx.workerName,
-        files: bundle.workerAssetFiles,
-      })
-    : null;
+  const assetsJwt =
+    bundle.workerAssetFiles.size > 0
+      ? await uploadWorkerAssets({
+          creds: ctx.creds,
+          scriptName: ctx.workerName,
+          files: bundle.workerAssetFiles,
+        })
+      : null;
   await putWorkerScript({
     creds: ctx.creds,
     scriptName: ctx.workerName,

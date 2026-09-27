@@ -84,13 +84,19 @@ async function resolveLineAccessToken(c: Context<Env>, lineAccountId: string): P
 }
 
 async function isImmutablePharmacyRichMenuVersion(db: D1Database, groupId: string): Promise<boolean> {
-  return Boolean(await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_rich_menu_draft_bindings WHERE group_id = ? LIMIT 1`,
-  ).bind(groupId).first<{ ok: number }>());
+  return Boolean(
+    await db
+      .prepare(`SELECT 1 AS ok FROM pharmacy_rich_menu_draft_bindings WHERE group_id = ? LIMIT 1`)
+      .bind(groupId)
+      .first<{ ok: number }>(),
+  );
 }
 
 function pharmacyPublishIdentity(groupId: string, confirmationId: string) {
-  const generation = confirmationId.replaceAll(/[^A-Za-z0-9]/gu, '').slice(0, 12).toLowerCase();
+  const generation = confirmationId
+    .replaceAll(/[^A-Za-z0-9]/gu, '')
+    .slice(0, 12)
+    .toLowerCase();
   if (!generation) throw new Error('invalid pharmacy rich-menu confirmation identity');
   return {
     generation,
@@ -146,9 +152,7 @@ function remoteRichMenuNameOf(candidate: unknown): string | null {
 
 async function readR2Bytes(object: R2ObjectBody): Promise<Uint8Array> {
   const body = object.body as unknown;
-  return body instanceof Uint8Array
-    ? body
-    : new Uint8Array(await new Response(object.body).arrayBuffer());
+  return body instanceof Uint8Array ? body : new Uint8Array(await new Response(object.body).arrayBuffer());
 }
 
 // ----- Serialization (snake_case row → camelCase response) -----
@@ -216,7 +220,10 @@ function parseAreaInput(raw: unknown): Parsed<RichMenuAreaInput> {
     return { ok: false, error: 'area width/height must be positive' };
   }
   if (typeof r.actionType !== 'string' || !VALID_ACTION_TYPES.has(r.actionType)) {
-    return { ok: false, error: `area.actionType must be one of ${[...VALID_ACTION_TYPES].join('/')}` };
+    return {
+      ok: false,
+      error: `area.actionType must be one of ${[...VALID_ACTION_TYPES].join('/')}`,
+    };
   }
   if (!r.actionData || typeof r.actionData !== 'object') {
     return { ok: false, error: 'area.actionData must be object' };
@@ -313,14 +320,21 @@ function parseCreateBody(raw: unknown): Parsed<CreateRichMenuGroupInput> {
   if (typeof r.chatBarText !== 'string' || r.chatBarText.length === 0 || r.chatBarText.length > 14) {
     return { ok: false, error: 'chatBarText required (1..14 chars)' };
   }
-  if (typeof r.size !== 'string' || !VALID_SIZES.has(r.size)) return { ok: false, error: 'size must be large or compact' };
+  if (typeof r.size !== 'string' || !VALID_SIZES.has(r.size))
+    return { ok: false, error: 'size must be large or compact' };
   if (r.selected !== undefined && typeof r.selected !== 'boolean') {
     return { ok: false, error: 'selected must be boolean' };
   }
-  if (r.generatorKey !== undefined && (typeof r.generatorKey !== 'string' || r.generatorKey.length === 0 || r.generatorKey.length > 128)) {
+  if (
+    r.generatorKey !== undefined &&
+    (typeof r.generatorKey !== 'string' || r.generatorKey.length === 0 || r.generatorKey.length > 128)
+  ) {
     return { ok: false, error: 'generatorKey must be 1..128 chars when present' };
   }
-  if (r.generatorVersion !== undefined && (typeof r.generatorVersion !== 'string' || r.generatorVersion.length === 0 || r.generatorVersion.length > 32)) {
+  if (
+    r.generatorVersion !== undefined &&
+    (typeof r.generatorVersion !== 'string' || r.generatorVersion.length === 0 || r.generatorVersion.length > 32)
+  ) {
     return { ok: false, error: 'generatorVersion must be 1..32 chars when present' };
   }
   const pages = parsePages(r.pages);
@@ -355,7 +369,10 @@ function parsePatchBody(raw: unknown): Parsed<{ meta: UpdateRichMenuGroupMetaInp
     meta.chatBarText = r.chatBarText;
   }
   if (r.isDefaultForAll !== undefined) {
-    return { ok: false, error: 'isDefaultForAll must be changed through the display settings action' };
+    return {
+      ok: false,
+      error: 'isDefaultForAll must be changed through the display settings action',
+    };
   }
   if (r.selected !== undefined) {
     if (typeof r.selected !== 'boolean') return { ok: false, error: 'selected must be boolean' };
@@ -372,10 +389,7 @@ function parsePatchBody(raw: unknown): Parsed<{ meta: UpdateRichMenuGroupMetaInp
 
 // ----- Routes -----
 
-async function groupMatchesAccountScope(
-  c: Context<Env>,
-  group: Pick<RichMenuGroup, 'account_id'>,
-): Promise<boolean> {
+async function groupMatchesAccountScope(c: Context<Env>, group: Pick<RichMenuGroup, 'account_id'>): Promise<boolean> {
   const requestedAccountId = c.req.query('accountId');
   if (requestedAccountId && requestedAccountId !== group.account_id) return false;
   // Browser admin requests are scoped by the selected account in the session UI.
@@ -394,15 +408,11 @@ richMenuGroups.get('/api/rich-menu-groups/external/:richMenuId/image', async (c)
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
   const accessToken = await resolveLineAccessToken(c, accountId);
   if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
-  const res = await fetch(
-    `https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
+  const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (!res.ok) {
-    return c.json(
-      { success: false, error: `LINE image fetch failed: ${res.status}` },
-      res.status === 404 ? 404 : 500,
-    );
+    return c.json({ success: false, error: `LINE image fetch failed: ${res.status}` }, res.status === 404 ? 404 : 500);
   }
   return new Response(res.body, {
     headers: {
@@ -428,19 +438,15 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
   // 既に admin 管理下にあるかチェック
-  const existing = await c.env.DB
-    .prepare(
-      `SELECT g.id, g.name FROM rich_menu_pages p
+  const existing = await c.env.DB.prepare(
+    `SELECT g.id, g.name FROM rich_menu_pages p
          JOIN rich_menu_groups g ON g.id = p.group_id
         WHERE g.account_id = ? AND p.line_richmenu_id = ?`,
-    )
+  )
     .bind(accountId, richMenuId)
     .first<{ id: string; name: string }>();
   if (existing) {
-    return c.json(
-      { success: false, error: `既に管理画面で管理中のメニューです: ${existing.name}` },
-      409,
-    );
+    return c.json({ success: false, error: `既に管理画面で管理中のメニューです: ${existing.name}` }, 409);
   }
 
   const auth = `Bearer ${accessToken}`;
@@ -450,10 +456,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
     headers: { Authorization: auth },
   });
   if (!detailRes.ok) {
-    return c.json(
-      { success: false, error: `LINE 詳細取得失敗: ${detailRes.status}` },
-      500,
-    );
+    return c.json({ success: false, error: `LINE 詳細取得失敗: ${detailRes.status}` }, 500);
   }
   type LineArea = {
     bounds: { x: number; y: number; width: number; height: number };
@@ -496,22 +499,28 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   for (const a of detail.areas ?? []) {
     if (a.action.type === 'uri' && typeof a.action.uri === 'string') {
       convertedAreas.push({
-        boundsX: a.bounds.x, boundsY: a.bounds.y,
-        boundsWidth: a.bounds.width, boundsHeight: a.bounds.height,
+        boundsX: a.bounds.x,
+        boundsY: a.bounds.y,
+        boundsWidth: a.bounds.width,
+        boundsHeight: a.bounds.height,
         actionType: 'uri',
         actionData: { uri: a.action.uri },
       });
     } else if (a.action.type === 'message' && typeof a.action.text === 'string') {
       convertedAreas.push({
-        boundsX: a.bounds.x, boundsY: a.bounds.y,
-        boundsWidth: a.bounds.width, boundsHeight: a.bounds.height,
+        boundsX: a.bounds.x,
+        boundsY: a.bounds.y,
+        boundsWidth: a.bounds.width,
+        boundsHeight: a.bounds.height,
         actionType: 'message',
         actionData: { text: a.action.text },
       });
     } else if (a.action.type === 'postback' && typeof a.action.data === 'string') {
       convertedAreas.push({
-        boundsX: a.bounds.x, boundsY: a.bounds.y,
-        boundsWidth: a.bounds.width, boundsHeight: a.bounds.height,
+        boundsX: a.bounds.x,
+        boundsY: a.bounds.y,
+        boundsWidth: a.bounds.width,
+        boundsHeight: a.bounds.height,
         actionType: 'postback',
         actionData: {
           data: a.action.data,
@@ -539,15 +548,11 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   }
 
   // 4. 画像を LINE から取得して R2 に保存
-  const imgRes = await fetch(
-    `https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
-    { headers: { Authorization: auth } },
-  );
+  const imgRes = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+    headers: { Authorization: auth },
+  });
   if (!imgRes.ok) {
-    return c.json(
-      { success: false, error: `LINE 画像取得失敗: ${imgRes.status}` },
-      500,
-    );
+    return c.json({ success: false, error: `LINE 画像取得失敗: ${imgRes.status}` }, 500);
   }
   const contentType = imgRes.headers.get('content-type') ?? 'image/png';
   const ext = contentType.includes('jpeg') ? 'jpg' : 'png';
@@ -626,10 +631,7 @@ richMenuGroups.get('/api/rich-menu-groups/external', async (c) => {
     fetch('https://api.line.me/v2/bot/user/all/richmenu', { headers: { Authorization: auth } }),
   ]);
   if (!listRes.ok) {
-    return c.json(
-      { success: false, error: `LINE rich menu list failed: ${listRes.status}` },
-      500,
-    );
+    return c.json({ success: false, error: `LINE rich menu list failed: ${listRes.status}` }, 500);
   }
   const listJson = (await listRes.json()) as { richmenus?: LineMenu[] };
   const lineMenus = listJson.richmenus ?? [];
@@ -642,24 +644,24 @@ richMenuGroups.get('/api/rich-menu-groups/external', async (c) => {
   // 404 = default 未設定、それ以外の error は warn として無視 (画面が止まらないように)
 
   // admin 管理の line_richmenu_id を引いて、各 line menu に admin 情報を付与
-  const adminRows = (
-    await c.env.DB
-      .prepare(
+  const adminRows =
+    (
+      await c.env.DB.prepare(
         `SELECT p.line_richmenu_id, p.name AS page_name,
                 g.id AS group_id, g.name AS group_name, g.status AS group_status
            FROM rich_menu_pages p
            JOIN rich_menu_groups g ON g.id = p.group_id
           WHERE g.account_id = ? AND p.line_richmenu_id IS NOT NULL`,
       )
-      .bind(accountId)
-      .all<{
-        line_richmenu_id: string;
-        page_name: string;
-        group_id: string;
-        group_name: string;
-        group_status: string;
-      }>()
-  ).results ?? [];
+        .bind(accountId)
+        .all<{
+          line_richmenu_id: string;
+          page_name: string;
+          group_id: string;
+          group_name: string;
+          group_status: string;
+        }>()
+    ).results ?? [];
   const adminByRichMenuId = new Map(adminRows.map((r) => [r.line_richmenu_id, r]));
 
   return c.json({
@@ -707,12 +709,11 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
   if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
   // admin 管理下の richmenu はここでは削除させない
-  const adminRow = await c.env.DB
-    .prepare(
-      `SELECT g.id, g.name FROM rich_menu_pages p
+  const adminRow = await c.env.DB.prepare(
+    `SELECT g.id, g.name FROM rich_menu_pages p
          JOIN rich_menu_groups g ON g.id = p.group_id
         WHERE g.account_id = ? AND p.line_richmenu_id = ?`,
-    )
+  )
     .bind(accountId, richMenuId)
     .first<{ id: string; name: string }>();
   if (adminRow) {
@@ -731,10 +732,7 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
     headers: { Authorization: auth },
   });
   if (!res.ok && res.status !== 404) {
-    return c.json(
-      { success: false, error: `LINE delete failed: ${res.status}` },
-      500,
-    );
+    return c.json({ success: false, error: `LINE delete failed: ${res.status}` }, 500);
   }
   return c.json({ success: true });
 });
@@ -742,7 +740,7 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
 richMenuGroups.get('/api/rich-menu-groups', async (c) => {
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
-  if (!await getScopedLineAccount(c, accountId)) {
+  if (!(await getScopedLineAccount(c, accountId))) {
     return c.json({ success: false, error: 'line account not found' }, 404);
   }
   const groups = await getRichMenuGroups(c.env.DB, accountId);
@@ -751,9 +749,8 @@ richMenuGroups.get('/api/rich-menu-groups', async (c) => {
   let imageByGroupId = new Map<string, { key: string; contentType: string | null }>();
   if (groups.length > 0) {
     const placeholders = groups.map(() => '?').join(',');
-    const result = await c.env.DB
-      .prepare(
-        `SELECT
+    const result = await c.env.DB.prepare(
+      `SELECT
             g.id AS group_id,
             COALESCE(
               (SELECT image_r2_key FROM rich_menu_pages WHERE id = g.default_page_id),
@@ -765,7 +762,7 @@ richMenuGroups.get('/api/rich-menu-groups', async (c) => {
             ) AS image_content_type
            FROM rich_menu_groups g
           WHERE g.id IN (${placeholders})`,
-      )
+    )
       .bind(...groups.map((g) => g.id))
       .all<{ group_id: string; image_r2_key: string | null; image_content_type: string | null }>();
     for (const r of result.results ?? []) {
@@ -790,7 +787,7 @@ richMenuGroups.get('/api/rich-menu-groups/:groupId', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, group))) return c.json({ success: false, error: 'not found' }, 404);
   return c.json({ success: true, data: serializeGroupWithPages(group) });
 });
 
@@ -807,7 +804,7 @@ richMenuGroups.post('/api/rich-menu-groups', async (c) => {
   if (requestedAccountId && requestedAccountId !== parsed.value.accountId) {
     return c.json({ success: false, error: 'accountId scope does not match request body' }, 403);
   }
-  if (!await getScopedLineAccount(c, parsed.value.accountId)) {
+  if (!(await getScopedLineAccount(c, parsed.value.accountId))) {
     return c.json({ success: false, error: 'line account not found' }, 404);
   }
   const switcherRejection = rejectRichmenuswitchInCreate(parsed.value.pages);
@@ -820,7 +817,7 @@ richMenuGroups.patch('/api/rich-menu-groups/:groupId', async (c) => {
   const groupId = c.req.param('groupId');
   const existing = await getRichMenuGroupById(c.env.DB, groupId);
   if (!existing) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, existing)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, existing))) return c.json({ success: false, error: 'not found' }, 404);
   if (await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId)) {
     return c.json({ success: false, error: 'immutable pharmacy rich-menu version cannot be edited' }, 409);
   }
@@ -851,18 +848,22 @@ richMenuGroups.delete('/api/rich-menu-groups/:groupId', async (c) => {
   const force = c.req.query('force') === 'true';
   const existing = await getRichMenuGroupById(c.env.DB, groupId);
   if (!existing) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, existing)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, existing))) return c.json({ success: false, error: 'not found' }, 404);
   if (await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId)) {
-    return c.json({
-      success: false,
-      error: 'saved pharmacy rich-menu versions must use the protected version delete endpoint',
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: 'saved pharmacy rich-menu versions must use the protected version delete endpoint',
+      },
+      409,
+    );
   }
   if (existing.status === 'published' && !force) {
     return c.json(
       {
         success: false,
-        error: 'group is published. Unpublish (POST /unpublish) first, or pass ?force=true to delete D1 row anyway (LINE 側に残骸が残る点に注意)',
+        error:
+          'group is published. Unpublish (POST /unpublish) first, or pass ?force=true to delete D1 row anyway (LINE 側に残骸が残る点に注意)',
       },
       409,
     );
@@ -890,7 +891,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/pages/:pageId/image', async 
 
   const group = await getRichMenuGroupById(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'group not found' }, 404);
-  if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'group not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, group))) return c.json({ success: false, error: 'group not found' }, 404);
   if (await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId)) {
     return c.json({ success: false, error: 'immutable pharmacy rich-menu image cannot be replaced' }, 409);
   }
@@ -929,7 +930,7 @@ richMenuGroups.get('/api/rich-menu-images/:key{.+}', async (c) => {
   }
   const accountId = /^rich-menus\/([^/]+)\//.exec(key)?.[1];
   if (!accountId) return c.notFound();
-  if (!await getScopedLineAccount(c, accountId)) return c.notFound();
+  if (!(await getScopedLineAccount(c, accountId))) return c.notFound();
 
   // R2 keys are not an authority: serve only an image currently linked to a
   // rich-menu page in this account. This also prevents same-account orphan
@@ -940,7 +941,9 @@ richMenuGroups.get('/api/rich-menu-images/:key{.+}', async (c) => {
        INNER JOIN rich_menu_groups AS group_row ON group_row.id = page.group_id
       WHERE group_row.account_id = ? AND page.image_r2_key = ?
       LIMIT 1`,
-  ).bind(accountId, key).first<{ ok: number }>();
+  )
+    .bind(accountId, key)
+    .first<{ ok: number }>();
   if (!linked) return c.notFound();
 
   const obj = await c.env.IMAGES.get(key);
@@ -969,30 +972,31 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
     },
     async getRichMenuList() {
       const res = await fetch('https://api.line.me/v2/bot/richmenu/list', {
-        method: 'GET', headers: { Authorization: auth },
+        method: 'GET',
+        headers: { Authorization: auth },
       });
       if (!res.ok) throw new Error(`LINE getRichMenuList failed: ${res.status}`);
-      const body = await res.json() as { richmenus?: unknown };
+      const body = (await res.json()) as { richmenus?: unknown };
       if (!Array.isArray(body.richmenus)) throw new Error('LINE getRichMenuList returned invalid data');
       return body.richmenus;
     },
     async getRichMenuImage(richMenuId) {
-      const res = await fetch(
-        `https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`,
-        { method: 'GET', headers: { Authorization: auth } },
-      );
+      const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`, {
+        method: 'GET',
+        headers: { Authorization: auth },
+      });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`LINE getRichMenuImage failed: ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     },
     async getRichMenuAlias(aliasId) {
-      const res = await fetch(
-        `https://api.line.me/v2/bot/richmenu/alias/${encodeURIComponent(aliasId)}`,
-        { method: 'GET', headers: { Authorization: auth } },
-      );
+      const res = await fetch(`https://api.line.me/v2/bot/richmenu/alias/${encodeURIComponent(aliasId)}`, {
+        method: 'GET',
+        headers: { Authorization: auth },
+      });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`LINE getRichMenuAlias failed: ${res.status}`);
-      const body = await res.json() as { richMenuId?: unknown };
+      const body = (await res.json()) as { richMenuId?: unknown };
       if (typeof body.richMenuId !== 'string' || !body.richMenuId) {
         throw new Error('LINE getRichMenuAlias returned invalid data');
       }
@@ -1085,21 +1089,25 @@ async function recordRichMenuDefaultProjection(
 ): Promise<void> {
   const now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(
-      `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
+    db
+      .prepare(
+        `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
         WHERE account_id = ? AND id != ?
           AND EXISTS (
             SELECT 1 FROM rich_menu_groups AS locked
              WHERE locked.id = ? AND locked.publishing_at = ?
           )`,
-    ).bind(now, accountId, groupId, lockGroupId, lockToken),
-    db.prepare(
-      `UPDATE rich_menu_groups SET is_default_for_all = 1, updated_at = ?
+      )
+      .bind(now, accountId, groupId, lockGroupId, lockToken),
+    db
+      .prepare(
+        `UPDATE rich_menu_groups SET is_default_for_all = 1, updated_at = ?
         WHERE id = ? AND account_id = ? AND EXISTS (
           SELECT 1 FROM rich_menu_groups AS locked
            WHERE locked.id = ? AND locked.publishing_at = ?
         )`,
-    ).bind(now, groupId, accountId, lockGroupId, lockToken),
+      )
+      .bind(now, groupId, accountId, lockGroupId, lockToken),
   ]);
   if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
     throw new Error('rich-menu account lock lost');
@@ -1110,14 +1118,16 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, group))) return c.json({ success: false, error: 'not found' }, 404);
   const immutablePharmacyVersion = await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId);
   if (immutablePharmacyVersion && !canMutatePharmacyRichMenu(c)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   const lifecycle = await getPharmacyRichMenuLifecycleControl(c.env.DB, group.account_id);
-  if ((immutablePharmacyVersion && lifecycle.state !== 'active') ||
-      (!immutablePharmacyVersion && lifecycle.state !== 'inactive')) {
+  if (
+    (immutablePharmacyVersion && lifecycle.state !== 'active') ||
+    (!immutablePharmacyVersion && lifecycle.state !== 'inactive')
+  ) {
     return c.json({ success: false, error: 'pharmacy rich-menu lifecycle mutation disabled' }, 409);
   }
   let pharmacyEvidenceDigest: string | null = null;
@@ -1129,12 +1139,17 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
     } catch {
       // A bound version always requires an explicit dry-run or confirmed execution body.
     }
-    if (publishRequest.dryRun !== true &&
-        (publishRequest.dryRun !== false || typeof publishRequest.confirmationToken !== 'string')) {
-      return c.json({
-        success: false,
-        error: 'valid confirmationToken from pharmacy publish dry-run is required',
-      }, 428);
+    if (
+      publishRequest.dryRun !== true &&
+      (publishRequest.dryRun !== false || typeof publishRequest.confirmationToken !== 'string')
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: 'valid confirmationToken from pharmacy publish dry-run is required',
+        },
+        428,
+      );
     }
   }
 
@@ -1173,16 +1188,24 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       });
     }
     const confirmation = await verifyPharmacyRichMenuPublishConfirmation(
-      secret, String(publishRequest.confirmationToken),
+      secret,
+      String(publishRequest.confirmationToken),
     );
     if (!confirmation) {
-      return c.json({
-        success: false,
-        error: 'valid confirmationToken from pharmacy publish dry-run is required',
-      }, 428);
+      return c.json(
+        {
+          success: false,
+          error: 'valid confirmationToken from pharmacy publish dry-run is required',
+        },
+        428,
+      );
     }
-    if (confirmation.tenantId !== tenantId || confirmation.accountId !== group.account_id ||
-        confirmation.groupId !== groupId || confirmation.evidenceDigest !== readiness.evidenceDigest) {
+    if (
+      confirmation.tenantId !== tenantId ||
+      confirmation.accountId !== group.account_id ||
+      confirmation.groupId !== groupId ||
+      confirmation.evidenceDigest !== readiness.evidenceDigest
+    ) {
       return c.json({ success: false, error: 'pharmacy rich-menu changed after confirmation' }, 409);
     }
     pharmacyConfirmationId = confirmation.confirmationId;
@@ -1199,11 +1222,14 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
     if (immutablePharmacyVersion) {
       const unresolved = await getUnresolvedPharmacyRichMenuOperation(c.env.DB, group.account_id);
       if (unresolved) {
-        return c.json({
-          success: false,
-          error: 'previous pharmacy rich-menu operation requires reconciliation',
-          data: { operationId: unresolved.id, status: unresolved.status },
-        }, 409);
+        return c.json(
+          {
+            success: false,
+            error: 'previous pharmacy rich-menu operation requires reconciliation',
+            data: { operationId: unresolved.id, status: unresolved.status },
+          },
+          409,
+        );
       }
       if (!pharmacyEvidenceDigest || !pharmacyConfirmationId || group.pages.length !== 1) {
         return c.json({ success: false, error: 'invalid pharmacy rich-menu publish evidence' }, 409);
@@ -1236,22 +1262,25 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       r2Adapter,
       pharmacyOperationId && pharmacyPublishIdentityValue
         ? {
-          generation: pharmacyPublishIdentityValue.generation,
-          remoteMenuName: pharmacyPublishIdentityValue.menuName,
-          preserveRemoteOnError: true,
-          onProgress: async (phase, _pageId, remoteRichMenuId) => {
-            const expectedPhase = phase === 'remote_created'
-              ? 'intent_recorded'
-              : phase === 'image_uploaded' ? 'remote_created' : 'image_uploaded';
-            await advancePharmacyRichMenuPublishPhase(c.env.DB, {
-              lineAccountId: group.account_id,
-              operationId: pharmacyOperationId!,
-              expectedPhase,
-              phase,
-              ...(phase === 'remote_created' ? { remoteRichMenuId } : {}),
-            });
-          },
-        }
+            generation: pharmacyPublishIdentityValue.generation,
+            remoteMenuName: pharmacyPublishIdentityValue.menuName,
+            preserveRemoteOnError: true,
+            onProgress: async (phase, _pageId, remoteRichMenuId) => {
+              const expectedPhase =
+                phase === 'remote_created'
+                  ? 'intent_recorded'
+                  : phase === 'image_uploaded'
+                    ? 'remote_created'
+                    : 'image_uploaded';
+              await advancePharmacyRichMenuPublishPhase(c.env.DB, {
+                lineAccountId: group.account_id,
+                operationId: pharmacyOperationId!,
+                expectedPhase,
+                phase,
+                ...(phase === 'remote_created' ? { remoteRichMenuId } : {}),
+              });
+            },
+          }
         : undefined,
     );
     await markRichMenuGroupPublished(
@@ -1293,17 +1322,23 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       } catch {
         // A concurrent reconciliation or succeeded terminal row remains authoritative.
       }
-      return c.json({
-        success: false,
-        error: 'pharmacy rich-menu publish result is unknown; reconcile before retry',
-        data: { operationId: pharmacyOperationId, status: 'unknown' },
-      }, 500);
+      return c.json(
+        {
+          success: false,
+          error: 'pharmacy rich-menu publish result is unknown; reconcile before retry',
+          data: { operationId: pharmacyOperationId, status: 'unknown' },
+        },
+        500,
+      );
     }
     if (String(e).includes('pharmacy rich-menu confirmation already used')) {
-      return c.json({
-        success: false,
-        error: 'pharmacy rich-menu confirmation already used',
-      }, 409);
+      return c.json(
+        {
+          success: false,
+          error: 'pharmacy rich-menu confirmation already used',
+        },
+        409,
+      );
     }
     const message = e instanceof Error ? e.message : String(e);
     return c.json({ success: false, error: message }, 500);
@@ -1315,12 +1350,10 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
 richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', async (c) => {
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
-  const operation = await getPharmacyRichMenuOperation(
-    c.env.DB, accountId, c.req.param('operationId'),
-  );
+  const operation = await getPharmacyRichMenuOperation(c.env.DB, accountId, c.req.param('operationId'));
   if (!operation) return c.json({ success: false, error: 'not found' }, 404);
   const group = await getRichMenuGroupWithPages(c.env.DB, operation.groupId);
-  if (!group || group.account_id !== accountId || !await groupMatchesAccountScope(c, group)) {
+  if (!group || group.account_id !== accountId || !(await groupMatchesAccountScope(c, group))) {
     return c.json({ success: false, error: 'not found' }, 404);
   }
   if (!canMutatePharmacyRichMenu(c)) {
@@ -1330,13 +1363,21 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
     return c.json({ success: true, data: { status: operation.status } });
   }
   if (operation.kind === 'publish') {
-    if (!operation.publishPhase || !operation.publishAliasId || !operation.publishMenuName ||
-        group.pages.length !== 1 || !group.pages[0].image_r2_key) {
-      return c.json({
-        success: false,
-        error: 'publish operation evidence is incomplete',
-        data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_INCOMPLETE' },
-      }, 409);
+    if (
+      !operation.publishPhase ||
+      !operation.publishAliasId ||
+      !operation.publishMenuName ||
+      group.pages.length !== 1 ||
+      !group.pages[0].image_r2_key
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: 'publish operation evidence is incomplete',
+          data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_INCOMPLETE' },
+        },
+        409,
+      );
     }
     const account = await getScopedLineAccount(c, accountId);
     if (!account?.liff_id) return c.json({ success: false, error: 'line account not found' }, 404);
@@ -1349,11 +1390,14 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
       requiredStatus: group.status,
     });
     if (readiness.status !== 'READY' || readiness.evidenceDigest !== operation.evidenceDigest) {
-      return c.json({
-        success: false,
-        error: 'publish evidence changed after the original confirmation',
-        data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_CHANGED' },
-      }, 409);
+      return c.json(
+        {
+          success: false,
+          error: 'publish evidence changed after the original confirmation',
+          data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_CHANGED' },
+        },
+        409,
+      );
     }
     const accessToken = await resolveLineAccessToken(c, accountId);
     if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
@@ -1364,40 +1408,48 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
     try {
       const line = createLineClient(accessToken);
       const groupInput = toGroupInput(group);
-      const expectedPayload = buildLineRichMenuPayload(
-        groupInput, groupInput.pages[0], operation.publishMenuName,
-      );
+      const expectedPayload = buildLineRichMenuPayload(groupInput, groupInput.pages[0], operation.publishMenuName);
       const remoteMenus = await line.getRichMenuList();
-      const namedCandidates = remoteMenus.filter((candidate) =>
-        remoteRichMenuNameOf(candidate) === operation.publishMenuName);
+      const namedCandidates = remoteMenus.filter(
+        (candidate) => remoteRichMenuNameOf(candidate) === operation.publishMenuName,
+      );
       const exactCandidates = namedCandidates.filter((candidate) =>
-        matchesLineRichMenuPayload(candidate, expectedPayload));
+        matchesLineRichMenuPayload(candidate, expectedPayload),
+      );
       let remoteRichMenuId = operation.remoteRichMenuId;
       if (remoteRichMenuId) {
         const remote = remoteMenus.find((candidate) => remoteRichMenuIdOf(candidate) === remoteRichMenuId);
         if (!remote || !matchesLineRichMenuPayload(remote, expectedPayload)) {
-          return c.json({
-            success: false,
-            error: 'remote publish candidate differs from confirmed evidence',
-            data: { status: operation.status, reasonCode: 'PUBLISH_REMOTE_DIVERGED' },
-          }, 409);
+          return c.json(
+            {
+              success: false,
+              error: 'remote publish candidate differs from confirmed evidence',
+              data: { status: operation.status, reasonCode: 'PUBLISH_REMOTE_DIVERGED' },
+            },
+            409,
+          );
         }
       } else {
-        if (namedCandidates.length !== 1 || exactCandidates.length !== 1 ||
-            !remoteRichMenuIdOf(exactCandidates[0])) {
-          const reasonCode = namedCandidates.length === 0
-            ? 'PUBLISH_CREATE_MISSING' : namedCandidates.length === 1
-              ? 'PUBLISH_REMOTE_DIVERGED' : 'PUBLISH_REMOTE_AMBIGUOUS';
-          return c.json({
-            success: false,
-            error: 'remote publish candidate cannot be identified safely',
-            data: {
-              status: operation.status,
-              reasonCode,
-              publishPhase: operation.publishPhase,
-              ...(reasonCode === 'PUBLISH_CREATE_MISSING' ? { resumableStage: 'create' } : {}),
+        if (namedCandidates.length !== 1 || exactCandidates.length !== 1 || !remoteRichMenuIdOf(exactCandidates[0])) {
+          const reasonCode =
+            namedCandidates.length === 0
+              ? 'PUBLISH_CREATE_MISSING'
+              : namedCandidates.length === 1
+                ? 'PUBLISH_REMOTE_DIVERGED'
+                : 'PUBLISH_REMOTE_AMBIGUOUS';
+          return c.json(
+            {
+              success: false,
+              error: 'remote publish candidate cannot be identified safely',
+              data: {
+                status: operation.status,
+                reasonCode,
+                publishPhase: operation.publishPhase,
+                ...(reasonCode === 'PUBLISH_CREATE_MISSING' ? { resumableStage: 'create' } : {}),
+              },
             },
-          }, 409);
+            409,
+          );
         }
         remoteRichMenuId = remoteRichMenuIdOf(exactCandidates[0]);
       }
@@ -1417,26 +1469,32 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
       if (publishPhase === 'remote_created') {
         const remoteImage = await line.getRichMenuImage(remoteRichMenuId);
         if (!remoteImage) {
-          return c.json({
-            success: false,
-            error: 'remote rich-menu image is missing',
-            data: {
-              status: operation.status,
-              reasonCode: 'PUBLISH_IMAGE_MISSING',
-              publishPhase,
-              resumableStage: 'image_upload',
+          return c.json(
+            {
+              success: false,
+              error: 'remote rich-menu image is missing',
+              data: {
+                status: operation.status,
+                reasonCode: 'PUBLISH_IMAGE_MISSING',
+                publishPhase,
+                resumableStage: 'image_upload',
+              },
             },
-          }, 409);
+            409,
+          );
         }
         const saved = await c.env.IMAGES.get(group.pages[0].image_r2_key!);
         if (!saved) throw new Error('saved rich-menu image is missing');
         const savedImage = await readR2Bytes(saved);
         if (!sameBytes(remoteImage, savedImage)) {
-          return c.json({
-            success: false,
-            error: 'remote rich-menu image differs from confirmed evidence',
-            data: { status: operation.status, reasonCode: 'PUBLISH_IMAGE_DIVERGED' },
-          }, 409);
+          return c.json(
+            {
+              success: false,
+              error: 'remote rich-menu image differs from confirmed evidence',
+              data: { status: operation.status, reasonCode: 'PUBLISH_IMAGE_DIVERGED' },
+            },
+            409,
+          );
         }
         await advancePharmacyRichMenuPublishPhase(c.env.DB, {
           lineAccountId: accountId,
@@ -1449,23 +1507,29 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
       if (publishPhase === 'image_uploaded') {
         const aliasTarget = await line.getRichMenuAlias(operation.publishAliasId);
         if (!aliasTarget) {
-          return c.json({
-            success: false,
-            error: 'remote rich-menu alias is missing',
-            data: {
-              status: operation.status,
-              reasonCode: 'PUBLISH_ALIAS_MISSING',
-              publishPhase,
-              resumableStage: 'alias_create',
+          return c.json(
+            {
+              success: false,
+              error: 'remote rich-menu alias is missing',
+              data: {
+                status: operation.status,
+                reasonCode: 'PUBLISH_ALIAS_MISSING',
+                publishPhase,
+                resumableStage: 'alias_create',
+              },
             },
-          }, 409);
+            409,
+          );
         }
         if (aliasTarget !== remoteRichMenuId) {
-          return c.json({
-            success: false,
-            error: 'remote rich-menu alias points to another menu',
-            data: { status: operation.status, reasonCode: 'PUBLISH_ALIAS_DIVERGED' },
-          }, 409);
+          return c.json(
+            {
+              success: false,
+              error: 'remote rich-menu alias points to another menu',
+              data: { status: operation.status, reasonCode: 'PUBLISH_ALIAS_DIVERGED' },
+            },
+            409,
+          );
         }
         await advancePharmacyRichMenuPublishPhase(c.env.DB, {
           lineAccountId: accountId,
@@ -1476,17 +1540,13 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
         publishPhase = 'alias_created';
       }
       if (publishPhase === 'alias_created') {
-        await markRichMenuGroupPublished(
-          c.env.DB,
-          group.id,
-          accountLock.groupId,
-          accountLock.token,
-          [{
+        await markRichMenuGroupPublished(c.env.DB, group.id, accountLock.groupId, accountLock.token, [
+          {
             pageId: group.pages[0].id,
             aliasId: operation.publishAliasId,
             lineRichMenuId: remoteRichMenuId,
-          }],
-        );
+          },
+        ]);
         await advancePharmacyRichMenuPublishPhase(c.env.DB, {
           lineAccountId: accountId,
           operationId: operation.id,
@@ -1503,21 +1563,27 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
       });
       return c.json({ success: true, data: { status: 'succeeded', publishPhase } });
     } catch {
-      return c.json({
-        success: false,
-        error: 'publish reconciliation failed without changing LINE',
-        data: { status: operation.status, publishPhase: operation.publishPhase },
-      }, 500);
+      return c.json(
+        {
+          success: false,
+          error: 'publish reconciliation failed without changing LINE',
+          data: { status: operation.status, publishPhase: operation.publishPhase },
+        },
+        500,
+      );
     } finally {
       await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
     }
   }
   if (!operation.remoteRichMenuId || !operation.defaultReadAt) {
-    return c.json({
-      success: false,
-      error: 'default operation evidence is incomplete',
-      data: { status: operation.status, reasonCode: 'DEFAULT_EVIDENCE_INCOMPLETE' },
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: 'default operation evidence is incomplete',
+        data: { status: operation.status, reasonCode: 'DEFAULT_EVIDENCE_INCOMPLETE' },
+      },
+      409,
+    );
   }
   const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
@@ -1530,9 +1596,7 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
   try {
     const currentDefault = await createLineClient(accessToken).getCurrentDefaultRichMenuId();
     if (currentDefault === operation.remoteRichMenuId) {
-      await recordRichMenuDefaultProjection(
-        c.env.DB, accountId, group.id, accountLock.groupId, accountLock.token,
-      );
+      await recordRichMenuDefaultProjection(c.env.DB, accountId, group.id, accountLock.groupId, accountLock.token);
       await finishPharmacyRichMenuOperation(c.env.DB, {
         lineAccountId: accountId,
         operationId: operation.id,
@@ -1552,17 +1616,23 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
       });
       return c.json({ success: true, data: { status: 'failed' } });
     }
-    return c.json({
-      success: false,
-      error: 'remote default diverged; manual review required',
-      data: { status: operation.status, reasonCode: 'REMOTE_DEFAULT_DIVERGED' },
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: 'remote default diverged; manual review required',
+        data: { status: operation.status, reasonCode: 'REMOTE_DEFAULT_DIVERGED' },
+      },
+      409,
+    );
   } catch {
-    return c.json({
-      success: false,
-      error: 'rich-menu reconciliation failed without changing LINE',
-      data: { status: operation.status },
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: 'rich-menu reconciliation failed without changing LINE',
+        data: { status: operation.status },
+      },
+      500,
+    );
   } finally {
     await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
   }
@@ -1577,16 +1647,13 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
   } catch {
     return c.json({ success: false, error: 'valid JSON body required' }, 400);
   }
-  if (body.dryRun !== true &&
-      (body.dryRun !== false || typeof body.confirmationToken !== 'string')) {
+  if (body.dryRun !== true && (body.dryRun !== false || typeof body.confirmationToken !== 'string')) {
     return c.json({ success: false, error: 'dryRun or confirmationToken is required' }, 400);
   }
-  const operation = await getPharmacyRichMenuOperation(
-    c.env.DB, accountId, c.req.param('operationId'),
-  );
+  const operation = await getPharmacyRichMenuOperation(c.env.DB, accountId, c.req.param('operationId'));
   if (!operation) return c.json({ success: false, error: 'not found' }, 404);
   const group = await getRichMenuGroupWithPages(c.env.DB, operation.groupId);
-  if (!group || group.account_id !== accountId || !await groupMatchesAccountScope(c, group)) {
+  if (!group || group.account_id !== accountId || !(await groupMatchesAccountScope(c, group))) {
     return c.json({ success: false, error: 'not found' }, 404);
   }
   if (!canMutatePharmacyRichMenu(c)) {
@@ -1595,10 +1662,17 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
   if ((await getPharmacyRichMenuLifecycleControl(c.env.DB, accountId)).state !== 'active') {
     return c.json({ success: false, error: 'pharmacy rich-menu lifecycle mutation disabled' }, 409);
   }
-  if (operation.kind !== 'publish' || operation.status === 'succeeded' || operation.status === 'failed' ||
-      !operation.publishPhase || operation.publishPhase === 'committed' ||
-      !operation.publishAliasId || !operation.publishMenuName || group.pages.length !== 1 ||
-      !group.pages[0].image_r2_key) {
+  if (
+    operation.kind !== 'publish' ||
+    operation.status === 'succeeded' ||
+    operation.status === 'failed' ||
+    !operation.publishPhase ||
+    operation.publishPhase === 'committed' ||
+    !operation.publishAliasId ||
+    !operation.publishMenuName ||
+    group.pages.length !== 1 ||
+    !group.pages[0].image_r2_key
+  ) {
     return c.json({ success: false, error: 'publish operation is not resumable' }, 409);
   }
   const account = await getScopedLineAccount(c, accountId);
@@ -1616,21 +1690,32 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
     requiredStatus: group.status,
   });
   if (readiness.status !== 'READY' || readiness.evidenceDigest !== operation.evidenceDigest) {
-    return c.json({
-      success: false,
-      error: 'publish evidence changed after the original confirmation',
-      data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_CHANGED' },
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: 'publish evidence changed after the original confirmation',
+        data: { status: operation.status, reasonCode: 'PUBLISH_EVIDENCE_CHANGED' },
+      },
+      409,
+    );
   }
-  const nextStage = operation.publishPhase === 'intent_recorded'
-    ? 'create' : operation.publishPhase === 'remote_created' ? 'image_upload' :
-      operation.publishPhase === 'image_uploaded' ? 'alias_create' : 'local_commit';
+  const nextStage =
+    operation.publishPhase === 'intent_recorded'
+      ? 'create'
+      : operation.publishPhase === 'remote_created'
+        ? 'image_upload'
+        : operation.publishPhase === 'image_uploaded'
+          ? 'alias_create'
+          : 'local_commit';
   if (operation.publishPhase === 'alias_created') {
-    return c.json({
-      success: false,
-      error: 'LINE stages are complete; reconcile local evidence',
-      data: { status: operation.status, publishPhase: operation.publishPhase, nextStage },
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: 'LINE stages are complete; reconcile local evidence',
+        data: { status: operation.status, publishPhase: operation.publishPhase, nextStage },
+      },
+      409,
+    );
   }
   if (body.dryRun === true) {
     const expiresAt = Date.now() + PHARMACY_RICH_MENU_PUBLISH_CONFIRMATION_TTL_MS;
@@ -1646,19 +1731,27 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
     });
     return c.json({
       success: true,
-      data: { dryRun: true, confirmationToken, expiresAt, publishPhase: operation.publishPhase, nextStage },
+      data: {
+        dryRun: true,
+        confirmationToken,
+        expiresAt,
+        publishPhase: operation.publishPhase,
+        nextStage,
+      },
     });
   }
-  const confirmation = await verifyPharmacyRichMenuResumeConfirmation(
-    secret, String(body.confirmationToken),
-  );
+  const confirmation = await verifyPharmacyRichMenuResumeConfirmation(secret, String(body.confirmationToken));
   if (!confirmation) {
     return c.json({ success: false, error: 'valid publish resume confirmation is required' }, 428);
   }
-  if (confirmation.tenantId !== tenantId || confirmation.accountId !== accountId ||
-      confirmation.groupId !== group.id || confirmation.operationId !== operation.id ||
-      confirmation.publishPhase !== operation.publishPhase ||
-      confirmation.evidenceDigest !== operation.evidenceDigest) {
+  if (
+    confirmation.tenantId !== tenantId ||
+    confirmation.accountId !== accountId ||
+    confirmation.groupId !== group.id ||
+    confirmation.operationId !== operation.id ||
+    confirmation.publishPhase !== operation.publishPhase ||
+    confirmation.evidenceDigest !== operation.evidenceDigest
+  ) {
     return c.json({ success: false, error: 'publish operation changed after resume confirmation' }, 409);
   }
   const accessToken = await resolveLineAccessToken(c, accountId);
@@ -1677,14 +1770,14 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
     });
     const line = createLineClient(accessToken);
     const groupInput = toGroupInput(group);
-    const expectedPayload = buildLineRichMenuPayload(
-      groupInput, groupInput.pages[0], operation.publishMenuName,
-    );
+    const expectedPayload = buildLineRichMenuPayload(groupInput, groupInput.pages[0], operation.publishMenuName);
     const remoteMenus = await line.getRichMenuList();
-    const namedCandidates = remoteMenus.filter((candidate) =>
-      remoteRichMenuNameOf(candidate) === operation.publishMenuName);
+    const namedCandidates = remoteMenus.filter(
+      (candidate) => remoteRichMenuNameOf(candidate) === operation.publishMenuName,
+    );
     const exactCandidates = namedCandidates.filter((candidate) =>
-      matchesLineRichMenuPayload(candidate, expectedPayload));
+      matchesLineRichMenuPayload(candidate, expectedPayload),
+    );
 
     if (operation.publishPhase === 'intent_recorded') {
       if (namedCandidates.length > 1 || (namedCandidates.length === 1 && exactCandidates.length !== 1)) {
@@ -1701,7 +1794,10 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
         phase: 'remote_created',
         remoteRichMenuId: remoteId,
       });
-      return c.json({ success: true, data: { status: operation.status, publishPhase: 'remote_created' } });
+      return c.json({
+        success: true,
+        data: { status: operation.status, publishPhase: 'remote_created' },
+      });
     }
 
     const remoteId = operation.remoteRichMenuId;
@@ -1728,7 +1824,10 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
         expectedPhase: 'remote_created',
         phase: 'image_uploaded',
       });
-      return c.json({ success: true, data: { status: operation.status, publishPhase: 'image_uploaded' } });
+      return c.json({
+        success: true,
+        data: { status: operation.status, publishPhase: 'image_uploaded' },
+      });
     }
 
     const currentAliasTarget = await line.getRichMenuAlias(operation.publishAliasId);
@@ -1736,7 +1835,7 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
       return c.json({ success: false, error: 'remote rich-menu alias points to another menu' }, 409);
     }
     if (!currentAliasTarget) await line.createRichMenuAlias(operation.publishAliasId, remoteId);
-    if (await line.getRichMenuAlias(operation.publishAliasId) !== remoteId) {
+    if ((await line.getRichMenuAlias(operation.publishAliasId)) !== remoteId) {
       throw new Error('LINE rich-menu alias read-back mismatch');
     }
     await advancePharmacyRichMenuPublishPhase(c.env.DB, {
@@ -1745,16 +1844,26 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
       expectedPhase: 'image_uploaded',
       phase: 'alias_created',
     });
-    return c.json({ success: true, data: { status: operation.status, publishPhase: 'alias_created' } });
+    return c.json({
+      success: true,
+      data: { status: operation.status, publishPhase: 'alias_created' },
+    });
   } catch (error) {
     if (String(error).includes('resume confirmation already used')) {
       return c.json({ success: false, error: 'publish resume confirmation already used' }, 409);
     }
-    return c.json({
-      success: false,
-      error: 'publish resume result is unknown; reconcile before another resume',
-      data: { operationId: operation.id, status: operation.status, publishPhase: operation.publishPhase },
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: 'publish resume result is unknown; reconcile before another resume',
+        data: {
+          operationId: operation.id,
+          status: operation.status,
+          publishPhase: operation.publishPhase,
+        },
+      },
+      500,
+    );
   } finally {
     await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
   }
@@ -1769,7 +1878,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, group))) return c.json({ success: false, error: 'not found' }, 404);
   const immutablePharmacyVersion = await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId);
   const lifecycle = await getPharmacyRichMenuLifecycleControl(c.env.DB, group.account_id);
   if (immutablePharmacyVersion || lifecycle.state !== 'inactive') {
@@ -1815,9 +1924,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
         502,
       );
     }
-    await markRichMenuGroupUnpublished(
-      c.env.DB, groupId, accountLock.groupId, accountLock.token,
-    );
+    await markRichMenuGroupUnpublished(c.env.DB, groupId, accountLock.groupId, accountLock.token);
     return c.json({ success: true, data: result });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -1867,7 +1974,7 @@ function confirmationBase64Url(bytes: Uint8Array): string {
 
 function decodeConfirmationBase64Url(value: string): Uint8Array {
   const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 }
 
@@ -1879,11 +1986,9 @@ async function confirmationHmac(secret: string, value: string): Promise<string> 
     false,
     ['sign'],
   );
-  return confirmationBase64Url(new Uint8Array(await crypto.subtle.sign(
-    'HMAC',
-    key,
-    confirmationEncoder.encode(value),
-  )));
+  return confirmationBase64Url(
+    new Uint8Array(await crypto.subtle.sign('HMAC', key, confirmationEncoder.encode(value))),
+  );
 }
 
 function sameConfirmationSignature(left: string, right: string): boolean {
@@ -1895,19 +2000,13 @@ function sameConfirmationSignature(left: string, right: string): boolean {
   return difference === 0;
 }
 
-async function signApplyConfirmation(
-  secret: string,
-  payload: ApplyConfirmationPayload,
-): Promise<string> {
+async function signApplyConfirmation(secret: string, payload: ApplyConfirmationPayload): Promise<string> {
   const encoded = confirmationBase64Url(confirmationEncoder.encode(JSON.stringify(payload)));
   const signed = `rmc1.${encoded}`;
   return `${signed}.${await confirmationHmac(secret, signed)}`;
 }
 
-async function verifyApplyConfirmation(
-  secret: string,
-  token: string,
-): Promise<ApplyConfirmationPayload | null> {
+async function verifyApplyConfirmation(secret: string, token: string): Promise<ApplyConfirmationPayload | null> {
   if (token.length > 4096) return null;
   const [version, encoded, signature, extra] = token.split('.');
   if (version !== 'rmc1' || !encoded || !signature || extra) return null;
@@ -1923,7 +2022,8 @@ async function verifyApplyConfirmation(
       typeof payload.accountId !== 'string' ||
       typeof payload.groupId !== 'string' ||
       typeof payload.groupUpdatedAt !== 'string' ||
-      typeof payload.confirmationId !== 'string' || !payload.confirmationId ||
+      typeof payload.confirmationId !== 'string' ||
+      !payload.confirmationId ||
       payload.confirmationId.length > 128 ||
       (payload.targetRichMenuId !== null && typeof payload.targetRichMenuId !== 'string') ||
       (payload.mode !== 'bulk-link' && payload.mode !== 'set-default') ||
@@ -1933,7 +2033,8 @@ async function verifyApplyConfirmation(
       (payload.audienceDigest !== null && typeof payload.audienceDigest !== 'string') ||
       typeof payload.expiresAt !== 'number' ||
       payload.expiresAt < Date.now()
-    ) return null;
+    )
+      return null;
     return payload as ApplyConfirmationPayload;
   } catch {
     return null;
@@ -1942,10 +2043,7 @@ async function verifyApplyConfirmation(
 
 async function richMenuAudienceDigest(userIds: string[]): Promise<string> {
   const uniqueSorted = [...new Set(userIds)].sort();
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    confirmationEncoder.encode(uniqueSorted.join('\n')),
-  );
+  const digest = await crypto.subtle.digest('SHA-256', confirmationEncoder.encode(uniqueSorted.join('\n')));
   return confirmationBase64Url(new Uint8Array(digest));
 }
 
@@ -1957,14 +2055,15 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
   } catch {
     return c.json({ success: false, error: 'invalid JSON body' }, 400);
   }
-  const r = (body as {
-    tagId?: unknown;
-    mode?: unknown;
-    enabled?: unknown;
-    intent?: unknown;
-    dryRun?: unknown;
-    confirmationToken?: unknown;
-  }) ?? {};
+  const r =
+    (body as {
+      tagId?: unknown;
+      mode?: unknown;
+      enabled?: unknown;
+      intent?: unknown;
+      dryRun?: unknown;
+      confirmationToken?: unknown;
+    }) ?? {};
   const mode = (r.mode as string | undefined) ?? 'bulk-link';
   if (mode !== 'bulk-link' && mode !== 'set-default') {
     return c.json({ success: false, error: "mode must be 'bulk-link' or 'set-default'" }, 400);
@@ -1980,28 +2079,29 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
   }
   const enabled = mode === 'set-default' ? r.enabled !== false : true;
   const intent = mode === 'set-default' ? (r.intent ?? 'switch') : 'switch';
-  if ((intent !== 'switch' && intent !== 'rollback') ||
-      (mode !== 'set-default' && r.intent !== undefined) ||
-      (intent === 'rollback' && !enabled)) {
+  if (
+    (intent !== 'switch' && intent !== 'rollback') ||
+    (mode !== 'set-default' && r.intent !== undefined) ||
+    (intent === 'rollback' && !enabled)
+  ) {
     return c.json({ success: false, error: 'intent must be switch or rollback for enabled set-default' }, 400);
   }
 
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
-  if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
+  if (!(await groupMatchesAccountScope(c, group))) return c.json({ success: false, error: 'not found' }, 404);
   if (group.status !== 'published') {
-    return c.json(
-      { success: false, error: 'group must be published before applying to friends' },
-      400,
-    );
+    return c.json({ success: false, error: 'group must be published before applying to friends' }, 400);
   }
   const boundPharmacyVersion = await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId);
   if (boundPharmacyVersion && !canMutatePharmacyRichMenu(c)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   const lifecycle = await getPharmacyRichMenuLifecycleControl(c.env.DB, group.account_id);
-  if ((boundPharmacyVersion && (lifecycle.state !== 'active' || mode !== 'set-default' || !enabled)) ||
-      (!boundPharmacyVersion && lifecycle.state !== 'inactive')) {
+  if (
+    (boundPharmacyVersion && (lifecycle.state !== 'active' || mode !== 'set-default' || !enabled)) ||
+    (!boundPharmacyVersion && lifecycle.state !== 'inactive')
+  ) {
     return c.json({ success: false, error: 'pharmacy rich-menu lifecycle mutation disabled' }, 409);
   }
   // default_page の line_richmenu_id を採用 (未設定なら order_index=0 の page)。
@@ -2012,10 +2112,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
     [...group.pages].sort((a, b) => a.order_index - b.order_index)[0];
   const targetRichMenuId = targetPage?.line_richmenu_id ?? null;
   if (enabled && !targetRichMenuId) {
-    return c.json(
-      { success: false, error: 'no published rich menu found for default page' },
-      400,
-    );
+    return c.json({ success: false, error: 'no published rich menu found for default page' }, 400);
   }
   const immutablePharmacyVersion = boundPharmacyVersion;
   let pharmacySetDefaultEvidenceDigest: string | null = null;
@@ -2033,20 +2130,28 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       requiredStatus: 'published',
     });
     if (readiness.status !== 'READY' || !readiness.evidenceDigest) {
-      return c.json({
-        success: false,
-        error: 'pharmacy rich-menu version is not ready',
-        data: readiness,
-      }, 409);
+      return c.json(
+        {
+          success: false,
+          error: 'pharmacy rich-menu version is not ready',
+          data: readiness,
+        },
+        409,
+      );
     }
     pharmacySetDefaultEvidenceDigest = readiness.evidenceDigest;
   }
-  if (intent === 'rollback' && (!targetRichMenuId ||
-      !await isPharmacyRichMenuKnownGood(c.env.DB, group.account_id, groupId, targetRichMenuId))) {
-    return c.json({
-      success: false,
-      error: 'rollback target is not a verified same-account known-good version',
-    }, 409);
+  if (
+    intent === 'rollback' &&
+    (!targetRichMenuId || !(await isPharmacyRichMenuKnownGood(c.env.DB, group.account_id, groupId, targetRichMenuId)))
+  ) {
+    return c.json(
+      {
+        success: false,
+        error: 'rollback target is not a verified same-account known-good version',
+      },
+      409,
+    );
   }
 
   const tenantId = c.get('tenantId');
@@ -2056,9 +2161,8 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
   }
   let confirmedUserIds: string[] | null = null;
   if (r.dryRun === true) {
-    confirmedUserIds = mode === 'bulk-link'
-      ? await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId)
-      : [];
+    confirmedUserIds =
+      mode === 'bulk-link' ? await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId) : [];
     const affected = confirmedUserIds.length;
     const confirmationToken = await signApplyConfirmation(confirmationSecret, {
       tenantId,
@@ -2071,9 +2175,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       intent,
       tagId,
       enabled,
-      audienceDigest: mode === 'bulk-link'
-        ? await richMenuAudienceDigest(confirmedUserIds)
-        : null,
+      audienceDigest: mode === 'bulk-link' ? await richMenuAudienceDigest(confirmedUserIds) : null,
       expiresAt: Date.now() + APPLY_CONFIRMATION_TTL_MS,
     });
     return c.json({
@@ -2111,7 +2213,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
   }
   if (mode === 'bulk-link') {
     confirmedUserIds = await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId);
-    if (confirmation.audienceDigest !== await richMenuAudienceDigest(confirmedUserIds)) {
+    if (confirmation.audienceDigest !== (await richMenuAudienceDigest(confirmedUserIds))) {
       return c.json({ success: false, error: 'follower audience changed after confirmation' }, 409);
     }
   }
@@ -2136,11 +2238,14 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       if (immutablePharmacyVersion) {
         const unresolved = await getUnresolvedPharmacyRichMenuOperation(c.env.DB, group.account_id);
         if (unresolved) {
-          return c.json({
-            success: false,
-            error: 'previous pharmacy rich-menu operation requires reconciliation',
-            data: { operationId: unresolved.id, status: unresolved.status },
-          }, 409);
+          return c.json(
+            {
+              success: false,
+              error: 'previous pharmacy rich-menu operation requires reconciliation',
+              data: { operationId: unresolved.id, status: unresolved.status },
+            },
+            409,
+          );
         }
         if (!pharmacySetDefaultEvidenceDigest || !targetRichMenuId) {
           return c.json({ success: false, error: 'invalid pharmacy rich-menu default evidence' }, 409);
@@ -2154,30 +2259,26 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
           expectedDefaultMenuId: null,
         });
         pharmacyOperationId = operation.id;
-        await recordPharmacyRichMenuRemoteId(
-          c.env.DB, group.account_id, operation.id, targetRichMenuId,
-        );
+        await recordPharmacyRichMenuRemoteId(c.env.DB, group.account_id, operation.id, targetRichMenuId);
       }
       previousDefault = await line.getCurrentDefaultRichMenuId();
       if (pharmacyOperationId) {
-        await recordPharmacyRichMenuExpectedDefault(
-          c.env.DB, group.account_id, pharmacyOperationId, previousDefault,
-        );
+        await recordPharmacyRichMenuExpectedDefault(c.env.DB, group.account_id, pharmacyOperationId, previousDefault);
       }
       if (enabled) {
         if (previousDefault !== targetRichMenuId) {
           await line.setDefaultRichMenu(targetRichMenuId!);
           lineChanged = true;
         }
-        if (await line.getCurrentDefaultRichMenuId() !== targetRichMenuId) {
+        if ((await line.getCurrentDefaultRichMenuId()) !== targetRichMenuId) {
           throw new Error('LINE default rich menu verification failed');
         }
       } else {
-        const ownIds = new Set(group.pages.flatMap((page) => page.line_richmenu_id ? [page.line_richmenu_id] : []));
+        const ownIds = new Set(group.pages.flatMap((page) => (page.line_richmenu_id ? [page.line_richmenu_id] : [])));
         if (previousDefault && ownIds.has(previousDefault)) {
           await line.clearDefaultRichMenu();
           lineChanged = true;
-          if (await line.getCurrentDefaultRichMenuId() !== null) {
+          if ((await line.getCurrentDefaultRichMenuId()) !== null) {
             throw new Error('LINE default rich menu clear verification failed');
           }
         }
@@ -2185,18 +2286,21 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       // LINE側の反映が成功してから、同 account 内のD1表示状態を更新する。
       if (enabled) {
         await recordRichMenuDefaultProjection(
-          c.env.DB, group.account_id, groupId, accountLock.groupId, accountLock.token,
+          c.env.DB,
+          group.account_id,
+          groupId,
+          accountLock.groupId,
+          accountLock.token,
         );
       } else {
         const now = new Date().toISOString();
-        const result = await c.env.DB
-          .prepare(
-            `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
+        const result = await c.env.DB.prepare(
+          `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
               WHERE id = ? AND EXISTS (
                 SELECT 1 FROM rich_menu_groups AS locked
                  WHERE locked.id = ? AND locked.publishing_at = ?
               )`,
-          )
+        )
           .bind(now, groupId, accountLock.groupId, accountLock.token)
           .run();
         if ((result.meta?.changes ?? 0) !== 1) throw new Error('rich-menu account lock lost');
@@ -2234,17 +2338,23 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
         } catch {
           // A concurrent reconciliation or succeeded terminal row remains authoritative.
         }
-        return c.json({
-          success: false,
-          error: 'pharmacy rich-menu default result is unknown; reconcile before retry',
-          data: { operationId: pharmacyOperationId, status: 'unknown' },
-        }, 500);
+        return c.json(
+          {
+            success: false,
+            error: 'pharmacy rich-menu default result is unknown; reconcile before retry',
+            data: { operationId: pharmacyOperationId, status: 'unknown' },
+          },
+          500,
+        );
       }
       if (String(e).includes('pharmacy rich-menu confirmation already used')) {
-        return c.json({
-          success: false,
-          error: 'pharmacy rich-menu confirmation already used',
-        }, 409);
+        return c.json(
+          {
+            success: false,
+            error: 'pharmacy rich-menu confirmation already used',
+          },
+          409,
+        );
       }
       if (lineChanged && !d1Committed) {
         try {
@@ -2275,11 +2385,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       return c.json({ success: false, error: 'no published rich menu found for default page' }, 400);
     }
     const line = createLineClient(accessToken);
-    const result = await linkRichMenuBulkChunked(
-      line,
-      targetRichMenuId,
-      userIds,
-    );
+    const result = await linkRichMenuBulkChunked(line, targetRichMenuId, userIds);
     return c.json({ success: true, data: result });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

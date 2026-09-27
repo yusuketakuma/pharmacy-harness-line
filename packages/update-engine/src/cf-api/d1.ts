@@ -70,8 +70,7 @@ export function assertD1Success<T extends { success: boolean; result: any[] }>(b
   const results = body.result ?? [];
   for (let i = 0; i < results.length; i += 1) {
     const statement = results[i];
-    if (statement && typeof statement === 'object' && 'success' in statement
-      && statement.success !== true) {
+    if (statement && typeof statement === 'object' && 'success' in statement && statement.success !== true) {
       throw new Error(`D1 query failed at statement ${i + 1}: ${d1ErrorDetail(statement)}`);
     }
   }
@@ -86,10 +85,7 @@ function d1ErrorDetail(body: unknown): string {
   return text && text.length > 500 ? `${text.slice(0, 500)}…` : (text ?? '');
 }
 
-export async function getD1Bookmark(opts: {
-  creds: CfApiCreds;
-  databaseId: string;
-}): Promise<string> {
+export async function getD1Bookmark(opts: { creds: CfApiCreds; databaseId: string }): Promise<string> {
   const base = d1QueryApiUrl(opts.creds.accountId, opts.databaseId).replace(/\/query$/, '');
   const res = await fetch(`${base}/time_travel/bookmark`, {
     headers: authHeader(opts.creds.apiToken),

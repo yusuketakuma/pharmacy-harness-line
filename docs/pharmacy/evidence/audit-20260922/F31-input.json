@@ -1,0 +1,16 @@
+{
+  "P": "6751d6edcb164dd8e4ac59fc53824a438bfac13d",
+  "W": {
+    "packages/db/src/scenarios.ts": "426f38485a7dcbe38178005281f28a8d6751d827bd83bc962cf3171f3d443b47",
+    "apps/worker/src/routes/messaging/scenarios.ts": "57d086af32bae23f0e7708659d28866cf23d64fd98d2b42545d93aeab205224a",
+    "apps/worker/src/routes/messaging/scenario-step-scope.test.ts": "e069832d0f3d0097f49ab120b3c8e063d1157e609ebdeef30a52846a3e749a49"
+  },
+  "existing": {
+    "packages/db/src/scenarios.ts": "1541d6b1fc9ba86be17e057ae45b35b4052b7337f04e21b680a8be3676d46617",
+    "apps/worker/src/routes/messaging/scenarios.ts": "12f79e752599f6a66a9bf6131fd6a234f06112d59b1159caa8f6ec96762b36dc"
+  },
+  "new": [
+    "apps/worker/src/routes/messaging/scenario-step-scope.test.ts"
+  ],
+  "patchReplay": "PASS exact 3paths and hashes"
+}

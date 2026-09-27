@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "exit": 0,
+  "artifact": {
+    "bytes": 165354,
+    "sha256": "84f6be74a193eec8d7f530eb43110f14eebbc60650abe964abbbccac7ac6c7aa"
+  },
+  "checks": [
+    "latest detail",
+    "before cursor",
+    "chronological chat history",
+    "list preview",
+    "answered queue/inbox",
+    "new unanswered"
+  ],
+  "outbound": 0,
+  "scope": "Synthetic fixed tenant/staff identity + actual compiled resource guard/routers/inbox on local Miniflare D1. Runtime uses compiled bundle only; not full auth/provider/production."
+}

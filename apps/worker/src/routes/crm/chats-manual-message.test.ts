@@ -43,7 +43,9 @@ vi.mock('../../middleware/tenant-boundary.js', () => boundaryMocks);
 vi.mock('../../services/outbound-line-delivery.js', () => deliveryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
+  LineClient: vi.fn().mockImplementation(function () {
+    return lineClientMocks;
+  }),
 }));
 
 import type { Env } from '../../index.js';
@@ -108,15 +110,19 @@ function setup(db: D1Database, tenantId = 'tenant-a') {
 }
 
 function request(app: Hono<Env>, env: Env['Bindings'], idempotencyKey = crypto.randomUUID()) {
-  return app.request('/api/chats/chat-a/send', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Line-Harness-Source': 'manual',
-      'Idempotency-Key': idempotencyKey,
+  return app.request(
+    '/api/chats/chat-a/send',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Harness-Source': 'manual',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({ content: 'hello from staff' }),
     },
-    body: JSON.stringify({ content: 'hello from staff' }),
-  }, env);
+    env,
+  );
 }
 
 beforeEach(() => {
@@ -137,7 +143,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('manual chat send error privacy', () => {
   it.each(['request', 'flex', 'image', 'delivery'])(
-    'keeps sensitive %s failures out of logs and responses', async (failure) => {
+    'keeps sensitive %s failures out of logs and responses',
+    async (failure) => {
       const { db } = makeDb();
       credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
       const sensitive = 'PHI_MARK';
@@ -146,18 +153,25 @@ describe('manual chat send error privacy', () => {
         if (failure === 'delivery') {
           deliveryMocks.deliverTrackedLinePush.mockRejectedValueOnce(new Error(sensitive));
         }
-        const response = await setup(db).request('/api/chats/chat-a/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Line-Harness-Source': 'manual',
-            'Idempotency-Key': crypto.randomUUID(),
+        const response = await setup(db).request(
+          '/api/chats/chat-a/send',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Line-Harness-Source': 'manual',
+              'Idempotency-Key': crypto.randomUUID(),
+            },
+            body:
+              failure === 'request'
+                ? sensitive
+                : JSON.stringify({
+                    messageType: failure === 'delivery' ? 'text' : failure,
+                    content: sensitive,
+                  }),
           },
-          body: failure === 'request' ? sensitive : JSON.stringify({
-            messageType: failure === 'delivery' ? 'text' : failure,
-            content: sensitive,
-          }),
-        }, bindings(db, ROOT_SECRET));
+          bindings(db, ROOT_SECRET),
+        );
 
         expect(response.status).toBe(500);
         expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
@@ -165,7 +179,9 @@ describe('manual chat send error privacy', () => {
         expect(logged).not.toContain(sensitive);
         expect(errorSpy).toHaveBeenCalledTimes(1);
         expect(JSON.parse(String(errorSpy.mock.calls[0][0]))).toEqual({
-          ts: expect.any(String), level: 'error', event: 'chat_manual_send_failed',
+          ts: expect.any(String),
+          level: 'error',
+          event: 'chat_manual_send_failed',
         });
         expect(updateChat).not.toHaveBeenCalled();
         if (failure !== 'delivery') {
@@ -198,19 +214,21 @@ describe('manual chat message credentials', () => {
       [{ type: 'text', text: 'hello from staff' }],
       'provider-retry-key',
     );
-    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      friendId: 'friend-a',
-      messageType: 'text',
-      content: 'hello from staff',
-      source: 'manual',
-      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
-      request: {
-        to: FRIEND.line_user_id,
-        messages: [{ type: 'text', text: 'hello from staff' }],
-      },
-    }));
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        messageType: 'text',
+        content: 'hello from staff',
+        source: 'manual',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        request: {
+          to: FRIEND.line_user_id,
+          messages: [{ type: 'text', text: 'hello from staff' }],
+        },
+      }),
+    );
     expect(updateChat).toHaveBeenCalled();
   });
 
@@ -256,11 +274,15 @@ describe('manual chat message credentials', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await setup(db).request('/api/chats/chat-a/loading', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loadingSeconds: 5 }),
-    }, bindings(db, ROOT_SECRET));
+    const response = await setup(db).request(
+      '/api/chats/chat-a/loading',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loadingSeconds: 5 }),
+      },
+      bindings(db, ROOT_SECRET),
+    );
 
     expect(response.status).toBe(200);
     expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(db, ROOT_SECRET, {
@@ -280,16 +302,18 @@ describe('manual chat message credentials', () => {
   it('keeps a LINE loading error body out of the response and logs', async () => {
     const { db } = makeDb();
     credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response('sensitive-upstream-detail', { status: 503 }),
-    ));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('sensitive-upstream-detail', { status: 503 })));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const response = await setup(db).request('/api/chats/chat-a/loading', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loadingSeconds: 5 }),
-    }, bindings(db, ROOT_SECRET));
+    const response = await setup(db).request(
+      '/api/chats/chat-a/loading',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loadingSeconds: 5 }),
+      },
+      bindings(db, ROOT_SECRET),
+    );
 
     const body = await response.text();
     const logged = errorSpy.mock.calls.flat().map(String).join(' ');
@@ -308,11 +332,7 @@ describe('manual chat message credentials', () => {
     const response = await request(setup(db), bindings(db, ROOT_SECRET));
 
     expect(response.status).toBe(403);
-    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'account-b',
-    );
+    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-b');
     expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
     expect(lineClientMocks.pushTextMessage).not.toHaveBeenCalled();
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
@@ -336,14 +356,18 @@ describe('manual chat message credentials', () => {
     const { db } = makeDb();
     credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
 
-    const response = await setup(db).request('/api/chats/chat-a/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': crypto.randomUUID(),
+    const response = await setup(db).request(
+      '/api/chats/chat-a/send',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: JSON.stringify({ content: 'hello from staff' }),
       },
-      body: JSON.stringify({ content: 'hello from staff' }),
-    }, bindings(db, ROOT_SECRET));
+      bindings(db, ROOT_SECRET),
+    );
 
     expect(response.status).toBe(400);
     expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();

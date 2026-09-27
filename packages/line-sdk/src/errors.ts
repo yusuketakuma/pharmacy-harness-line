@@ -5,9 +5,10 @@
  * Used by both the direct SDK and the Harness reply proxy.
  */
 export async function createLineApiError(res: Response): Promise<Error> {
-  const body = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
-  const detail = (body?.message ?? body?.error) === 'Invalid reply token'
-    ? ' — Invalid reply token'
-    : '';
+  const body = (await res.json().catch(() => null)) as {
+    message?: unknown;
+    error?: unknown;
+  } | null;
+  const detail = (body?.message ?? body?.error) === 'Invalid reply token' ? ' — Invalid reply token' : '';
   return new Error(`LINE API error: ${res.status} ${res.statusText}${detail}`);
 }

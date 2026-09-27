@@ -40,9 +40,7 @@ conversations.get('/api/conversations', async (c) => {
       ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
       : '';
     const whereMaxHours =
-      maxHoursSince !== null
-        ? `AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) <= ?`
-        : '';
+      maxHoursSince !== null ? `AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) <= ?` : '';
 
     // friend ごとの最新 chats 行の status (bare-column + 単一 MAX の argmax)。
     // unanswered-inbox.ts の CANDIDATES_SQL と同じ resolved 除外。管理画面で
@@ -291,13 +289,17 @@ conversations.get('/api/conversations/:friendId', async (c) => {
       // left source NULL on scenario/broadcast/auto_reply outgoings. Mirrors
       // the backfill rules in migrations/028_messages_log_source.sql so the
       // dashboard does not misclassify automated messages as operator replies.
-      source: m.source ?? (
-        m.direction === 'incoming' ? 'user'
-          : m.scenario_step_id ? 'scenario'
-          : (m.broadcast_id || m.delivery_type === 'test') ? 'broadcast'
-          : m.delivery_type === 'reply' ? 'auto_reply'
-          : 'manual'
-      ),
+      source:
+        m.source ??
+        (m.direction === 'incoming'
+          ? 'user'
+          : m.scenario_step_id
+            ? 'scenario'
+            : m.broadcast_id || m.delivery_type === 'test'
+              ? 'broadcast'
+              : m.delivery_type === 'reply'
+                ? 'auto_reply'
+                : 'manual'),
       createdAt: m.created_at,
     }));
 

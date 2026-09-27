@@ -1,10 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  pharmacyMainMenuItems,
-  pharmacyMenuGroups,
-  PHARMACY_MENU_GROUPS,
-} from './menu/MainMenuPage.js';
+import { pharmacyMainMenuItems, pharmacyMenuGroups, PHARMACY_MENU_GROUPS } from './menu/MainMenuPage.js';
 
 const pageSources = [
   './menu/MainMenuPage.tsx',
@@ -25,7 +21,8 @@ function contrastRatio(foreground: string, background: string): number {
     const channelValue = Number.parseInt(value.slice(offset, offset + 2), 16) / 255;
     return channelValue <= 0.03928 ? channelValue / 12.92 : ((channelValue + 0.055) / 1.055) ** 2.4;
   };
-  const luminance = (value: string) => 0.2126 * channel(value, 1) + 0.7152 * channel(value, 3) + 0.0722 * channel(value, 5);
+  const luminance = (value: string) =>
+    0.2126 * channel(value, 1) + 0.7152 * channel(value, 3) + 0.0722 * channel(value, 5);
   const light = Math.max(luminance(foreground), luminance(background));
   const dark = Math.min(luminance(foreground), luminance(background));
   return (light + 0.05) / (dark + 0.05);
@@ -70,8 +67,13 @@ describe('pharmacy LIFF v0.32 route-wide contract', () => {
 
   it('keeps all menu groups and internal routes tenant-preserving', () => {
     const items = pharmacyMainMenuItems('e2e-liff', [
-      'prescription_intake', 'patient_intake', 'electronic_prescription',
-      'continuity', 'medication_followup', 'emergency_contraception', 'pharmacy_info',
+      'prescription_intake',
+      'patient_intake',
+      'electronic_prescription',
+      'continuity',
+      'medication_followup',
+      'emergency_contraception',
+      'pharmacy_info',
     ]);
     expect(pharmacyMenuGroups(items).map(({ group }) => group)).toEqual([...PHARMACY_MENU_GROUPS]);
     expect(items.every(({ to }) => to.includes('liffId=e2e-liff'))).toBe(true);

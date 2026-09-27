@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/activity-notifications/PharmacyActivityNotificationsPage'
+export { default } from '@/custom/pharmacy/activity-notifications/PharmacyActivityNotificationsPage';

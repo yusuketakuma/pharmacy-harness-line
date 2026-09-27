@@ -78,10 +78,7 @@ export class LineClient {
   // ─── Profile ──────────────────────────────────────────────────────────────
 
   async getProfile(userId: string): Promise<UserProfile> {
-    const { data } = await this.request(
-      'GET',
-      `/v2/bot/profile/${encodeURIComponent(userId)}`,
-    );
+    const { data } = await this.request('GET', `/v2/bot/profile/${encodeURIComponent(userId)}`);
     return data as UserProfile;
   }
 
@@ -122,10 +119,7 @@ export class LineClient {
     return { data, requestId: headers.get('x-line-request-id') };
   }
 
-  async broadcast(
-    messages: Message[],
-    retryKey?: string,
-  ): Promise<{ data: unknown; requestId: string | null }> {
+  async broadcast(messages: Message[], retryKey?: string): Promise<{ data: unknown; requestId: string | null }> {
     const body: BroadcastRequest = { messages };
     const { data, headers } = await this.request(
       'POST',
@@ -136,10 +130,7 @@ export class LineClient {
     return { data, requestId: headers.get('x-line-request-id') };
   }
 
-  async replyMessage(
-    replyToken: string,
-    messages: Message[],
-  ): Promise<unknown> {
+  async replyMessage(replyToken: string, messages: Message[]): Promise<unknown> {
     const body: ReplyMessageRequest = { replyToken, messages };
     const { data } = await this.request('POST', '/v2/bot/message/reply', body);
     return data;
@@ -158,25 +149,16 @@ export class LineClient {
   }
 
   async deleteRichMenu(richMenuId: string): Promise<unknown> {
-    const { data } = await this.request(
-      'DELETE',
-      `/v2/bot/richmenu/${encodeURIComponent(richMenuId)}`,
-    );
+    const { data } = await this.request('DELETE', `/v2/bot/richmenu/${encodeURIComponent(richMenuId)}`);
     return data;
   }
 
   async setDefaultRichMenu(richMenuId: string): Promise<unknown> {
-    const { data } = await this.request(
-      'POST',
-      `/v2/bot/user/all/richmenu/${encodeURIComponent(richMenuId)}`,
-    );
+    const { data } = await this.request('POST', `/v2/bot/user/all/richmenu/${encodeURIComponent(richMenuId)}`);
     return data;
   }
 
-  async linkRichMenuToUser(
-    userId: string,
-    richMenuId: string,
-  ): Promise<unknown> {
+  async linkRichMenuToUser(userId: string, richMenuId: string): Promise<unknown> {
     const { data } = await this.request(
       'POST',
       `/v2/bot/user/${encodeURIComponent(userId)}/richmenu/${encodeURIComponent(richMenuId)}`,
@@ -185,18 +167,12 @@ export class LineClient {
   }
 
   async unlinkRichMenuFromUser(userId: string): Promise<unknown> {
-    const { data } = await this.request(
-      'DELETE',
-      `/v2/bot/user/${encodeURIComponent(userId)}/richmenu`,
-    );
+    const { data } = await this.request('DELETE', `/v2/bot/user/${encodeURIComponent(userId)}/richmenu`);
     return data;
   }
 
   async getRichMenuIdOfUser(userId: string): Promise<{ richMenuId: string }> {
-    const { data } = await this.request(
-      'GET',
-      `/v2/bot/user/${encodeURIComponent(userId)}/richmenu`,
-    );
+    const { data } = await this.request('GET', `/v2/bot/user/${encodeURIComponent(userId)}/richmenu`);
     return data as { richMenuId: string };
   }
 
@@ -223,19 +199,11 @@ export class LineClient {
     return this.pushMessage(to, [{ type: 'text', text }]);
   }
 
-  async pushFlexMessage(
-    to: string,
-    altText: string,
-    contents: FlexContainer,
-  ): Promise<unknown> {
+  async pushFlexMessage(to: string, altText: string, contents: FlexContainer): Promise<unknown> {
     return this.pushMessage(to, [{ type: 'flex', altText, contents }]);
   }
 
-  async pushImageMessage(
-    to: string,
-    originalContentUrl: string,
-    previewImageUrl: string,
-  ): Promise<unknown> {
+  async pushImageMessage(to: string, originalContentUrl: string, previewImageUrl: string): Promise<unknown> {
     return this.pushMessage(to, [{ type: 'image', originalContentUrl, previewImageUrl }]);
   }
 
@@ -280,16 +248,9 @@ export class LineClient {
    * Get statistics per unit for multicast messages.
    * GET only — no messages are sent.
    */
-  async getUnitInsight(
-    customAggregationUnit: string,
-    from: string,
-    to: string,
-  ): Promise<unknown> {
+  async getUnitInsight(customAggregationUnit: string, from: string, to: string): Promise<unknown> {
     const params = new URLSearchParams({ customAggregationUnit, from, to });
-    const { data } = await this.request(
-      'GET',
-      `/v2/bot/insight/message/event/aggregation?${params.toString()}`,
-    );
+    const { data } = await this.request('GET', `/v2/bot/insight/message/event/aggregation?${params.toString()}`);
     return data;
   }
 
@@ -298,10 +259,7 @@ export class LineClient {
    * GET only — no messages are sent.
    */
   async getFollowersInsight(date: string): Promise<FollowersInsight> {
-    const { data } = await this.request(
-      'GET',
-      `/v2/bot/insight/followers?date=${encodeURIComponent(date)}`,
-    );
+    const { data } = await this.request('GET', `/v2/bot/insight/followers?date=${encodeURIComponent(date)}`);
     return data as FollowersInsight;
   }
 
@@ -310,16 +268,10 @@ export class LineClient {
    * Verified/premium accounts only. Pass the returned `next` value as
    * `start` until `next` is absent to retrieve the full audience.
    */
-  async getFollowerIds(
-    limit = 1000,
-    start?: string,
-  ): Promise<FollowerIdsPage> {
+  async getFollowerIds(limit = 1000, start?: string): Promise<FollowerIdsPage> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (start) params.set('start', start);
-    const { data } = await this.request(
-      'GET',
-      `/v2/bot/followers/ids?${params.toString()}`,
-    );
+    const { data } = await this.request('GET', `/v2/bot/followers/ids?${params.toString()}`);
     return data as FollowerIdsPage;
   }
 }

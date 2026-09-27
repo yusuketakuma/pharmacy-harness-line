@@ -1,0 +1,40 @@
+{
+  "status": "INTEGRATED",
+  "P": "6751d6edcb164dd8e4ac59fc53824a438bfac13d",
+  "W": {
+    "packages/db/src/scenarios.ts": "426f38485a7dcbe38178005281f28a8d6751d827bd83bc962cf3171f3d443b47",
+    "apps/worker/src/routes/messaging/scenarios.ts": "57d086af32bae23f0e7708659d28866cf23d64fd98d2b42545d93aeab205224a",
+    "apps/worker/src/routes/messaging/scenario-step-scope.test.ts": "e069832d0f3d0097f49ab120b3c8e063d1157e609ebdeef30a52846a3e749a49"
+  },
+  "paths": [
+    "packages/db/src/scenarios.ts",
+    "apps/worker/src/routes/messaging/scenarios.ts",
+    "apps/worker/src/routes/messaging/scenario-step-scope.test.ts"
+  ],
+  "patch": "F31.patch",
+  "patchReplay": "PASS exact 3paths and hashes",
+  "finding": "F31 CONFIRMED_BUG/P1 generic scenario step tenant/parent boundary; local actualSQLite reproduction only, pharmacy full app generic gate independently denies this API",
+  "commands": {
+    "red": "pnpm --dir apps/worker exec vitest run src/routes/messaging/scenario-step-scope.test.ts:4FAIL2PASS before source change",
+    "near": "same plus scenarios.test.ts and tenant-boundary.test.ts:3files32PASS (new10 cases)",
+    "integration": "env-clean pnpm verify:ci:exit0; current DB/Worker/workspace tests/types, scripts25files263PASS,28 postbaseline migrations PASS",
+    "workerBuild": "python3 F31-worker-artifact-run.py:buildExit0/runtimeExit0; isolated synthetic config, copied official Vite Worker artifacts38 files; full app unauth401/pharmacy genericAPI403/legacy empty account response/body checks reused as entry smoke",
+    "nativeD1": "node F31-native-scope.mjs:final exit0. Synthetic fixed-auth wrapper around actual compiled Hono tenant guard/routes/DB helpers; local MiniflareD1 bootstrap. Foreign PUT/body tenant spoof and no-op404, foreign DELETE200 unchanged, own update/delete valid, outbound0",
+    "nativeHarnessInitialFailure": "esbuild platform neutral defaults did not resolve package main; mainFields module/main set in synthetic harness, source unchanged. Initial failed log retained",
+    "diffCheck": 0
+  },
+  "publicContract": "Existing exported helper names/old positional args remain; optional scope addition. Route sets scope from server tenant and URL parent; empty updates scoped too. JSON/API route names and valid behavior unchanged; foreign update404, foreign/missing delete remains idempotent200/data:null. No schema/migration changes.",
+  "review": "F31-limited-review.md fully read, all P/W hashes checked; existing read-only child, not final fresh review",
+  "unverified": [
+    "Full auth/all parent-child routes still partial",
+    "Node22 CI runtime not exercised, localNode26.6.0",
+    "Actual production/real patient data/deploy excluded",
+    "Full app pharmacy gate denies generic scenario API; native scoped test uses synthetic identity and is not proof of a pharmacy bypass",
+    "Old external DB helper callers omitting optional scope retain prior responsibility and behavior",
+    "Account/staff revocation between guard and mutation and return-snapshot atomicity outside scope",
+    "Fresh final independent review unavailable"
+  ],
+  "external": "NONE",
+  "handoff": "Explicit3 paths staged/committed, exact W verified; PLANS/evidence preserved unstaged",
+  "commit": "da40c463db40423af8bbc32ce2ade603949bcffb"
+}

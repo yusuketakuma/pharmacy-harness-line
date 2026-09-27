@@ -47,13 +47,15 @@ const dbMocks = vi.hoisted(() => ({
 vi.mock('@line-crm/db', () => ({
   ...dbMocks,
   updateFriendFollowStatus: dbMocks.updateFriendFollowStatus,
-  getActiveTenantLineAccounts: vi.fn().mockResolvedValue([{
-    id: 'account-pharmacy',
-    tenant_id: 'tenant-pharmacy',
-    is_active: 1,
-    channel_secret: 'env-default-secret',
-    channel_access_token: 'env-default-token',
-  }]),
+  getActiveTenantLineAccounts: vi.fn().mockResolvedValue([
+    {
+      id: 'account-pharmacy',
+      tenant_id: 'tenant-pharmacy',
+      is_active: 1,
+      channel_secret: 'env-default-secret',
+      channel_access_token: 'env-default-token',
+    },
+  ]),
   jstNow: vi.fn().mockReturnValue('2026-08-18T09:00:00+09:00'),
   toJstString: vi.fn((date: Date) => date.toISOString()),
   getMessageTemplateById: vi.fn(),
@@ -121,19 +123,24 @@ async function deliver(event: Record<string, unknown>, db: D1Database) {
     passThroughOnException: vi.fn(),
     props: {},
   } as unknown as ExecutionContext;
-  const response = await app.request('/webhook', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Line-Signature': `${'A'.repeat(43)}=`,
+  const response = await app.request(
+    '/webhook',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Signature': `${'A'.repeat(43)}=`,
+      },
+      body: JSON.stringify({ destination: 'bot', events: [event] }),
     },
-    body: JSON.stringify({ destination: 'bot', events: [event] }),
-  }, {
-    DB: db,
-    LINE_CREDENTIAL_KEY_V1: 'root-key-for-pharmacy-tests-v1',
-    LINE_CHANNEL_SECRET: 'env-default-secret',
-    LINE_CHANNEL_ACCESS_TOKEN: 'env-default-token',
-  }, executionCtx);
+    {
+      DB: db,
+      LINE_CREDENTIAL_KEY_V1: 'root-key-for-pharmacy-tests-v1',
+      LINE_CHANNEL_SECRET: 'env-default-secret',
+      LINE_CHANNEL_ACCESS_TOKEN: 'env-default-token',
+    },
+    executionCtx,
+  );
   expect(response.status).toBe(200);
   await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
 }
@@ -162,16 +169,19 @@ describe('pharmacy-mode webhook allowlist', () => {
       dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
       mocks.getProfile.mockRejectedValue(new Error('synthetic-profile-detail'));
 
-      await deliver({
-        type: 'message',
-        message: { type: 'sticker', id: 'sticker-1' },
-        source: { type: 'user', userId: 'U-pharmacy' },
-      }, database());
+      await deliver(
+        {
+          type: 'message',
+          message: { type: 'sticker', id: 'sticker-1' },
+          source: { type: 'user', userId: 'U-pharmacy' },
+        },
+        database(),
+      );
 
       const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
-      expect(lines).toEqual(expect.arrayContaining([
-        expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"'),
-      ]));
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"')]),
+      );
       expect(lines.join('\n')).not.toContain('synthetic-profile-detail');
     } finally {
       consoleError.mockRestore();
@@ -184,17 +194,22 @@ describe('pharmacy-mode webhook allowlist', () => {
       mocks.getProfile.mockRejectedValue(new Error('synthetic-follow-profile-detail'));
       mocks.recordFollow.mockRejectedValue(new Error('synthetic-follow-metric-detail'));
 
-      await deliver({
-        type: 'follow',
-        replyToken: 'reply-follow',
-        source: { type: 'user', userId: 'U-pharmacy' },
-      }, database());
+      await deliver(
+        {
+          type: 'follow',
+          replyToken: 'reply-follow',
+          source: { type: 'user', userId: 'U-pharmacy' },
+        },
+        database(),
+      );
 
       const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
-      expect(lines).toEqual(expect.arrayContaining([
-        expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"'),
-        expect.stringContaining('"event":"pharmacy_growth_follow_metric_failed"'),
-      ]));
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"'),
+          expect.stringContaining('"event":"pharmacy_growth_follow_metric_failed"'),
+        ]),
+      );
       expect(lines.join('\n')).not.toContain('synthetic-follow-profile-detail');
       expect(lines.join('\n')).not.toContain('synthetic-follow-metric-detail');
     } finally {
@@ -207,15 +222,18 @@ describe('pharmacy-mode webhook allowlist', () => {
     try {
       mocks.recordUnfollow.mockRejectedValue(new Error('synthetic-unfollow-metric-detail'));
 
-      await deliver({
-        type: 'unfollow',
-        source: { type: 'user', userId: 'U-pharmacy' },
-      }, database());
+      await deliver(
+        {
+          type: 'unfollow',
+          source: { type: 'user', userId: 'U-pharmacy' },
+        },
+        database(),
+      );
 
       const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
-      expect(lines).toEqual(expect.arrayContaining([
-        expect.stringContaining('"event":"pharmacy_growth_unfollow_metric_failed"'),
-      ]));
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining('"event":"pharmacy_growth_unfollow_metric_failed"')]),
+      );
       expect(lines.join('\n')).not.toContain('synthetic-unfollow-metric-detail');
     } finally {
       consoleError.mockRestore();
@@ -223,11 +241,14 @@ describe('pharmacy-mode webhook allowlist', () => {
   });
 
   it('records pharmacy onboarding but skips generic follow side effects', async () => {
-    await deliver({
-      type: 'follow',
-      replyToken: 'reply-follow',
-      source: { type: 'user', userId: 'U-pharmacy' },
-    }, database());
+    await deliver(
+      {
+        type: 'follow',
+        replyToken: 'reply-follow',
+        source: { type: 'user', userId: 'U-pharmacy' },
+      },
+      database(),
+    );
 
     expect(mocks.recordFollow).toHaveBeenCalledOnce();
     expect(mocks.awardMileage).not.toHaveBeenCalled();
@@ -237,12 +258,15 @@ describe('pharmacy-mode webhook allowlist', () => {
   });
 
   it('keeps inbound text in manual chat but skips generic automation and mileage', async () => {
-    await deliver({
-      type: 'message',
-      replyToken: 'reply-text',
-      message: { type: 'text', id: 'message-1', text: '相談したい' },
-      source: { type: 'user', userId: 'U-pharmacy' },
-    }, database());
+    await deliver(
+      {
+        type: 'message',
+        replyToken: 'reply-text',
+        message: { type: 'text', id: 'message-1', text: '相談したい' },
+        source: { type: 'user', userId: 'U-pharmacy' },
+      },
+      database(),
+    );
 
     expect(dbMocks.upsertChatOnMessage).toHaveBeenCalledWith(expect.anything(), friend.id);
     expect(mocks.awardMileage).not.toHaveBeenCalled();
@@ -251,29 +275,41 @@ describe('pharmacy-mode webhook allowlist', () => {
   });
 
   it('logs postbacks without running generic auto replies or automations', async () => {
-    await deliver({
-      type: 'postback',
-      replyToken: 'reply-postback',
-      postback: { data: 'generic-action' },
-      source: { type: 'user', userId: 'U-pharmacy' },
-    }, database());
+    await deliver(
+      {
+        type: 'postback',
+        replyToken: 'reply-postback',
+        postback: { data: 'generic-action' },
+        source: { type: 'user', userId: 'U-pharmacy' },
+      },
+      database(),
+    );
 
     expect(mocks.matchAndReply).not.toHaveBeenCalled();
     expect(mocks.fireEvent).not.toHaveBeenCalled();
   });
 
   it('updates unfollow state only inside the verified LINE account', async () => {
-    await deliver({
-      type: 'unfollow',
-      source: { type: 'user', userId: 'U-pharmacy' },
-    }, database());
+    await deliver(
+      {
+        type: 'unfollow',
+        source: { type: 'user', userId: 'U-pharmacy' },
+      },
+      database(),
+    );
 
     expect(dbMocks.updateFriendFollowStatus).toHaveBeenCalledWith(
-      expect.anything(), 'U-pharmacy', false, 'account-pharmacy',
+      expect.anything(),
+      'U-pharmacy',
+      false,
+      'account-pharmacy',
       expect.objectContaining({ eventId: expect.any(String), occurredAt: undefined }),
     );
-    expect(mocks.recordUnfollow).toHaveBeenCalledWith(expect.objectContaining({
-      lineAccountId: 'account-pharmacy', lineUserId: 'U-pharmacy',
-    }));
+    expect(mocks.recordUnfollow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lineAccountId: 'account-pharmacy',
+        lineUserId: 'U-pharmacy',
+      }),
+    );
   });
 });

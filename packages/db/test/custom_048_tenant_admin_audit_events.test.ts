@@ -13,11 +13,13 @@ function setup(): Database.Database {
 }
 
 const insert = (db: Database.Database, tenantId: string | null, accountId: string | null) =>
-  db.prepare(`INSERT INTO tenant_admin_audit_events
+  db
+    .prepare(`INSERT INTO tenant_admin_audit_events
     (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
      detail_json, created_at)
     VALUES (?, ?, ?, 'staff-a', 'staff.reset_password', 'staff', 'staff-b', NULL,
-            '2026-08-21T00:00:00Z')`).run(crypto.randomUUID(), tenantId, accountId);
+            '2026-08-21T00:00:00Z')`)
+    .run(crypto.randomUUID(), tenantId, accountId);
 
 describe('custom_048 tenant admin audit events', () => {
   it('is listed in the generated bootstrap', () => {
@@ -47,9 +49,9 @@ describe('custom_048 tenant admin audit events', () => {
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
       '021_calendar_bookings_overlap_index.sql',
       '022_booking_idempotency_scoped.sql',
-    '023_meet_reminder_delivery_id.sql',
-    '024_stripe_effect_completion.sql',
-    '025_friend_link_scope_triggers.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
       '027_custom_079_pharmacy_followup_notification_queue.sql',
       '028_custom_080_pharmacy_continuity_notification_queue.sql',
@@ -62,11 +64,13 @@ describe('custom_048 tenant admin audit events', () => {
     expect(insert(db, 'tenant-a', null).changes).toBe(1);
     expect(insert(db, null, 'account-a').changes).toBe(1);
     expect(() => insert(db, null, null)).toThrow(/check/i);
-    expect(() => db.prepare(`UPDATE tenant_admin_audit_events SET action = 'x'`).run())
-      .toThrow(/immutable/i);
-    expect(() => db.prepare(`DELETE FROM tenant_admin_audit_events`).run())
-      .toThrow(/immutable/i);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM tenant_admin_audit_events
-      WHERE tenant_id = 'tenant-a'`).get()).toEqual({ count: 1 });
+    expect(() => db.prepare(`UPDATE tenant_admin_audit_events SET action = 'x'`).run()).toThrow(/immutable/i);
+    expect(() => db.prepare(`DELETE FROM tenant_admin_audit_events`).run()).toThrow(/immutable/i);
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM tenant_admin_audit_events
+      WHERE tenant_id = 'tenant-a'`)
+        .get(),
+    ).toEqual({ count: 1 });
   });
 });

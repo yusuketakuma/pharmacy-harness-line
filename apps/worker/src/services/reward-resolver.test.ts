@@ -70,10 +70,14 @@ describe('resolveRewardTemplate', () => {
       trackedLinks: { 'link-a': linkA, 'link-b': linkB },
       templates: { 'tpl-a': tplA, 'tpl-b': tplB },
     });
-    const result = await resolveRewardTemplate(fakeDb, {
-      friendId: 'f1',
-      requestedTrackedLinkId: 'link-b',
-    }, deps);
+    const result = await resolveRewardTemplate(
+      fakeDb,
+      {
+        friendId: 'f1',
+        requestedTrackedLinkId: 'link-b',
+      },
+      deps,
+    );
     expect(result).toEqual(tplB);
     expect(deps.getFriendById).not.toHaveBeenCalled();
   });
@@ -84,10 +88,14 @@ describe('resolveRewardTemplate', () => {
       trackedLinks: { 'link-a': linkA },
       templates: { 'tpl-a': tplA },
     });
-    const result = await resolveRewardTemplate(fakeDb, {
-      friendId: 'f1',
-      requestedTrackedLinkId: 'link-missing',
-    }, deps);
+    const result = await resolveRewardTemplate(
+      fakeDb,
+      {
+        friendId: 'f1',
+        requestedTrackedLinkId: 'link-missing',
+      },
+      deps,
+    );
     expect(result).toEqual(tplA);
   });
 
@@ -98,10 +106,14 @@ describe('resolveRewardTemplate', () => {
       trackedLinks: { 'link-noreward': linkNoReward, 'link-a': linkA },
       templates: { 'tpl-a': tplA },
     });
-    const result = await resolveRewardTemplate(fakeDb, {
-      friendId: 'f1',
-      requestedTrackedLinkId: 'link-noreward',
-    }, deps);
+    const result = await resolveRewardTemplate(
+      fakeDb,
+      {
+        friendId: 'f1',
+        requestedTrackedLinkId: 'link-noreward',
+      },
+      deps,
+    );
     expect(result).toBeNull();
     expect(deps.getFriendById).not.toHaveBeenCalled();
   });
@@ -112,10 +124,14 @@ describe('resolveRewardTemplate', () => {
       trackedLinks: {},
       templates: {},
     });
-    const result = await resolveRewardTemplate(fakeDb, {
-      friendId: 'f1',
-      requestedTrackedLinkId: null,
-    }, deps);
+    const result = await resolveRewardTemplate(
+      fakeDb,
+      {
+        friendId: 'f1',
+        requestedTrackedLinkId: null,
+      },
+      deps,
+    );
     expect(result).toBeNull();
   });
 
@@ -125,10 +141,14 @@ describe('resolveRewardTemplate', () => {
       trackedLinks: { 'link-a': linkA },
       templates: { 'tpl-a': tplA },
     });
-    const result = await resolveRewardTemplate(fakeDb, {
-      friendId: 'f1',
-      requestedTrackedLinkId: null,
-    }, deps);
+    const result = await resolveRewardTemplate(
+      fakeDb,
+      {
+        friendId: 'f1',
+        requestedTrackedLinkId: null,
+      },
+      deps,
+    );
     expect(result).toEqual(tplA);
   });
 });

@@ -22,11 +22,7 @@ vi.mock('./step-delivery.js', () => ({ getActiveMappedAccountTenantId }));
 const deliverTrackedLinePush = vi.fn();
 vi.mock('./outbound-line-delivery.js', () => ({ deliverTrackedLinePush }));
 
-const {
-  notifyAffiliate,
-  notifyAffiliateFriendAdd,
-  notifyAffiliateApproval,
-} = await import('./affiliate-notifier.js');
+const { notifyAffiliate, notifyAffiliateFriendAdd, notifyAffiliateApproval } = await import('./affiliate-notifier.js');
 
 const DB = {} as D1Database;
 const env = { LINE_CHANNEL_ACCESS_TOKEN: 'env-token' };
@@ -68,16 +64,16 @@ describe('notifyAffiliate', () => {
     await notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY);
 
     expect(LineClientMock).toHaveBeenCalledWith('acct-token');
-    expect(pushMessage).toHaveBeenCalledWith(
-      'Uaaa', [{ type: 'text', text: 'hello' }], RETRY_KEY,
+    expect(pushMessage).toHaveBeenCalledWith('Uaaa', [{ type: 'text', text: 'hello' }], RETRY_KEY);
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: RETRY_KEY,
+        tenantId: 'tenant-1',
+        lineAccountId: 'acct-1',
+        friendId: 'fr-1',
+        source: 'affiliate',
+      }),
     );
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: RETRY_KEY,
-      tenantId: 'tenant-1',
-      lineAccountId: 'acct-1',
-      friendId: 'fr-1',
-      source: 'affiliate',
-    }));
   });
 
   it('does not send when the friend has no account authority', async () => {
@@ -99,7 +95,9 @@ describe('notifyAffiliate', () => {
   it('does not fall back to the env token for an unmapped account', async () => {
     dbMocks.getAffiliateById.mockResolvedValue({ id: 'aff-1', friend_id: 'fr-1' });
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'fr-1', line_user_id: 'Uaaa', line_account_id: 'acct-1',
+      id: 'fr-1',
+      line_user_id: 'Uaaa',
+      line_account_id: 'acct-1',
     });
     getActiveMappedAccountTenantId.mockResolvedValue(null);
 
@@ -113,7 +111,9 @@ describe('notifyAffiliate', () => {
   it('accepts a settled ledger replay without calling LINE again', async () => {
     dbMocks.getAffiliateById.mockResolvedValue({ id: 'aff-1', friend_id: 'fr-1' });
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'fr-1', line_user_id: 'Uaaa', line_account_id: 'acct-1',
+      id: 'fr-1',
+      line_user_id: 'Uaaa',
+      line_account_id: 'acct-1',
     });
     dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'acct-token' });
     deliverTrackedLinePush.mockResolvedValue('already_sent');
@@ -143,7 +143,11 @@ describe('notifyAffiliate', () => {
 
   it('skips silently when the bound friend has no line_user_id', async () => {
     dbMocks.getAffiliateById.mockResolvedValue({ id: 'aff-1', friend_id: 'fr-1' });
-    dbMocks.getFriendById.mockResolvedValue({ id: 'fr-1', line_user_id: '', line_account_id: null });
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'fr-1',
+      line_user_id: '',
+      line_account_id: null,
+    });
 
     await notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY);
 
@@ -160,14 +164,12 @@ describe('notifyAffiliate', () => {
     dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'acct-token' });
     pushMessage.mockRejectedValue(new Error('LINE 500'));
 
-    await expect(notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY))
-      .resolves.toBeUndefined();
+    await expect(notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY)).resolves.toBeUndefined();
   });
 
   it('does not throw when a db lookup rejects (best-effort)', async () => {
     dbMocks.getAffiliateById.mockRejectedValue(new Error('db down'));
-    await expect(notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY))
-      .resolves.toBeUndefined();
+    await expect(notifyAffiliate(DB, env, 'aff-1', 'hello', RETRY_KEY)).resolves.toBeUndefined();
     expect(pushMessage).not.toHaveBeenCalled();
   });
 });

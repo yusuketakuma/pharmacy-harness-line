@@ -26,30 +26,16 @@ export interface AffiliateClick {
 // ── Affiliate CRUD ──────────────────────────────────────────────────────────
 
 export async function getAffiliates(db: D1Database): Promise<Affiliate[]> {
-  const result = await db
-    .prepare(`SELECT * FROM affiliates ORDER BY created_at DESC`)
-    .all<Affiliate>();
+  const result = await db.prepare(`SELECT * FROM affiliates ORDER BY created_at DESC`).all<Affiliate>();
   return result.results;
 }
 
-export async function getAffiliateById(
-  db: D1Database,
-  id: string,
-): Promise<Affiliate | null> {
-  return db
-    .prepare(`SELECT * FROM affiliates WHERE id = ?`)
-    .bind(id)
-    .first<Affiliate>();
+export async function getAffiliateById(db: D1Database, id: string): Promise<Affiliate | null> {
+  return db.prepare(`SELECT * FROM affiliates WHERE id = ?`).bind(id).first<Affiliate>();
 }
 
-export async function getAffiliateByCode(
-  db: D1Database,
-  code: string,
-): Promise<Affiliate | null> {
-  return db
-    .prepare(`SELECT * FROM affiliates WHERE code = ?`)
-    .bind(code)
-    .first<Affiliate>();
+export async function getAffiliateByCode(db: D1Database, code: string): Promise<Affiliate | null> {
+  return db.prepare(`SELECT * FROM affiliates WHERE code = ?`).bind(code).first<Affiliate>();
 }
 
 export interface CreateAffiliateInput {
@@ -60,10 +46,7 @@ export interface CreateAffiliateInput {
   friendId?: string | null;
 }
 
-export async function createAffiliate(
-  db: D1Database,
-  input: CreateAffiliateInput,
-): Promise<Affiliate> {
+export async function createAffiliate(db: D1Database, input: CreateAffiliateInput): Promise<Affiliate> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -126,10 +109,7 @@ export async function createAffiliateWithRandomCode(
       const msg = err instanceof Error ? err.message : String(err);
       // Retry ONLY on a code collision. Any other UNIQUE violation (notably the
       // friend_id partial index) must propagate so the caller can return 409.
-      if (
-        /UNIQUE constraint failed/i.test(msg) &&
-        /affiliates\.code/i.test(msg)
-      ) {
+      if (/UNIQUE constraint failed/i.test(msg) && /affiliates\.code/i.test(msg)) {
         continue;
       }
       throw err;
@@ -137,9 +117,7 @@ export async function createAffiliateWithRandomCode(
   }
 }
 
-export type UpdateAffiliateInput = Partial<
-  Pick<Affiliate, 'name' | 'commission_rate' | 'is_active'>
->;
+export type UpdateAffiliateInput = Partial<Pick<Affiliate, 'name' | 'commission_rate' | 'is_active'>>;
 
 export async function updateAffiliate(
   db: D1Database,
@@ -173,10 +151,7 @@ export async function updateAffiliate(
   return getAffiliateById(db, id);
 }
 
-export async function deleteAffiliate(
-  db: D1Database,
-  id: string,
-): Promise<void> {
+export async function deleteAffiliate(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM affiliates WHERE id = ?`).bind(id).run();
 }
 
@@ -199,10 +174,7 @@ export async function recordAffiliateClick(
     .bind(id, affiliateId, url ?? null, ipAddress ?? null, now)
     .run();
 
-  return (await db
-    .prepare(`SELECT * FROM affiliate_clicks WHERE id = ?`)
-    .bind(id)
-    .first<AffiliateClick>())!;
+  return (await db.prepare(`SELECT * FROM affiliate_clicks WHERE id = ?`).bind(id).first<AffiliateClick>())!;
 }
 
 // ── Affiliate Report ────────────────────────────────────────────────────────
@@ -285,8 +257,7 @@ export async function getAffiliateReport(
     friendAddWindowConds.push('julianday(f.created_at) <= julianday(?)');
     friendAddBinds.push(opts.endDate);
   }
-  const friendAddWhere =
-    friendAddWindowConds.length > 0 ? `WHERE ${friendAddWindowConds.join(' AND ')}` : '';
+  const friendAddWhere = friendAddWindowConds.length > 0 ? `WHERE ${friendAddWindowConds.join(' AND ')}` : '';
   const friendAddsCte = `
     SELECT winner_affiliate_id AS affiliate_id, COUNT(*) AS friend_adds
       FROM (
@@ -303,11 +274,11 @@ export async function getAffiliateReport(
   // followed by the friend_adds CTE and finally the outer WHERE clause.
   const dateBindsForRevenue = [...cvDateBinds]; // revenue subquery reuses cv date conditions
   const allBinds = [
-    ...clickDateBinds,   // for total_clicks subquery
-    ...cvDateBinds,      // for total_conversions subquery
+    ...clickDateBinds, // for total_clicks subquery
+    ...cvDateBinds, // for total_conversions subquery
     ...dateBindsForRevenue, // for total_revenue subquery
-    ...friendAddBinds,   // for the friend_adds CTE date window
-    ...values,           // for the outer WHERE clause
+    ...friendAddBinds, // for the friend_adds CTE date window
+    ...values, // for the outer WHERE clause
   ];
 
   const result = await db

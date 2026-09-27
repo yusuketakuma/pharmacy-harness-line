@@ -28,14 +28,10 @@ function resolveReminderScope(c: Context<Env>): ReminderScope | null {
   return { tenantId, staffId };
 }
 
-async function getOwnedReminder(
-  c: Context<Env>,
-  reminderId: string,
-  tenantId: string,
-) {
+async function getOwnedReminder(c: Context<Env>, reminderId: string, tenantId: string) {
   const reminder = await getReminderById(c.env.DB, reminderId, tenantId);
   if (!reminder?.line_account_id) return null;
-  if (!await accountResourceOwnedByStaff(c, tenantId, reminder.line_account_id)) return null;
+  if (!(await accountResourceOwnedByStaff(c, tenantId, reminder.line_account_id))) return null;
   return reminder;
 }
 
@@ -69,7 +65,7 @@ reminders.get('/api/reminders', async (c) => {
     if (!scope) return c.json({ success: false, error: 'Tenant context required' }, 401);
 
     const lineAccountId = c.req.query('lineAccountId') || undefined;
-    if (lineAccountId && !await accountResourceOwnedByStaff(c, scope.tenantId, lineAccountId)) {
+    if (lineAccountId && !(await accountResourceOwnedByStaff(c, scope.tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
     const items = await getReminders(c.env.DB, scope.tenantId, lineAccountId);
@@ -128,17 +124,13 @@ reminders.post('/api/reminders', async (c) => {
     if (typeof body.name !== 'string' || !body.name.trim()) {
       return c.json({ success: false, error: 'name is required' }, 400);
     }
-    if (
-      body.description !== undefined
-      && body.description !== null
-      && typeof body.description !== 'string'
-    ) {
+    if (body.description !== undefined && body.description !== null && typeof body.description !== 'string') {
       return c.json({ success: false, error: 'description must be a string' }, 400);
     }
     if (typeof body.lineAccountId !== 'string' || !body.lineAccountId.trim()) {
       return c.json({ success: false, error: 'lineAccountId is required' }, 400);
     }
-    if (!await accountResourceOwnedByStaff(c, scope.tenantId, body.lineAccountId)) {
+    if (!(await accountResourceOwnedByStaff(c, scope.tenantId, body.lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
 
@@ -150,10 +142,13 @@ reminders.post('/api/reminders', async (c) => {
       staffId: scope.staffId,
     });
     if (!item) return c.json({ success: false, error: 'Reminder not found' }, 404);
-    return c.json({
-      success: true,
-      data: { id: item.id, name: item.name, createdAt: item.created_at },
-    }, 201);
+    return c.json(
+      {
+        success: true,
+        data: { id: item.id, name: item.name, createdAt: item.created_at },
+      },
+      201,
+    );
   } catch (err) {
     console.error('POST /api/reminders error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -209,7 +204,7 @@ reminders.delete('/api/reminders/:id', async (c) => {
     const id = c.req.param('id');
     const reminder = await getOwnedReminder(c, id, scope.tenantId);
     if (!reminder) return c.json({ success: false, error: 'Not found' }, 404);
-    if (!await deleteReminder(c.env.DB, id, scope)) {
+    if (!(await deleteReminder(c.env.DB, id, scope))) {
       return c.json({ success: false, error: 'Not found' }, 404);
     }
     return c.json({ success: true, data: null });
@@ -235,12 +230,12 @@ reminders.post('/api/reminders/:id/steps', async (c) => {
       messageContent?: unknown;
     }>();
     if (
-      typeof body.offsetMinutes !== 'number'
-      || !Number.isFinite(body.offsetMinutes)
-      || typeof body.messageType !== 'string'
-      || !body.messageType
-      || typeof body.messageContent !== 'string'
-      || !body.messageContent
+      typeof body.offsetMinutes !== 'number' ||
+      !Number.isFinite(body.offsetMinutes) ||
+      typeof body.messageType !== 'string' ||
+      !body.messageType ||
+      typeof body.messageContent !== 'string' ||
+      !body.messageContent
     ) {
       return c.json({ success: false, error: 'offsetMinutes, messageType, messageContent are required' }, 400);
     }
@@ -253,16 +248,19 @@ reminders.post('/api/reminders/:id/steps', async (c) => {
       staffId: scope.staffId,
     });
     if (!step) return c.json({ success: false, error: 'Reminder not found' }, 404);
-    return c.json({
-      success: true,
-      data: {
-        id: step.id,
-        reminderId: step.reminder_id,
-        offsetMinutes: step.offset_minutes,
-        messageType: step.message_type,
-        createdAt: step.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: step.id,
+          reminderId: step.reminder_id,
+          offsetMinutes: step.offset_minutes,
+          messageType: step.message_type,
+          createdAt: step.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/reminders/:id/steps error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -277,7 +275,7 @@ reminders.delete('/api/reminders/:reminderId/steps/:stepId', async (c) => {
     const reminderId = c.req.param('reminderId');
     const reminder = await getOwnedReminder(c, reminderId, scope.tenantId);
     if (!reminder) return c.json({ success: false, error: 'Reminder not found' }, 404);
-    if (!await deleteReminderStep(c.env.DB, reminderId, c.req.param('stepId'), scope)) {
+    if (!(await deleteReminderStep(c.env.DB, reminderId, c.req.param('stepId'), scope))) {
       return c.json({ success: false, error: 'Step not found' }, 404);
     }
     return c.json({ success: true, data: null });
@@ -319,16 +317,19 @@ reminders.post('/api/reminders/:id/enroll/:friendId', async (c) => {
       staffId: scope.staffId,
     });
     if (!enrollment) return c.json({ success: false, error: 'Reminder not found' }, 404);
-    return c.json({
-      success: true,
-      data: {
-        id: enrollment.id,
-        friendId: enrollment.friend_id,
-        reminderId: enrollment.reminder_id,
-        targetDate: enrollment.target_date,
-        status: enrollment.status,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: enrollment.id,
+          friendId: enrollment.friend_id,
+          reminderId: enrollment.reminder_id,
+          targetDate: enrollment.target_date,
+          status: enrollment.status,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/reminders/:id/enroll/:friendId error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -343,7 +344,7 @@ reminders.get('/api/friends/:friendId/reminders', async (c) => {
     const friendId = c.req.param('friendId');
     const friend = await getFriendById(c.env.DB, friendId);
     if (!friend?.line_account_id) return c.json({ success: false, error: 'Friend not found' }, 404);
-    if (!await accountResourceOwnedByStaff(c, scope.tenantId, friend.line_account_id)) {
+    if (!(await accountResourceOwnedByStaff(c, scope.tenantId, friend.line_account_id))) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
     const items = await getFriendReminders(c.env.DB, friendId, scope.tenantId);
@@ -374,10 +375,10 @@ reminders.delete('/api/friend-reminders/:id', async (c) => {
     if (!friendReminder?.line_account_id) {
       return c.json({ success: false, error: 'Friend reminder not found' }, 404);
     }
-    if (!await accountResourceOwnedByStaff(c, scope.tenantId, friendReminder.line_account_id)) {
+    if (!(await accountResourceOwnedByStaff(c, scope.tenantId, friendReminder.line_account_id))) {
       return c.json({ success: false, error: 'Friend reminder not found' }, 404);
     }
-    if (!await cancelFriendReminder(c.env.DB, id, scope)) {
+    if (!(await cancelFriendReminder(c.env.DB, id, scope))) {
       return c.json({ success: false, error: 'Friend reminder not found' }, 404);
     }
     return c.json({ success: true, data: null });

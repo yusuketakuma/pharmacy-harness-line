@@ -22,7 +22,5 @@ export interface PharmacyPublicProfile {
 }
 
 export const pharmacyPublicProfileApi = {
-  get: () => requestPharmacyJson<{ profile: PharmacyPublicProfile }>(
-    '/api/liff/pharmacy/public-profile',
-  ),
+  get: () => requestPharmacyJson<{ profile: PharmacyPublicProfile }>('/api/liff/pharmacy/public-profile'),
 };

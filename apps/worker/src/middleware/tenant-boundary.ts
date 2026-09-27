@@ -1,19 +1,9 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../index.js';
-import {
-  isPharmacyModeAccount,
-  resolveAccessiblePharmacyTenant,
-} from '../custom/pharmacy/growth-loop/access.js';
+import { isPharmacyModeAccount, resolveAccessiblePharmacyTenant } from '../custom/pharmacy/growth-loop/access.js';
 import { deny } from './deny.js';
 
-const ACCOUNT_KEYS = [
-  'lineAccountId',
-  'line_account_id',
-  'accountId',
-  'account_id',
-  'accountIds',
-  'account',
-] as const;
+const ACCOUNT_KEYS = ['lineAccountId', 'line_account_id', 'accountId', 'account_id', 'accountIds', 'account'] as const;
 
 function addAccountIds(target: Set<string>, value: unknown): void {
   if (typeof value === 'string' && value) target.add(value);
@@ -37,7 +27,9 @@ export async function accountResourceOwnedByStaff(
           WHERE account.is_active = 1
             AND mapping.tenant_id = ? AND mapping.line_account_id = ?
           LIMIT 1`,
-      ).bind(tenantId, accountId).first<{ ok: number }>();
+      )
+        .bind(tenantId, accountId)
+        .first<{ ok: number }>();
       return Boolean(mapped);
     }
     let pharmacyAccount = await isPharmacyModeAccount(c.env.DB, accountId);
@@ -49,13 +41,15 @@ export async function accountResourceOwnedByStaff(
         `SELECT name FROM sqlite_master
           WHERE type = 'table' AND name = 'pharmacy_account_capabilities'
           LIMIT 1`,
-      ).bind().first<{ name: string }>();
+      )
+        .bind()
+        .first<{ name: string }>();
       pharmacyAccount = Boolean(capabilityTable?.name);
     }
     if (pharmacyAccount) {
       const staff = c.get('staff');
       if (!staff || staff.id === 'env-owner') return false;
-      return await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId) === tenantId;
+      return (await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId)) === tenantId;
     }
     const mapped = await c.env.DB.prepare(
       `SELECT 1 AS ok
@@ -64,7 +58,9 @@ export async function accountResourceOwnedByStaff(
         WHERE account.is_active = 1
           AND mapping.tenant_id = ? AND mapping.line_account_id = ?
         LIMIT 1`,
-    ).bind(tenantId, accountId).first<{ ok: number }>();
+    )
+      .bind(tenantId, accountId)
+      .first<{ ok: number }>();
     return Boolean(mapped);
   } catch {
     return false;
@@ -81,7 +77,10 @@ export const tenantAccountSelectorGuard: MiddlewareHandler<Env> = async (c, next
   // Do not trust Content-Type for an authorization decision. Some clients
   // send JSON as text/plain (and an attacker can choose the header); parsing
   // a clone is safe for non-JSON bodies because failures are ignored.
-  const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+  const body = (await c.req.raw
+    .clone()
+    .json()
+    .catch(() => null)) as Record<string, unknown> | null;
   if (body) for (const key of ACCOUNT_KEYS) addAccountIds(accountIds, body[key]);
 
   // Path-bound account routes cannot rely on a query/body selector. Exclude
@@ -90,7 +89,7 @@ export const tenantAccountSelectorGuard: MiddlewareHandler<Env> = async (c, next
   if (pathAccountId && pathAccountId !== 'order') accountIds.add(pathAccountId);
 
   for (const accountId of accountIds) {
-    if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) {
+    if (!(await accountResourceOwnedByStaff(c, tenantId, accountId))) {
       return deny(c, 403, 'Forbidden');
     }
   }
@@ -106,7 +105,10 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
 
   const path = c.req.path; // decoded path Hono routed on; raw pathname may be percent-encoded
   const bodyFriendIds = new Set<string>();
-  const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+  const body = (await c.req.raw
+    .clone()
+    .json()
+    .catch(() => null)) as Record<string, unknown> | null;
   if (body) {
     for (const key of ['friendId', 'friend_id', 'friendIds', 'friend_ids']) {
       addAccountIds(bodyFriendIds, body[key]);
@@ -136,16 +138,18 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
         WHERE mapping.tenant_id = ?
           AND ${allowChatId ? '(friend.id = ? OR chat.id = ?)' : 'friend.id = ?'}
         LIMIT 1`,
-    ).bind(tenantId, id, ...(allowChatId ? [id] : [])).first<{ line_account_id: string | null }>();
+    )
+      .bind(tenantId, id, ...(allowChatId ? [id] : []))
+      .first<{ line_account_id: string | null }>();
     if (!row?.line_account_id) return false;
     const owned = await accountResourceOwnedByStaff(c, tenantId, row.line_account_id);
     return owned;
   };
 
   for (const friendId of bodyFriendIds) {
-    if (!await isOwned(friendId)) return deny(c, 403, 'Forbidden');
+    if (!(await isOwned(friendId))) return deny(c, 403, 'Forbidden');
   }
-  if (resourceId && !await isOwned(resourceId, acceptsChatId)) {
+  if (resourceId && !(await isOwned(resourceId, acceptsChatId))) {
     return deny(c, 403, 'Forbidden');
   }
 
@@ -164,12 +168,11 @@ export const tenantScenarioResourceGuard: MiddlewareHandler<Env> = async (c, nex
        FROM scenarios AS scenario
       WHERE scenario.id = ? AND scenario.tenant_id = ?
       LIMIT 1`,
-  ).bind(scenarioId, tenantId).first<{ line_account_id: string | null }>();
+  )
+    .bind(scenarioId, tenantId)
+    .first<{ line_account_id: string | null }>();
   if (!scenario) return deny(c, 403, 'Forbidden');
-  if (
-    scenario.line_account_id &&
-    !await accountResourceOwnedByStaff(c, tenantId, scenario.line_account_id)
-  ) {
+  if (scenario.line_account_id && !(await accountResourceOwnedByStaff(c, tenantId, scenario.line_account_id))) {
     return deny(c, 403, 'Forbidden');
   }
 
@@ -188,8 +191,10 @@ export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, nex
          FROM rich_menu_groups
         WHERE id = ?
         LIMIT 1`,
-    ).bind(groupId).first<{ account_id: string }>();
-    if (!group || !await accountResourceOwnedByStaff(c, tenantId, group.account_id)) {
+    )
+      .bind(groupId)
+      .first<{ account_id: string }>();
+    if (!group || !(await accountResourceOwnedByStaff(c, tenantId, group.account_id))) {
       return deny(c, 403, 'Forbidden');
     }
   }
@@ -205,7 +210,7 @@ export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, nex
     return deny(c, 403, 'Forbidden');
   }
   if (imageAccountId) {
-    if (!await accountResourceOwnedByStaff(c, tenantId, imageAccountId)) {
+    if (!(await accountResourceOwnedByStaff(c, tenantId, imageAccountId))) {
       return deny(c, 403, 'Forbidden');
     }
   }

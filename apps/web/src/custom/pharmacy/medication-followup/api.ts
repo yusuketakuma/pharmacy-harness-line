@@ -1,5 +1,5 @@
-import { fetchApi } from '../../../lib/api'
-import { accountQuery } from '../api'
+import { fetchApi } from '../../../lib/api';
+import { accountQuery } from '../api';
 
 export type MedicationFollowUpStatus =
   | 'scheduled'
@@ -12,91 +12,94 @@ export type MedicationFollowUpStatus =
   | 'responded'
   | 'escalated'
   | 'closed'
-  | 'cancelled'
+  | 'cancelled';
 
 export type MedicationFollowUp = {
-  id: string
-  source_submission_id: string
-  status: MedicationFollowUpStatus
-  due_at: string
-  question_set_version: number
-  response_deadline_at: string | null
-  delivered_at: string | null
-  responded_at: string | null
-  assigned_to: string | null
-  closed_at: string | null
-  version: number
-  created_at: string
-  updated_at: string
-}
+  id: string;
+  source_submission_id: string;
+  status: MedicationFollowUpStatus;
+  due_at: string;
+  question_set_version: number;
+  response_deadline_at: string | null;
+  delivered_at: string | null;
+  responded_at: string | null;
+  assigned_to: string | null;
+  closed_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
 
 export type MedicationFollowUpContact = {
-  channel: 'line' | 'phone'
-  outcomeCode: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated'
-  nextContactAt?: string | null
-  idempotencyKey: string
-}
+  channel: 'line' | 'phone';
+  outcomeCode: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated';
+  nextContactAt?: string | null;
+  idempotencyKey: string;
+};
 
 export type MedicationFollowUpAssignee = {
-  id: string
-  name: string
-  role: 'owner' | 'admin' | 'staff'
-}
+  id: string;
+  name: string;
+  role: 'owner' | 'admin' | 'staff';
+};
 
-export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care'
+export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care';
 
 export type MedicationFollowUpOperations = {
-  service_hours_text: string
-  response_sla: Record<string, number>
-  primary_staff_id: string
-  backup_staff_id: string | null
-  after_hours_message_code: FollowUpOperationsMessageCode
-  emergency_message_code: FollowUpOperationsMessageCode
-  enabled: boolean
-  version: number
-  created_at: string
-  updated_at: string
-}
+  service_hours_text: string;
+  response_sla: Record<string, number>;
+  primary_staff_id: string;
+  backup_staff_id: string | null;
+  after_hours_message_code: FollowUpOperationsMessageCode;
+  emergency_message_code: FollowUpOperationsMessageCode;
+  enabled: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
 
 export const medicationFollowUpApi = {
-  getOperations: (accountId: string) => fetchApi<{ operations: MedicationFollowUpOperations | null }>(
-    `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
-  ),
+  getOperations: (accountId: string) =>
+    fetchApi<{ operations: MedicationFollowUpOperations | null }>(
+      `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
+    ),
   saveOperations: (
     accountId: string,
     input: {
-      serviceHoursText: string
-      responseSla: Record<string, number>
-      primaryStaffId: string
-      backupStaffId: string | null
-      afterHoursMessageCode: FollowUpOperationsMessageCode
-      emergencyMessageCode: FollowUpOperationsMessageCode
-      enabled: boolean
-      expectedVersion: number
+      serviceHoursText: string;
+      responseSla: Record<string, number>;
+      primaryStaffId: string;
+      backupStaffId: string | null;
+      afterHoursMessageCode: FollowUpOperationsMessageCode;
+      emergencyMessageCode: FollowUpOperationsMessageCode;
+      enabled: boolean;
+      expectedVersion: number;
     },
-  ) => fetchApi<{ operations: MedicationFollowUpOperations }>(
-    `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
-    { method: 'PUT', body: JSON.stringify(input) },
-  ),
-  listAssignees: (accountId: string) => fetchApi<{ assignees: MedicationFollowUpAssignee[] }>(
-    `/api/custom/pharmacy/medication-followups/assignees?${accountQuery(accountId)}`,
-  ),
+  ) =>
+    fetchApi<{ operations: MedicationFollowUpOperations }>(
+      `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+  listAssignees: (accountId: string) =>
+    fetchApi<{ assignees: MedicationFollowUpAssignee[] }>(
+      `/api/custom/pharmacy/medication-followups/assignees?${accountQuery(accountId)}`,
+    ),
   schedule: (
     accountId: string,
     submissionId: string,
     dueAt: string,
     idempotencyKey: string,
     responseDeadlineAt?: string | null,
-  ) => fetchApi<{ followUp: MedicationFollowUp }>(
-    `/api/custom/pharmacy/medication-followups?${accountQuery(accountId)}`,
-    {
+  ) =>
+    fetchApi<{ followUp: MedicationFollowUp }>(`/api/custom/pharmacy/medication-followups?${accountQuery(accountId)}`, {
       method: 'POST',
       body: JSON.stringify({
-        submissionId, dueAt, idempotencyKey,
+        submissionId,
+        dueAt,
+        idempotencyKey,
         ...(responseDeadlineAt !== undefined ? { responseDeadlineAt } : {}),
       }),
-    },
-  ),
+    }),
   transition: (
     accountId: string,
     followUpId: string,
@@ -104,37 +107,37 @@ export const medicationFollowUpApi = {
     expectedVersion: number,
     contact?: MedicationFollowUpContact,
     assigneeStaffId?: string | null,
-  ) => fetchApi<{ followUp: MedicationFollowUp }>(
-    `/api/custom/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/transitions?${accountQuery(accountId)}`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        status, expectedVersion,
-        ...(contact ? { contact } : {}),
-        ...(assigneeStaffId !== undefined ? { assigneeStaffId } : {}),
-      }),
-    },
-  ),
-  recordContact: (
-    accountId: string,
-    followUpId: string,
-    contact: MedicationFollowUpContact,
-    expectedVersion: number,
-  ) => fetchApi<{ contact: Omit<MedicationFollowUpContact, 'outcomeCode' | 'nextContactAt' | 'idempotencyKey'> & {
-    outcome_code: MedicationFollowUpContact['outcomeCode']
-    next_contact_at: string | null
-    occurred_at: string
-  } }>(
-    `/api/custom/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/contacts?${accountQuery(accountId)}`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        channel: contact.channel,
-        outcomeCode: contact.outcomeCode,
-        ...(contact.nextContactAt !== undefined ? { nextContactAt: contact.nextContactAt } : {}),
-        idempotencyKey: contact.idempotencyKey,
-        expectedVersion,
-      }),
-    },
-  ),
-}
+  ) =>
+    fetchApi<{ followUp: MedicationFollowUp }>(
+      `/api/custom/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/transitions?${accountQuery(accountId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          status,
+          expectedVersion,
+          ...(contact ? { contact } : {}),
+          ...(assigneeStaffId !== undefined ? { assigneeStaffId } : {}),
+        }),
+      },
+    ),
+  recordContact: (accountId: string, followUpId: string, contact: MedicationFollowUpContact, expectedVersion: number) =>
+    fetchApi<{
+      contact: Omit<MedicationFollowUpContact, 'outcomeCode' | 'nextContactAt' | 'idempotencyKey'> & {
+        outcome_code: MedicationFollowUpContact['outcomeCode'];
+        next_contact_at: string | null;
+        occurred_at: string;
+      };
+    }>(
+      `/api/custom/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/contacts?${accountQuery(accountId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: contact.channel,
+          outcomeCode: contact.outcomeCode,
+          ...(contact.nextContactAt !== undefined ? { nextContactAt: contact.nextContactAt } : {}),
+          idempotencyKey: contact.idempotencyKey,
+          expectedVersion,
+        }),
+      },
+    ),
+};

@@ -5,10 +5,7 @@ export type WebinarMileageMilestone = {
   key: '5m' | '15m' | 'complete';
 };
 
-export function webinarMileageMilestones(
-  positionSeconds: number,
-  durationSeconds: number,
-): WebinarMileageMilestone[] {
+export function webinarMileageMilestones(positionSeconds: number, durationSeconds: number): WebinarMileageMilestone[] {
   const milestones: WebinarMileageMilestone[] = [];
   if (positionSeconds >= 300) milestones.push({ eventType: 'webinar_watch_5m', key: '5m' });
   if (positionSeconds >= 900) milestones.push({ eventType: 'webinar_watch_15m', key: '15m' });

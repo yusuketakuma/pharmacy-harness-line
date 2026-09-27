@@ -7,7 +7,11 @@ import {
 
 export type DataSubjectRequestType = 'access' | 'correction' | 'suspension' | 'erasure';
 export type DataSubjectRequestStatus =
-  | 'received' | 'identity_verified' | 'legal_hold_assessed' | 'resolved' | 'rejected';
+  | 'received'
+  | 'identity_verified'
+  | 'legal_hold_assessed'
+  | 'resolved'
+  | 'rejected';
 
 export type DataSubjectRequest = {
   id: string;
@@ -85,22 +89,25 @@ export async function getDataSubjectRequest(
   lineAccountId: string,
   requestId: string,
 ): Promise<DataSubjectRequest | null> {
-  return db.prepare(
-    `SELECT ${COLUMNS} FROM ${REQUEST_FROM}
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM ${REQUEST_FROM}
       WHERE request.id = ? AND request.line_account_id = ?`,
-  ).bind(requestId, lineAccountId).first<DataSubjectRequest>();
+    )
+    .bind(requestId, lineAccountId)
+    .first<DataSubjectRequest>();
 }
 
-export async function listDataSubjectRequests(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<DataSubjectRequest[]> {
-  const result = await db.prepare(
-    `SELECT ${COLUMNS} FROM ${REQUEST_FROM}
+export async function listDataSubjectRequests(db: D1Database, lineAccountId: string): Promise<DataSubjectRequest[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${COLUMNS} FROM ${REQUEST_FROM}
       WHERE request.line_account_id = ?
       ORDER BY request.submitted_at DESC, request.id DESC
       LIMIT 200`,
-  ).bind(lineAccountId).all<DataSubjectRequest>();
+    )
+    .bind(lineAccountId)
+    .all<DataSubjectRequest>();
   return result.results ?? [];
 }
 
@@ -119,7 +126,10 @@ function eventStatement(
     expectedHoldEpoch?: number;
   },
 ): D1PreparedStatement {
-  const epochGuard = input.expectedHoldEpoch === undefined ? '' : `
+  const epochGuard =
+    input.expectedHoldEpoch === undefined
+      ? ''
+      : `
         AND COALESCE((
           SELECT MAX(epoch) FROM pharmacy_retention_hold_epochs AS epoch_hold
            WHERE epoch_hold.tenant_id = pharmacy_data_subject_requests.tenant_id
@@ -127,17 +137,26 @@ function eventStatement(
              AND epoch_hold.owner_friend_id = pharmacy_data_subject_requests.owner_friend_id
              AND epoch_hold.patient_key IN (pharmacy_data_subject_requests.patient_id, '*')
         ), 0) = ?`;
-  return db.prepare(
-    `INSERT INTO pharmacy_data_subject_request_events
+  return db
+    .prepare(
+      `INSERT INTO pharmacy_data_subject_request_events
       (id, request_id, line_account_id, event_type, actor_staff_id, detail, occurred_at)
      SELECT ?, id, line_account_id, ?, ?, ?, ?
        FROM pharmacy_data_subject_requests
       WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?${epochGuard}`,
-  ).bind(
-    input.eventId, input.eventType, input.staffId, input.detail, input.occurredAt,
-    input.requestId, input.lineAccountId, input.fromStatus, input.expectedVersion,
-    ...(input.expectedHoldEpoch === undefined ? [] : [input.expectedHoldEpoch]),
-  );
+    )
+    .bind(
+      input.eventId,
+      input.eventType,
+      input.staffId,
+      input.detail,
+      input.occurredAt,
+      input.requestId,
+      input.lineAccountId,
+      input.fromStatus,
+      input.expectedVersion,
+      ...(input.expectedHoldEpoch === undefined ? [] : [input.expectedHoldEpoch]),
+    );
 }
 
 type HoldEpochTransitionInput = {
@@ -159,24 +178,29 @@ type HoldEpochTransitionInput = {
  * when supplied, the old hold epoch so a concurrent retention writer cannot be
  * overwritten by a stale DSR worker.
  */
-function holdEpochStatements(
-  db: D1Database,
-  input: HoldEpochTransitionInput,
-): D1PreparedStatement[] {
+function holdEpochStatements(db: D1Database, input: HoldEpochTransitionInput): D1PreparedStatement[] {
   const source = (guardEpoch: number | undefined) => `
        FROM pharmacy_data_subject_requests AS request
       WHERE request.id = ? AND request.line_account_id = ?
-        AND request.status = ? AND request.version = ?${guardEpoch === undefined ? '' : `
+        AND request.status = ? AND request.version = ?${
+          guardEpoch === undefined
+            ? ''
+            : `
         AND COALESCE((
           SELECT MAX(epoch) FROM pharmacy_retention_hold_epochs AS epoch_hold
            WHERE epoch_hold.tenant_id = request.tenant_id
              AND epoch_hold.line_account_id = request.line_account_id
              AND epoch_hold.owner_friend_id = request.owner_friend_id
              AND epoch_hold.patient_key IN (request.patient_id, '*')
-        ), 0) = ?`}${input.transitionEventId === undefined ? '' : `
+        ), 0) = ?`
+        }${
+          input.transitionEventId === undefined
+            ? ''
+            : `
         AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events AS event
                      WHERE event.id = ? AND event.request_id = request.id
-                       AND event.line_account_id = request.line_account_id)`}`;
+                       AND event.line_account_id = request.line_account_id)`
+        }`;
   const nextEpoch = (input.expectedHoldEpoch ?? 0) + 1;
   const binds = (keyValue: string | undefined, guardEpoch: number | undefined) => [
     ...(keyValue === undefined ? [] : [keyValue]),
@@ -195,16 +219,20 @@ function holdEpochStatements(
   const statement = (keyExpression: string, keyValue: string | undefined, guardEpoch: number | undefined) => {
     // A new request must advance the existing generation inside the same batch.
     // Its wildcard row reuses the generation just written to the exact row.
-    const epochValue = input.expectedHoldEpoch === undefined ? `(
+    const epochValue =
+      input.expectedHoldEpoch === undefined
+        ? `(
       SELECT COALESCE(MAX(epoch), 0)${keyValue === undefined ? ' + 1' : ''}
         FROM pharmacy_retention_hold_epochs AS existing_hold
        WHERE existing_hold.tenant_id = request.tenant_id
          AND existing_hold.line_account_id = request.line_account_id
          AND existing_hold.owner_friend_id = request.owner_friend_id
          AND existing_hold.patient_key IN (request.patient_id, '*')
-    )` : '?';
-    return db.prepare(
-      `INSERT INTO pharmacy_retention_hold_epochs
+    )`
+        : '?';
+    return db
+      .prepare(
+        `INSERT INTO pharmacy_retention_hold_epochs
        (tenant_id, line_account_id, owner_friend_id, patient_key, epoch,
         status, release_at, reason_code, updated_at)
      SELECT request.tenant_id, request.line_account_id, request.owner_friend_id,
@@ -215,7 +243,8 @@ function holdEpochStatements(
                    release_at = excluded.release_at,
                    reason_code = excluded.reason_code,
                    updated_at = excluded.updated_at`,
-    ).bind(...binds(keyValue, guardEpoch));
+      )
+      .bind(...binds(keyValue, guardEpoch));
   };
   return [
     statement('request.patient_id', undefined, input.expectedHoldEpoch),
@@ -243,11 +272,7 @@ async function commitTransition(
   extras: (eventId: string) => D1PreparedStatement[] = () => [],
 ): Promise<DataSubjectRequest> {
   const eventId = crypto.randomUUID();
-  const results = await db.batch([
-    eventStatement(db, { ...input, eventId }),
-    ...extras(eventId),
-    update(eventId),
-  ]);
+  const results = await db.batch([eventStatement(db, { ...input, eventId }), ...extras(eventId), update(eventId)]);
   if (results.some((result) => (result?.meta?.changes ?? 0) !== 1)) {
     throw new Error('data subject request transition conflict');
   }
@@ -256,11 +281,7 @@ async function commitTransition(
   return saved;
 }
 
-async function requireRequest(
-  db: D1Database,
-  lineAccountId: string,
-  requestId: string,
-): Promise<DataSubjectRequest> {
+async function requireRequest(db: D1Database, lineAccountId: string, requestId: string): Promise<DataSubjectRequest> {
   const current = await getDataSubjectRequest(db, lineAccountId, requestId);
   if (!current) throw new Error('data subject request not found');
   return current;
@@ -283,8 +304,9 @@ export async function createDataSubjectRequest(
   const eventId = crypto.randomUUID();
   // tenant_id と owner_friend_id はリクエスト本文ではなくDBの所有関係から埋める。
   const results = await db.batch([
-    db.prepare(
-      `INSERT INTO pharmacy_data_subject_requests
+    db
+      .prepare(
+        `INSERT INTO pharmacy_data_subject_requests
         (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type,
          status, reason, version, submitted_at, created_by, created_at, updated_at)
        SELECT ?, link.tenant_id, patient.line_account_id, patient.owner_friend_id,
@@ -293,17 +315,28 @@ export async function createDataSubjectRequest(
          INNER JOIN tenant_line_accounts AS link
                  ON link.line_account_id = patient.line_account_id
         WHERE patient.id = ? AND patient.line_account_id = ? AND link.tenant_id = ?`,
-    ).bind(
-      id, input.requestType, input.reason, timestamp, input.staffId, timestamp, timestamp,
-      input.patientId, input.lineAccountId, input.tenantId,
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_data_subject_request_events
+      )
+      .bind(
+        id,
+        input.requestType,
+        input.reason,
+        timestamp,
+        input.staffId,
+        timestamp,
+        timestamp,
+        input.patientId,
+        input.lineAccountId,
+        input.tenantId,
+      ),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_data_subject_request_events
         (id, request_id, line_account_id, event_type, actor_staff_id, detail, occurred_at)
        SELECT ?, id, line_account_id, 'received', ?, ?, ?
          FROM pharmacy_data_subject_requests
         WHERE id = ? AND line_account_id = ?`,
-    ).bind(eventId, input.staffId, input.requestType, timestamp, id, input.lineAccountId),
+      )
+      .bind(eventId, input.staffId, input.requestType, timestamp, id, input.lineAccountId),
     ...holdEpochStatements(db, {
       lineAccountId: input.lineAccountId,
       requestId: id,
@@ -333,15 +366,20 @@ export async function markDataSubjectIdentityVerified(
 ): Promise<DataSubjectRequest> {
   const current = await requireRequest(db, input.lineAccountId, input.requestId);
   const timestamp = (input.now ?? new Date()).toISOString();
-  return commitTransition(db, {
-    ...input,
-    fromStatus: 'received',
-    eventType: 'identity_verified',
-    detail: null,
-    occurredAt: timestamp,
-    expectedHoldEpoch: current.hold_epoch,
-  }, (eventId) => db.prepare(
-    `UPDATE pharmacy_data_subject_requests
+  return commitTransition(
+    db,
+    {
+      ...input,
+      fromStatus: 'received',
+      eventType: 'identity_verified',
+      detail: null,
+      occurredAt: timestamp,
+      expectedHoldEpoch: current.hold_epoch,
+    },
+    (eventId) =>
+      db
+        .prepare(
+          `UPDATE pharmacy_data_subject_requests
         SET status = 'identity_verified', identity_verified_at = ?,
             version = version + 1, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND status = 'received' AND version = ?
@@ -354,22 +392,32 @@ export async function markDataSubjectIdentityVerified(
         ), 0) = ?
         AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events
                      WHERE id = ? AND request_id = ? AND line_account_id = ?)`,
-  ).bind(
-    timestamp, timestamp, input.requestId, input.lineAccountId, input.expectedVersion,
-    current.hold_epoch + 1,
-    eventId, input.requestId, input.lineAccountId,
-  ), (eventId) => holdEpochStatements(db, {
-    transitionEventId: eventId,
-    lineAccountId: input.lineAccountId,
-    requestId: input.requestId,
-    expectedVersion: input.expectedVersion,
-    fromStatus: 'received',
-    expectedHoldEpoch: current.hold_epoch,
-    status: 'unknown',
-    releaseAt: null,
-    reasonCode: 'dsr_identity_verified_unassessed',
-    updatedAt: timestamp,
-  }));
+        )
+        .bind(
+          timestamp,
+          timestamp,
+          input.requestId,
+          input.lineAccountId,
+          input.expectedVersion,
+          current.hold_epoch + 1,
+          eventId,
+          input.requestId,
+          input.lineAccountId,
+        ),
+    (eventId) =>
+      holdEpochStatements(db, {
+        transitionEventId: eventId,
+        lineAccountId: input.lineAccountId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: 'received',
+        expectedHoldEpoch: current.hold_epoch,
+        status: 'unknown',
+        releaseAt: null,
+        reasonCode: 'dsr_identity_verified_unassessed',
+        updatedAt: timestamp,
+      }),
+  );
 }
 
 export async function assessDataSubjectLegalHold(
@@ -385,25 +433,37 @@ export async function assessDataSubjectLegalHold(
   const current = await requireRequest(db, input.lineAccountId, input.requestId);
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
-  const assessment = await assessPatientRetention(db, {
-    tenantId: current.tenant_id,
-    lineAccountId: current.line_account_id,
-    ownerFriendId: current.owner_friend_id,
-    patientId: current.patient_id,
-  }, now);
+  const assessment = await assessPatientRetention(
+    db,
+    {
+      tenantId: current.tenant_id,
+      lineAccountId: current.line_account_id,
+      ownerFriendId: current.owner_friend_id,
+      patientId: current.patient_id,
+    },
+    now,
+  );
   const blocked = assessment.status !== 'released';
-  const detail = assessment.status === 'held'
-    ? `legal_hold_until:${assessment.releaseAt}`
-    : assessment.status === 'released' ? 'no_legal_hold' : 'retention_unknown';
-  return commitTransition(db, {
-    ...input,
-    fromStatus: 'identity_verified',
-    eventType: 'legal_hold_assessed',
-    detail,
-    occurredAt: timestamp,
-    expectedHoldEpoch: current.hold_epoch,
-  }, (eventId) => db.prepare(
-    `UPDATE pharmacy_data_subject_requests
+  const detail =
+    assessment.status === 'held'
+      ? `legal_hold_until:${assessment.releaseAt}`
+      : assessment.status === 'released'
+        ? 'no_legal_hold'
+        : 'retention_unknown';
+  return commitTransition(
+    db,
+    {
+      ...input,
+      fromStatus: 'identity_verified',
+      eventType: 'legal_hold_assessed',
+      detail,
+      occurredAt: timestamp,
+      expectedHoldEpoch: current.hold_epoch,
+    },
+    (eventId) =>
+      db
+        .prepare(
+          `UPDATE pharmacy_data_subject_requests
         SET status = 'legal_hold_assessed', legal_hold = ?, legal_hold_basis = ?,
             legal_hold_release_at = ?, legal_hold_assessed_at = ?,
             version = version + 1, updated_at = ?
@@ -417,24 +477,35 @@ export async function assessDataSubjectLegalHold(
         ), 0) = ?
         AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events
                      WHERE id = ? AND request_id = ? AND line_account_id = ?)`,
-  ).bind(
-    blocked ? 1 : 0, blocked ? LEGAL_HOLD_BASIS : null,
-    assessment.releaseAt, timestamp, timestamp,
-    input.requestId, input.lineAccountId, input.expectedVersion,
-    current.hold_epoch + 1,
-    eventId, input.requestId, input.lineAccountId,
-  ), (eventId) => holdEpochStatements(db, {
-    transitionEventId: eventId,
-    lineAccountId: input.lineAccountId,
-    requestId: input.requestId,
-    expectedVersion: input.expectedVersion,
-    fromStatus: 'identity_verified',
-    expectedHoldEpoch: current.hold_epoch,
-    status: assessment.status,
-    releaseAt: assessment.releaseAt,
-    reasonCode: assessment.status === 'unknown' ? 'retention_source_unknown' : 'legal_hold_assessed',
-    updatedAt: timestamp,
-  }));
+        )
+        .bind(
+          blocked ? 1 : 0,
+          blocked ? LEGAL_HOLD_BASIS : null,
+          assessment.releaseAt,
+          timestamp,
+          timestamp,
+          input.requestId,
+          input.lineAccountId,
+          input.expectedVersion,
+          current.hold_epoch + 1,
+          eventId,
+          input.requestId,
+          input.lineAccountId,
+        ),
+    (eventId) =>
+      holdEpochStatements(db, {
+        transitionEventId: eventId,
+        lineAccountId: input.lineAccountId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: 'identity_verified',
+        expectedHoldEpoch: current.hold_epoch,
+        status: assessment.status,
+        releaseAt: assessment.releaseAt,
+        reasonCode: assessment.status === 'unknown' ? 'retention_source_unknown' : 'legal_hold_assessed',
+        updatedAt: timestamp,
+      }),
+  );
 }
 
 export async function resolveDataSubjectRequest(
@@ -456,32 +527,44 @@ export async function resolveDataSubjectRequest(
     throw new Error('retention assessment required before resolving this request');
   }
   const now = input.now ?? new Date();
-  const assessment = await assessPatientRetention(db, {
-    tenantId: current.tenant_id,
-    lineAccountId: current.line_account_id,
-    ownerFriendId: current.owner_friend_id,
-    patientId: current.patient_id,
-  }, now);
+  const assessment = await assessPatientRetention(
+    db,
+    {
+      tenantId: current.tenant_id,
+      lineAccountId: current.line_account_id,
+      ownerFriendId: current.owner_friend_id,
+      patientId: current.patient_id,
+    },
+    now,
+  );
   if (
-    input.decision === 'resolved' && assessment.status !== 'released' &&
+    input.decision === 'resolved' &&
+    assessment.status !== 'released' &&
     isRetentionBlockedRequestType(current.request_type)
   ) {
     // 法定保存期間中または判定不能の消去・利用停止は、R2/D1 の削除へ進めない。
-    throw new Error(assessment.status === 'unknown'
-      ? 'retention status unknown blocks this data subject request'
-      : 'legal hold blocks this data subject request');
+    throw new Error(
+      assessment.status === 'unknown'
+        ? 'retention status unknown blocks this data subject request'
+        : 'legal hold blocks this data subject request',
+    );
   }
   const timestamp = now.toISOString();
   const blocked = assessment.status !== 'released';
-  return commitTransition(db, {
-    ...input,
-    fromStatus: 'legal_hold_assessed',
-    eventType: input.decision,
-    detail: input.outcomeNote,
-    occurredAt: timestamp,
-    expectedHoldEpoch: current.hold_epoch,
-  }, (eventId) => db.prepare(
-    `UPDATE pharmacy_data_subject_requests
+  return commitTransition(
+    db,
+    {
+      ...input,
+      fromStatus: 'legal_hold_assessed',
+      eventType: input.decision,
+      detail: input.outcomeNote,
+      occurredAt: timestamp,
+      expectedHoldEpoch: current.hold_epoch,
+    },
+    (eventId) =>
+      db
+        .prepare(
+          `UPDATE pharmacy_data_subject_requests
         SET status = ?, legal_hold = ?, legal_hold_basis = ?, legal_hold_release_at = ?,
             outcome_note = ?, resolved_at = ?, resolved_by = ?,
             version = version + 1, updated_at = ?
@@ -495,24 +578,38 @@ export async function resolveDataSubjectRequest(
         ), 0) = ?
         AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events
                      WHERE id = ? AND request_id = ? AND line_account_id = ?)`,
-  ).bind(
-    input.decision, blocked ? 1 : 0, blocked ? LEGAL_HOLD_BASIS : null,
-    assessment.releaseAt,
-    input.outcomeNote, timestamp, input.staffId, timestamp,
-    // The exact hold-epoch statement runs before this UPDATE in the same batch
-    // and increments the aggregate once; compare against that post-bump value.
-    input.requestId, input.lineAccountId, input.expectedVersion, current.hold_epoch + 1,
-    eventId, input.requestId, input.lineAccountId,
-  ), (eventId) => holdEpochStatements(db, {
-    transitionEventId: eventId,
-    lineAccountId: input.lineAccountId,
-    requestId: input.requestId,
-    expectedVersion: input.expectedVersion,
-    fromStatus: 'legal_hold_assessed',
-    expectedHoldEpoch: current.hold_epoch,
-    status: assessment.status,
-    releaseAt: assessment.releaseAt,
-    reasonCode: input.decision === 'resolved' ? 'dsr_resolved' : 'dsr_rejected',
-    updatedAt: timestamp,
-  }));
+        )
+        .bind(
+          input.decision,
+          blocked ? 1 : 0,
+          blocked ? LEGAL_HOLD_BASIS : null,
+          assessment.releaseAt,
+          input.outcomeNote,
+          timestamp,
+          input.staffId,
+          timestamp,
+          // The exact hold-epoch statement runs before this UPDATE in the same batch
+          // and increments the aggregate once; compare against that post-bump value.
+          input.requestId,
+          input.lineAccountId,
+          input.expectedVersion,
+          current.hold_epoch + 1,
+          eventId,
+          input.requestId,
+          input.lineAccountId,
+        ),
+    (eventId) =>
+      holdEpochStatements(db, {
+        transitionEventId: eventId,
+        lineAccountId: input.lineAccountId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: 'legal_hold_assessed',
+        expectedHoldEpoch: current.hold_epoch,
+        status: assessment.status,
+        releaseAt: assessment.releaseAt,
+        reasonCode: input.decision === 'resolved' ? 'dsr_resolved' : 'dsr_rejected',
+        updatedAt: timestamp,
+      }),
+  );
 }

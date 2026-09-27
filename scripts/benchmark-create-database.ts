@@ -60,11 +60,7 @@ function parseArgs(): CliOptions {
   return { accountId, mode, repoSource, prefix };
 }
 
-function prepareRepoVariant(
-  workspaceRoot: string,
-  variantRoot: string,
-  mode: 'legacy' | 'bootstrap',
-): string {
+function prepareRepoVariant(workspaceRoot: string, variantRoot: string, mode: 'legacy' | 'bootstrap'): string {
   const sourceDbDir = join(workspaceRoot, 'packages', 'db');
   const targetRepoDir = join(variantRoot, mode);
   const targetDbDir = join(targetRepoDir, 'packages', 'db');
@@ -84,9 +80,7 @@ function prepareRepoVariant(
   return targetRepoDir;
 }
 
-export async function cleanupDatabase(
-  receipt: DatabaseOwnershipReceipt | null,
-): Promise<void> {
+export async function cleanupDatabase(receipt: DatabaseOwnershipReceipt | null): Promise<void> {
   if (!receipt) return;
   const listOutput = await wrangler(['d1', 'list', '--json']);
   let databases: Array<{ name?: string; uuid?: string }>;
@@ -103,9 +97,7 @@ export async function cleanupDatabase(
   }
   const current = databases.find((database) => database.name === receipt.databaseName);
   if (current?.uuid !== receipt.databaseId) {
-    throw new Error(
-      `[cleanup] ownership changed for ${receipt.databaseName}; refusing delete`,
-    );
+    throw new Error(`[cleanup] ownership changed for ${receipt.databaseName}; refusing delete`);
   }
   await wrangler(['d1', 'delete', receipt.databaseName, '--skip-confirmation']);
 }
@@ -139,10 +131,7 @@ export async function runCase(
     cleanupError = error;
   }
   if (operationError && cleanupError) {
-    throw new AggregateError(
-      [operationError, cleanupError],
-      'benchmark database operation and cleanup both failed',
-    );
+    throw new AggregateError([operationError, cleanupError], 'benchmark database operation and cleanup both failed');
   }
   if (operationError) throw operationError;
   if (cleanupError) throw cleanupError;
@@ -153,10 +142,7 @@ async function main(): Promise<void> {
   const options = parseArgs();
   setAccountId(options.accountId);
 
-  const workspace = join(
-    tmpdir(),
-    `line-harness-db-benchmark-${Date.now().toString(36)}`,
-  );
+  const workspace = join(tmpdir(), `line-harness-db-benchmark-${Date.now().toString(36)}`);
   mkdirSync(workspace, { recursive: true });
 
   const legacyRepo = prepareRepoVariant(options.repoSource, workspace, 'legacy');
@@ -176,8 +162,7 @@ async function main(): Promise<void> {
 
     const legacy = results.legacy ?? null;
     const bootstrap = results.bootstrap ?? null;
-    const savedMs =
-      legacy && bootstrap ? legacy.elapsedMs - bootstrap.elapsedMs : null;
+    const savedMs = legacy && bootstrap ? legacy.elapsedMs - bootstrap.elapsedMs : null;
     const speedup =
       legacy && bootstrap && legacy.elapsedMs > 0 && bootstrap.elapsedMs > 0
         ? Number((legacy.elapsedMs / bootstrap.elapsedMs).toFixed(2))

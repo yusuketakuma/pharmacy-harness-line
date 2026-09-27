@@ -1,17 +1,17 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { api } from '@/lib/api'
-import type { ConversionPoint } from '@line-crm/shared'
-import Header from '@/components/layout/header'
-import CcPromptButton from '@/components/cc-prompt-button'
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
+import type { ConversionPoint } from '@line-crm/shared';
+import Header from '@/components/layout/header';
+import CcPromptButton from '@/components/cc-prompt-button';
 
 interface ConversionReportItem {
-  conversionPointId: string
-  conversionPointName: string
-  eventType: string
-  totalCount: number
-  totalValue: number
+  conversionPointId: string;
+  conversionPointName: string;
+  eventType: string;
+  totalCount: number;
+  totalValue: number;
 }
 
 const ccPrompts = [
@@ -31,50 +31,49 @@ const ccPrompts = [
 3. CV率向上のための改善施策を提案
 結果をレポートしてください。`,
   },
-]
+];
 
 export default function ConversionsPage() {
-  const [points, setPoints] = useState<ConversionPoint[]>([])
-  const [report, setReport] = useState<ConversionReportItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', eventType: '', value: '' })
+  const [points, setPoints] = useState<ConversionPoint[]>([]);
+  const [report, setReport] = useState<ConversionReportItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ name: '', eventType: '', value: '' });
 
   const load = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const [pointsRes, reportRes] = await Promise.allSettled([
-        api.conversions.points(),
-        api.conversions.report(),
-      ])
-      if (pointsRes.status === 'fulfilled' && pointsRes.value.success) setPoints(pointsRes.value.data)
-      if (reportRes.status === 'fulfilled' && reportRes.value.success) setReport(reportRes.value.data)
+      const [pointsRes, reportRes] = await Promise.allSettled([api.conversions.points(), api.conversions.report()]);
+      if (pointsRes.status === 'fulfilled' && pointsRes.value.success) setPoints(pointsRes.value.data);
+      if (reportRes.status === 'fulfilled' && reportRes.value.success) setReport(reportRes.value.data);
     } catch {}
-    setLoading(false)
-  }
+    setLoading(false);
+  };
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load();
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.name || !form.eventType) return
+    e.preventDefault();
+    if (!form.name || !form.eventType) return;
     try {
       await api.conversions.createPoint({
         name: form.name,
         eventType: form.eventType,
         value: form.value ? Number(form.value) : null,
-      })
-      setForm({ name: '', eventType: '', value: '' })
-      setShowCreate(false)
-      load()
+      });
+      setForm({ name: '', eventType: '', value: '' });
+      setShowCreate(false);
+      load();
     } catch {}
-  }
+  };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このCVポイントを削除しますか？')) return
-    await api.conversions.deletePoint(id)
-    load()
-  }
+    if (!confirm('このCVポイントを削除しますか？')) return;
+    await api.conversions.deletePoint(id);
+    load();
+  };
 
   const eventTypes = [
     { value: 'friend_add', label: '友だち追加' },
@@ -86,7 +85,7 @@ export default function ConversionsPage() {
     { value: 'liff_view', label: 'LIFF閲覧' },
     { value: 'purchase', label: '購入完了' },
     { value: 'custom', label: 'カスタム' },
-  ]
+  ];
 
   return (
     <div>
@@ -127,7 +126,9 @@ export default function ConversionsPage() {
               >
                 <option value="">選択...</option>
                 {eventTypes.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -168,7 +169,9 @@ export default function ConversionsPage() {
                 </div>
                 {r.totalValue > 0 && (
                   <div>
-                    <p className="text-lg font-semibold text-green-600">{r.totalValue.toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</p>
+                    <p className="text-lg font-semibold text-green-600">
+                      {r.totalValue.toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}
+                    </p>
                     <p className="text-xs text-gray-400">売上</p>
                   </div>
                 )}
@@ -182,7 +185,9 @@ export default function ConversionsPage() {
       {loading ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
       ) : points.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">CVポイントがまだありません</div>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
+          CVポイントがまだありません
+        </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
           <table className="w-full min-w-[640px]">
@@ -200,17 +205,18 @@ export default function ConversionsPage() {
                 <tr key={point.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{point.name}</td>
                   <td className="px-4 py-3">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{point.eventType}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      {point.eventType}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {point.value !== null ? `¥${point.value.toLocaleString()}` : '-'}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{new Date(point.createdAt).toLocaleDateString('ja-JP')}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {new Date(point.createdAt).toLocaleDateString('ja-JP')}
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(point.id)}
-                      className="text-red-500 hover:text-red-700 text-sm"
-                    >
+                    <button onClick={() => handleDelete(point.id)} className="text-red-500 hover:text-red-700 text-sm">
                       削除
                     </button>
                   </td>
@@ -222,5 +228,5 @@ export default function ConversionsPage() {
       )}
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

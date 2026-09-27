@@ -18,12 +18,21 @@ export type PharmacyAdminApiCoverage = {
 export type PharmacyAdminApiDeferred = {
   method: PharmacyAdminApiMethod;
   path: RegExp;
-  reason: 'binary-output' | 'destructive-operation' | 'external-operation' |
-    'legacy-lifecycle' | 'patient-operation' | 'retired';
+  reason:
+    | 'binary-output'
+    | 'destructive-operation'
+    | 'external-operation'
+    | 'legacy-lifecycle'
+    | 'patient-operation'
+    | 'retired';
 };
 
 const read = (path: RegExp, accountScope: PharmacyAdminApiAccountScope): PharmacyAdminApiCoverage => ({
-  method: 'GET', path, accountScope, safeOutput: true, mutationGate: 'read-only',
+  method: 'GET',
+  path,
+  accountScope,
+  safeOutput: true,
+  mutationGate: 'read-only',
 });
 const mutate = (
   method: Exclude<PharmacyAdminApiMethod, 'GET'>,
@@ -219,24 +228,25 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     reason: 'binary-output',
   },
   { method: 'POST', path: /^\/api\/rich-menu-groups\/import$/u, reason: 'external-operation' },
-  { method: 'DELETE', path: /^\/api\/rich-menu-groups\/external\/[^/]+$/u, reason: 'external-operation' },
+  {
+    method: 'DELETE',
+    path: /^\/api\/rich-menu-groups\/external\/[^/]+$/u,
+    reason: 'external-operation',
+  },
   { method: 'POST', path: /^\/api\/rich-menu-groups$/u, reason: 'legacy-lifecycle' },
   { method: 'PATCH', path: /^\/api\/rich-menu-groups\/[^/]+$/u, reason: 'legacy-lifecycle' },
   { method: 'DELETE', path: /^\/api\/rich-menu-groups\/[^/]+$/u, reason: 'legacy-lifecycle' },
-  { method: 'POST', path: /^\/api\/rich-menu-groups\/[^/]+\/unpublish$/u, reason: 'legacy-lifecycle' },
+  {
+    method: 'POST',
+    path: /^\/api\/rich-menu-groups\/[^/]+\/unpublish$/u,
+    reason: 'legacy-lifecycle',
+  },
 ];
 
-export function findPharmacyAdminApiCoverage(
-  method: string,
-  path: string,
-): PharmacyAdminApiCoverage | undefined {
+export function findPharmacyAdminApiCoverage(method: string, path: string): PharmacyAdminApiCoverage | undefined {
   return PHARMACY_ADMIN_API_COVERAGE.find((entry) => entry.method === method && entry.path.test(path));
 }
 
-export function findPharmacyAdminApiDeferred(
-  method: string,
-  path: string,
-): PharmacyAdminApiDeferred | undefined {
-  return PHARMACY_ADMIN_API_DEFERRED.find((entry) =>
-    entry.method === method && entry.path.test(path));
+export function findPharmacyAdminApiDeferred(method: string, path: string): PharmacyAdminApiDeferred | undefined {
+  return PHARMACY_ADMIN_API_DEFERRED.find((entry) => entry.method === method && entry.path.test(path));
 }

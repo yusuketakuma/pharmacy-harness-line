@@ -4,7 +4,10 @@ import { resolve, join } from 'node:path';
 
 const mocks = vi.hoisted(() => ({ root: '', wrangler: vi.fn(), repoPnpm: vi.fn() }));
 vi.mock('node:os', () => ({ tmpdir: () => mocks.root }));
-vi.mock('../src/lib/wrangler.js', () => ({ wrangler: mocks.wrangler, WranglerError: class extends Error {} }));
+vi.mock('../src/lib/wrangler.js', () => ({
+  wrangler: mocks.wrangler,
+  WranglerError: class extends Error {},
+}));
 vi.mock('../src/lib/pnpm.js', () => ({ repoPnpm: mocks.repoPnpm }));
 vi.mock('@clack/prompts', () => ({
   spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
@@ -19,33 +22,51 @@ describe('release Admin staging', () => {
     mocks.repoPnpm.mockReset();
   });
   afterEach(() => rmSync(mocks.root, { recursive: true, force: true }));
-  const run = (files: Map<string, Buffer>) => deployAdmin({
-    repoDir: mocks.root, workerUrl: 'https://synthetic.example',
-    projectName: 'synthetic', adminFiles: files,
-  });
+  const run = (files: Map<string, Buffer>) =>
+    deployAdmin({
+      repoDir: mocks.root,
+      workerUrl: 'https://synthetic.example',
+      projectName: 'synthetic',
+      adminFiles: files,
+    });
 
-  it.each(['../escape.txt', 'assets/../../escape.txt', '..\\escape.txt',
-    'C:/escape.txt', 'C:escape.txt', '\\server\\escape.txt', ''])
-  ('rejects unsafe path %j before writing or invoking deployment', async (path) => {
-    await expect(run(new Map([
-      ['index.html', Buffer.from('safe')], [path, Buffer.from('synthetic')],
-    ]))).rejects.toThrow(/unsafe.*path/i);
+  it.each([
+    '../escape.txt',
+    'assets/../../escape.txt',
+    '..\\escape.txt',
+    'C:/escape.txt',
+    'C:escape.txt',
+    '\\server\\escape.txt',
+    '',
+  ])('rejects unsafe path %j before writing or invoking deployment', async (path) => {
+    await expect(
+      run(
+        new Map([
+          ['index.html', Buffer.from('safe')],
+          [path, Buffer.from('synthetic')],
+        ]),
+      ),
+    ).rejects.toThrow(/unsafe.*path/i);
     expect(readdirSync(mocks.root)).toEqual([]);
     expect(mocks.wrangler).not.toHaveBeenCalled();
     expect(mocks.repoPnpm).not.toHaveBeenCalled();
   });
 
   it('rejects an absolute path before staging', async () => {
-    await expect(run(new Map([[join(mocks.root, 'escape.txt'), Buffer.from('x')]])))
-      .rejects.toThrow(/unsafe.*path/i);
+    await expect(run(new Map([[join(mocks.root, 'escape.txt'), Buffer.from('x')]]))).rejects.toThrow(/unsafe.*path/i);
     expect(readdirSync(mocks.root)).toEqual([]);
     expect(mocks.wrangler).not.toHaveBeenCalled();
   });
 
   it('cleans incomplete staging when an asset conflicts with a directory', async () => {
-    await expect(run(new Map([
-      ['assets', Buffer.from('file')], ['assets/app.js', Buffer.from('nested')],
-    ]))).rejects.toThrow();
+    await expect(
+      run(
+        new Map([
+          ['assets', Buffer.from('file')],
+          ['assets/app.js', Buffer.from('nested')],
+        ]),
+      ),
+    ).rejects.toThrow();
     expect(readdirSync(mocks.root)).toEqual([]);
     expect(mocks.wrangler).not.toHaveBeenCalled();
   });
@@ -61,10 +82,14 @@ describe('release Admin staging', () => {
       }
       return '';
     });
-    expect(await run(new Map([
-      ['assets/app.js', Buffer.from('https://__LH_WORKER_URL__/api')],
-      ['assets/logo.png', binary],
-    ]))).toEqual({ adminUrl: 'https://synthetic.pages.dev' });
+    expect(
+      await run(
+        new Map([
+          ['assets/app.js', Buffer.from('https://__LH_WORKER_URL__/api')],
+          ['assets/logo.png', binary],
+        ]),
+      ),
+    ).toEqual({ adminUrl: 'https://synthetic.pages.dev' });
     expect(staged).not.toBe('');
     expect(existsSync(staged)).toBe(false);
     expect(mocks.repoPnpm).not.toHaveBeenCalled();

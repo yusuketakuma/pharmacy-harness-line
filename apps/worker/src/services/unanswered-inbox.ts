@@ -37,11 +37,7 @@ interface ActiveRuleRow {
   match_type: string;
 }
 
-function matchesAnyKeyword(
-  content: string,
-  messageType: string,
-  rules: ActiveRuleRow[],
-): boolean {
+function matchesAnyKeyword(content: string, messageType: string, rules: ActiveRuleRow[]): boolean {
   if (messageType !== 'text') return false;
   return rules.some((ar) => keywordMatches(ar, content));
 }
@@ -57,10 +53,7 @@ const AUTO_REPLY_EVIDENCE_WINDOW_MS = 5_000;
  * 古い free-form メッセが新しいマッチメッセの outgoing で誤判定される (codex
  * round 3 P1) のを防ぐ。consume 済み outgoing は配列から取り除く。
  */
-function consumeAutoReplyEvidence(
-  incomingAt: string,
-  remainingOutgoings: { created_at: string }[],
-): boolean {
+function consumeAutoReplyEvidence(incomingAt: string, remainingOutgoings: { created_at: string }[]): boolean {
   const inMs = new Date(incomingAt).getTime();
   for (let i = 0; i < remainingOutgoings.length; i++) {
     const outMs = new Date(remainingOutgoings[i].created_at).getTime();
@@ -204,7 +197,6 @@ const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
   ORDER BY ml.friend_id, julianday(ml.created_at) ASC, ml.id ASC
 `;
 
-
 export interface UnansweredRow {
   friendId: string;
   displayName: string | null;
@@ -289,18 +281,20 @@ function applyFilters(rows: UnansweredRow[], opts: UnansweredInboxOptions): Unan
 async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?: string): Promise<UnansweredRow[]> {
   const [friendScope, ruleScope] = staffId
     ? await Promise.all([
-      pharmacyStaffAccountPredicate(db, 'friend.line_account_id'),
-      pharmacyStaffAccountPredicate(db, 'rule.line_account_id'),
-    ])
+        pharmacyStaffAccountPredicate(db, 'friend.line_account_id'),
+        pharmacyStaffAccountPredicate(db, 'rule.line_account_id'),
+      ])
     : ['', ''];
   const scopedSql = (sql: string, accountColumn = 'friend.line_account_id') => {
     if (!staffId) return sql;
     const scope = accountColumn === 'rule.line_account_id' ? ruleScope : friendScope;
-    return sql.replace('WHERE mapping.tenant_id = ?',
-      `WHERE mapping.tenant_id = ? AND ${scope}`);
+    return sql.replace('WHERE mapping.tenant_id = ?', `WHERE mapping.tenant_id = ? AND ${scope}`);
   };
   const scopeBindings = staffId ? [tenantId, staffId] : [tenantId];
-  const candidatesResult = await db.prepare(scopedSql(CANDIDATES_SQL)).bind(...scopeBindings).all<RawCandidateRow>();
+  const candidatesResult = await db
+    .prepare(scopedSql(CANDIDATES_SQL))
+    .bind(...scopeBindings)
+    .all<RawCandidateRow>();
   const candidates = candidatesResult.results ?? [];
   if (candidates.length === 0) return [];
 
@@ -308,9 +302,18 @@ async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?: 
   const candidateIds = new Set(candidates.map((c) => c.friend_id));
 
   const [incomingsResult, autoReplyOutgoingsResult, activeRulesResult] = await Promise.all([
-    db.prepare(scopedSql(RECENT_INCOMINGS_SQL)).bind(...scopeBindings).all<RawIncomingRow>(),
-    db.prepare(scopedSql(RECENT_AUTO_REPLY_OUTGOINGS_SQL)).bind(...scopeBindings).all<{ friend_id: string; created_at: string }>(),
-    db.prepare(scopedSql(ACTIVE_AUTO_REPLIES_SQL, 'rule.line_account_id')).bind(...scopeBindings).all<ActiveRuleRow>(),
+    db
+      .prepare(scopedSql(RECENT_INCOMINGS_SQL))
+      .bind(...scopeBindings)
+      .all<RawIncomingRow>(),
+    db
+      .prepare(scopedSql(RECENT_AUTO_REPLY_OUTGOINGS_SQL))
+      .bind(...scopeBindings)
+      .all<{ friend_id: string; created_at: string }>(),
+    db
+      .prepare(scopedSql(ACTIVE_AUTO_REPLIES_SQL, 'rule.line_account_id'))
+      .bind(...scopeBindings)
+      .all<ActiveRuleRow>(),
   ]);
 
   const activeRules = activeRulesResult.results ?? [];
@@ -437,9 +440,7 @@ export async function countUnanswered(db: D1Database, tenantId: string, staffId?
     .sort((a, b) => b.count - a.count);
 
   const oldestWaitMinutes =
-    oldest !== null
-      ? Math.max(0, Math.floor((Date.now() - new Date(oldest).getTime()) / 60_000))
-      : null;
+    oldest !== null ? Math.max(0, Math.floor((Date.now() - new Date(oldest).getTime()) / 60_000)) : null;
 
   return {
     total: allRows.length,

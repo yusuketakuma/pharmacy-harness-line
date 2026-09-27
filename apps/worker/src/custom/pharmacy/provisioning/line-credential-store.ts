@@ -55,8 +55,7 @@ const ACTIVE_MAPPING_SOURCE = `
   ${ACTIVE_MAPPING_JOINS}`;
 
 function validateExpectedRevision(value: unknown): void {
-  if (value !== undefined &&
-      (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
+  if (value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
     throw new Error(INVALID_LINE_CREDENTIAL_ERROR);
   }
 }
@@ -81,7 +80,8 @@ async function prepareLineCredentialWrite(
   const now = new Date().toISOString();
   const expectedRevision = input.expectedRevision ?? null;
 
-  return db.prepare(
+  return db
+    .prepare(
       `INSERT INTO pharmacy_line_credentials
          (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
           key_version, revision, lookup_digest, created_at, updated_at)
@@ -109,7 +109,8 @@ async function prepareLineCredentialWrite(
          updated_at = excluded.updated_at
         WHERE (? IS NULL OR pharmacy_line_credentials.revision = ?)
        RETURNING revision`,
-    ).bind(
+    )
+    .bind(
       input.tenantId,
       input.lineAccountId,
       input.kind,
@@ -150,13 +151,11 @@ export async function writeLineCredential(
   return { revision: result.revision };
 }
 
-export async function deleteLineCredential(
-  db: D1Database,
-  input: ReadLineCredentialInput,
-): Promise<boolean> {
+export async function deleteLineCredential(db: D1Database, input: ReadLineCredentialInput): Promise<boolean> {
   try {
-    const deleted = await db.prepare(
-      `DELETE FROM pharmacy_line_credentials
+    const deleted = await db
+      .prepare(
+        `DELETE FROM pharmacy_line_credentials
         WHERE tenant_id = ?
           AND line_account_id = ?
           AND credential_kind = ?
@@ -166,13 +165,9 @@ export async function deleteLineCredential(
              WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?
           )
        RETURNING tenant_id`,
-    ).bind(
-      input.tenantId,
-      input.lineAccountId,
-      input.kind,
-      input.tenantId,
-      input.lineAccountId,
-    ).first<{ tenant_id: string }>();
+      )
+      .bind(input.tenantId, input.lineAccountId, input.kind, input.tenantId, input.lineAccountId)
+      .first<{ tenant_id: string }>();
     return Boolean(deleted);
   } catch {
     throw new Error(LINE_CREDENTIAL_STORE_ERROR);
@@ -185,8 +180,9 @@ export async function readLineCredential(
   input: ReadLineCredentialInput,
 ): Promise<string | null> {
   try {
-    const row = await db.prepare(
-      `SELECT credential.tenant_id, credential.line_account_id,
+    const row = await db
+      .prepare(
+        `SELECT credential.tenant_id, credential.line_account_id,
               credential.credential_kind, credential.nonce, credential.ciphertext,
               credential.key_version, credential.revision, credential.lookup_digest
          FROM pharmacy_line_credentials AS credential
@@ -200,7 +196,9 @@ export async function readLineCredential(
           AND mapping.line_account_id = ?
           AND credential.credential_kind = ?
         LIMIT 1`,
-    ).bind(input.tenantId, input.lineAccountId, input.kind).first<StoredLineCredential>();
+      )
+      .bind(input.tenantId, input.lineAccountId, input.kind)
+      .first<StoredLineCredential>();
     if (!row || !isRevision(row.revision)) return null;
     return await decryptLineCredential({
       rootSecret,
@@ -224,8 +222,9 @@ export async function findLineCredentialByAccessToken(
 ): Promise<LineCredentialLookup | null> {
   try {
     const lookupDigest = await computeLineAccessTokenLookupDigest(rootSecret, token);
-    const result = await db.prepare(
-      `SELECT credential.tenant_id, credential.line_account_id,
+    const result = await db
+      .prepare(
+        `SELECT credential.tenant_id, credential.line_account_id,
               credential.credential_kind, credential.nonce, credential.ciphertext,
               credential.key_version, credential.revision, credential.lookup_digest
          FROM pharmacy_line_credentials AS credential
@@ -238,7 +237,9 @@ export async function findLineCredentialByAccessToken(
           AND credential.credential_kind = 'channel_access_token'
           AND credential.lookup_digest = ?
         LIMIT 2`,
-    ).bind(lookupDigest).all<StoredLineCredential>();
+      )
+      .bind(lookupDigest)
+      .all<StoredLineCredential>();
     if (result.results.length !== 1) {
       return null;
     }

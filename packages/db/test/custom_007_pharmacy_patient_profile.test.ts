@@ -16,12 +16,16 @@ function loadDb(): Database.Database {
 describe('custom_007_pharmacy_patient_profile.sql', () => {
   let db: Database.Database;
 
-  beforeEach(() => { db = loadDb(); });
+  beforeEach(() => {
+    db = loadDb();
+  });
 
   it('adds contact and optional delivery address fields without changing existing patient identity', () => {
-    const columns = db.prepare('PRAGMA table_info(pharmacy_patients)').all() as Array<{ name: string }>;
-    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
-      'contact_phone', 'postal_code', 'prefecture', 'city', 'address_line1', 'address_line2',
-    ]));
+    const columns = db.prepare('PRAGMA table_info(pharmacy_patients)').all() as Array<{
+      name: string;
+    }>;
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(['contact_phone', 'postal_code', 'prefecture', 'city', 'address_line1', 'address_line2']),
+    );
   });
 });

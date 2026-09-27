@@ -62,11 +62,13 @@ async function resolveApiLinkBase(c: { env: { DB: D1Database }; req: { url: stri
  * no tenant context (legacy single-tenant deployment) — same convention as
  * tenantAccountSelectorGuard, which also skips checks without tenant context.
  */
-async function tenantAccountIds(c: { env: { DB: D1Database }; get: (key: 'tenantId') => string | undefined }): Promise<Set<string> | null> {
+async function tenantAccountIds(c: {
+  env: { DB: D1Database };
+  get: (key: 'tenantId') => string | undefined;
+}): Promise<Set<string> | null> {
   const tenantId = c.get('tenantId');
   if (!tenantId) return null;
-  const rows = await c.env.DB
-    .prepare(`SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`)
+  const rows = await c.env.DB.prepare(`SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`)
     .bind(tenantId)
     .all<{ line_account_id: string }>();
   return new Set((rows.results ?? []).map((r) => r.line_account_id));
@@ -93,10 +95,7 @@ async function linkOwnerAccountId(db: D1Database, link: TrackedLink): Promise<st
  * Resolve the LINE account row that owns a tracked link.
  * Returns null for legacy/unowned links (callers fall back to env defaults).
  */
-async function resolveLinkAccount(
-  db: D1Database,
-  link: TrackedLink,
-): Promise<Record<string, unknown> | null> {
+async function resolveLinkAccount(db: D1Database, link: TrackedLink): Promise<Record<string, unknown> | null> {
   const accountId = await linkOwnerAccountId(db, link);
   if (!accountId) return null;
   return db
@@ -112,8 +111,7 @@ async function resolveLinkAccount(
 trackedLinks.get('/api/tracked-links', async (c) => {
   try {
     const allowed = await tenantAccountIds(c);
-    const items = (await getTrackedLinks(c.env.DB))
-      .filter((item) => linkVisibleToTenant(item, allowed));
+    const items = (await getTrackedLinks(c.env.DB)).filter((item) => linkVisibleToTenant(item, allowed));
     const base = await resolveApiLinkBase(c);
     return c.json({ success: true, data: items.map((item) => serializeTrackedLink(item, base)) });
   } catch (err) {
@@ -210,11 +208,17 @@ trackedLinks.patch('/api/tracked-links/:id', async (c) => {
 
     const allowed = await tenantAccountIds(c);
     const existing = await getTrackedLinkById(c.env.DB, id);
-    if (!existing || !linkVisibleToTenant(existing, allowed)
-      || !linkVisibleToTenant({
-        ...existing,
-        line_account_id: body.lineAccountId === undefined ? existing.line_account_id : body.lineAccountId,
-      }, allowed)) {
+    if (
+      !existing ||
+      !linkVisibleToTenant(existing, allowed) ||
+      !linkVisibleToTenant(
+        {
+          ...existing,
+          line_account_id: body.lineAccountId === undefined ? existing.line_account_id : body.lineAccountId,
+        },
+        allowed,
+      )
+    ) {
       return c.json({ success: false, error: 'Tracked link not found' }, 404);
     }
 
@@ -289,8 +293,11 @@ function getAndroidPackage(url: string): string | null {
 }
 
 function buildAppRedirectHtml(destinationUrl: string): string {
-  const escaped = destinationUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escaped = destinationUrl
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
   const androidPackage = getAndroidPackage(destinationUrl);
   // intent://path#Intent;scheme=https;package=com.xxx;S.browser_fallback_url=https://...;end
   const intentUrl = androidPackage
@@ -392,8 +399,7 @@ trackedLinks.get('/t/:linkId', async (c) => {
   if (friendId) {
     const ownerAccountId = await linkOwnerAccountId(c.env.DB, link);
     if (ownerAccountId) {
-      const owned = await c.env.DB
-        .prepare(`SELECT 1 AS ok FROM friends WHERE id = ? AND line_account_id = ?`)
+      const owned = await c.env.DB.prepare(`SELECT 1 AS ok FROM friends WHERE id = ? AND line_account_id = ?`)
         .bind(friendId, ownerAccountId)
         .first<{ ok: number }>();
       if (!owned) friendId = null;
@@ -429,10 +435,12 @@ trackedLinks.get('/t/:linkId', async (c) => {
             // the tag is NEWLY applied — an in-app /t click must start a
             // tag-triggered campaign exactly like the /auth/line ref path
             // does, and stay silent on re-clicks.
-            actions.push(attachTagAndFireSideEffects(c.env.DB, friendId, link.tag_id, {
-              defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
-              workerUrl: c.env.WORKER_URL,
-            }));
+            actions.push(
+              attachTagAndFireSideEffects(c.env.DB, friendId, link.tag_id, {
+                defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
+                workerUrl: c.env.WORKER_URL,
+              }),
+            );
           }
 
           if (link.scenario_id) {

@@ -9,7 +9,5 @@ export type PatientTimelineItem = {
 };
 
 export const patientTimelineApi = {
-  load: () => requestPharmacyJson<{ items: PatientTimelineItem[] }>(
-    '/api/liff/pharmacy/timeline',
-  ),
+  load: () => requestPharmacyJson<{ items: PatientTimelineItem[] }>('/api/liff/pharmacy/timeline'),
 };

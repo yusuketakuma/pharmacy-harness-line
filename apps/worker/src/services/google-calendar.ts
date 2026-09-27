@@ -22,8 +22,8 @@ interface CalendarEvent {
 
 export interface CreateEventInput {
   summary: string;
-  start: string;   // ISO datetime string
-  end: string;     // ISO datetime string
+  start: string; // ISO datetime string
+  end: string; // ISO datetime string
   description?: string;
   addGoogleMeet?: boolean;
   /** Google event IDとして使う冪等キー（base32hex: a-v / 0-9）。 */
@@ -67,17 +67,12 @@ export class GoogleCalendarClient {
     return mergeBusyIntervals([...(calendarData?.busy ?? []), ...allDayBusy]);
   }
 
-  private async getAllDayBusy(
-    timeMin: string,
-    timeMax: string,
-  ): Promise<BusyInterval[]> {
+  private async getAllDayBusy(timeMin: string, timeMax: string): Promise<BusyInterval[]> {
     const intervals: BusyInterval[] = [];
     let pageToken: string | undefined;
 
     do {
-      const url = new URL(
-        `${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}/events`,
-      );
+      const url = new URL(`${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}/events`);
       url.searchParams.set('timeMin', timeMin);
       url.searchParams.set('timeMax', timeMax);
       url.searchParams.set('timeZone', TIMEZONE);
@@ -124,9 +119,7 @@ export class GoogleCalendarClient {
    * Returns the created event's ID.
    */
   async createEvent(event: CreateEventInput): Promise<{ eventId: string; meetUrl?: string }> {
-    const url = new URL(
-      `${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}/events`,
-    );
+    const url = new URL(`${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}/events`);
     if (event.addGoogleMeet) url.searchParams.set('conferenceDataVersion', '1');
 
     const body = {
@@ -190,20 +183,20 @@ export class GoogleCalendarClient {
     if (!data.id) {
       throw new Error('Google Calendar createEvent: response missing event id');
     }
-    const meetUrl = data.hangoutLink ?? data.conferenceData?.entryPoints?.find(
-      (entry) => entry.entryPointType === 'video' && entry.uri?.startsWith('https://meet.google.com/'),
-    )?.uri;
+    const meetUrl =
+      data.hangoutLink ??
+      data.conferenceData?.entryPoints?.find(
+        (entry) => entry.entryPointType === 'video' && entry.uri?.startsWith('https://meet.google.com/'),
+      )?.uri;
     if (requireMeet && !meetUrl) {
       throw new Error('Google Calendar createEvent: response missing Google Meet URL');
     }
     return { eventId: data.id, meetUrl };
   }
 
-  private async getCreatedEvent(
-    eventId: string,
-    requireMeet: boolean,
-  ): Promise<{ eventId: string; meetUrl?: string }> {
-    const url = `${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}` +
+  private async getCreatedEvent(eventId: string, requireMeet: boolean): Promise<{ eventId: string; meetUrl?: string }> {
+    const url =
+      `${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}` +
       `/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.config.accessToken}` },

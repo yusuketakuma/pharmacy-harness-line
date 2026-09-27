@@ -17,10 +17,7 @@ import {
  * unanswered-inbox の「構造化メッセ除外」判定が同じルール解釈を共有する。
  * 未知の match_type はマッチなし扱い (誤マッチで inbox から隠すより安全側)。
  */
-export function keywordMatches(
-  rule: { keyword: string; match_type: string },
-  text: string,
-): boolean {
+export function keywordMatches(rule: { keyword: string; match_type: string }, text: string): boolean {
   if (rule.match_type === 'exact') return text === rule.keyword;
   if (rule.match_type === 'contains') return text.includes(rule.keyword);
   return false;
@@ -50,10 +47,7 @@ export interface MatchAndReplyResult {
 
 export type AutoReplySender = (replyToken: string, messages: Message[]) => Promise<void>;
 
-async function resolveAutoReplyLiffId(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<string | null> {
+async function resolveAutoReplyLiffId(db: D1Database, lineAccountId: string): Promise<string | null> {
   const account = await getLineAccountById(db, lineAccountId);
   return account?.is_active && account.liff_id ? account.liff_id : null;
 }
@@ -87,14 +81,7 @@ export async function matchAndReply(
     replyMessage?: AutoReplySender;
   } = {},
 ): Promise<MatchAndReplyResult> {
-  const {
-    tenantId,
-    eventKey,
-    lineAccountId = null,
-    workerUrl,
-    logContext,
-    replyMessage,
-  } = opts;
+  const { tenantId, eventKey, lineAccountId = null, workerUrl, logContext, replyMessage } = opts;
 
   // グローバルルール (line_account_id IS NULL) + このアカウントのルール。
   // lineAccountId が null のときは `= NULL` が偽になるのでグローバルのみ残る。
@@ -131,22 +118,14 @@ export async function matchAndReply(
       if (!liffId) {
         throw new Error('LIFF ID is not configured for the matched LINE account');
       }
-      expandedContent = renderBroadcastMessageContent(
-        resolved.messageType,
-        expandedContent,
-        { liffId },
-      );
+      expandedContent = renderBroadcastMessageContent(resolved.messageType, expandedContent, {
+        liffId,
+      });
     }
     const replyMsg = buildMessage(resolved.messageType, expandedContent);
     const replyPayload = messageToLogPayload(replyMsg);
     durableReplyPending = true;
-    const operationId = await createBroadcastRetryKey(
-      'auto-reply',
-      tenantId,
-      lineAccountId,
-      eventKey,
-      rule.id,
-    );
+    const operationId = await createBroadcastRetryKey('auto-reply', tenantId, lineAccountId, eventKey, rule.id);
     const delivery = await deliverTrackedLineReply({
       db,
       operationId,

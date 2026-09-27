@@ -25,7 +25,12 @@ declare const liff: {
   init(config: { liffId: string }): Promise<void>;
   isLoggedIn(): boolean;
   login(opts?: { redirectUri?: string }): void;
-  getProfile(): Promise<{ userId: string; displayName: string; pictureUrl?: string; statusMessage?: string }>;
+  getProfile(): Promise<{
+    userId: string;
+    displayName: string;
+    pictureUrl?: string;
+    statusMessage?: string;
+  }>;
   getIDToken(): string | null;
   getAccessToken(): string | null;
   getDecodedIDToken(): { sub: string; name?: string; email?: string; picture?: string } | null;
@@ -105,9 +110,7 @@ function escapeHtml(str: string): string {
 
 function showFriendAdd(profile: { displayName: string; pictureUrl?: string }) {
   const container = document.getElementById('app')!;
-  const friendAddUrl = BOT_BASIC_ID
-    ? `https://line.me/R/ti/p/${BOT_BASIC_ID}`
-    : '#';
+  const friendAddUrl = BOT_BASIC_ID ? `https://line.me/R/ti/p/${BOT_BASIC_ID}` : '#';
 
   container.innerHTML = `
     <div class="card">
@@ -156,11 +159,13 @@ function showFriendAdd(profile: { displayName: string; pictureUrl?: string }) {
             }),
           });
           if (res.ok) {
-            const data = await res.json() as { success: boolean; data?: { userId?: string } };
+            const data = (await res.json()) as { success: boolean; data?: { userId?: string } };
             if (data?.data?.userId) saveUuid(data.data.userId);
           }
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
 
       // Send form link if form param exists (was lost during friend-add flow)
       const formParam = new URLSearchParams(window.location.search).get('form');
@@ -184,7 +189,9 @@ function showFriendAdd(profile: { displayName: string; pictureUrl?: string }) {
               igan: params.get('igan') || '',
             }),
           });
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
       document.removeEventListener('visibilitychange', onVisibilityChange);
       showCompletion(profile, false);
@@ -207,9 +214,10 @@ function showCompletion(profile: { displayName: string; pictureUrl?: string }, i
         <p class="name">${escapeHtml(profile.displayName)} さん</p>
       </div>
       <p class="message">
-        ${isRecovery
-          ? '以前のアカウント情報を引き継ぎました。'
-          : 'ありがとうございます！これからお役立ち情報をお届けします。'
+        ${
+          isRecovery
+            ? '以前のアカウント情報を引き継ぎました。'
+            : 'ありがとうございます！これからお役立ち情報をお届けします。'
         }
         <br>このページは閉じて大丈夫です。
       </p>
@@ -264,17 +272,19 @@ async function linkAndAddFlow() {
         iga: linkParams.get('iga') || '',
         igan: linkParams.get('igan') || '',
       }),
-    }).then(async (res) => {
-      if (res.ok) {
-        const data = await res.json() as { success: boolean; data?: { userId?: string } };
-        if (data?.data?.userId) {
-          saveUuid(data.data.userId);
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { success: boolean; data?: { userId?: string } };
+          if (data?.data?.userId) {
+            saveUuid(data.data.userId);
+          }
         }
-      }
-      return res;
-    }).catch(() => {
-      // Silent fail — UUID linking is best-effort
-    });
+        return res;
+      })
+      .catch(() => {
+        // Silent fail — UUID linking is best-effort
+      });
 
     // 2. Attribution tracking
     if (ref) {
@@ -286,10 +296,7 @@ async function linkAndAddFlow() {
 
     // 3. Redirect flow (for wrapped URLs)
     if (redirectUrl) {
-      await Promise.race([
-        linkPromise,
-        new Promise((r) => setTimeout(r, 500)),
-      ]);
+      await Promise.race([linkPromise, new Promise((r) => setTimeout(r, 500))]);
       // Append LINE userId to tracking links so clicks are attributed
       if (redirectUrl.includes('/t/')) {
         const sep = redirectUrl.includes('?') ? '&' : '?';
@@ -329,13 +336,14 @@ async function linkAndAddFlow() {
               igan: params.get('igan') || '',
             }),
           });
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
         showCompletion(profile, !!existingUuid);
       } else {
         showCompletion(profile, !!existingUuid);
       }
     }
-
   } catch (err) {
     if (redirectUrl) {
       window.location.href = redirectUrl;
@@ -489,9 +497,7 @@ async function initEventBooking(initialKind: 'detail' | 'history'): Promise<void
   }
   const { mountEventBooking } = await import('./event-booking/main.js');
   const ctx = { liffId: LIFF_ID, lineUserId: profile.userId, idToken };
-  const initial = initialKind === 'detail'
-    ? { kind: 'detail' as const, eventId }
-    : { kind: 'history' as const };
+  const initial = initialKind === 'detail' ? { kind: 'detail' as const, eventId } : { kind: 'history' as const };
   mountEventBooking(container, ctx, initial);
 }
 
@@ -651,14 +657,20 @@ function forceReloginForStaleToken(): boolean {
   let lastAttempt = 0;
   try {
     lastAttempt = Number(sessionStorage.getItem(RELOGIN_GUARD_KEY) || 0);
-  } catch { /* sessionStorage unavailable — still attempt a single redirect */ }
+  } catch {
+    /* sessionStorage unavailable — still attempt a single redirect */
+  }
   if (Date.now() - lastAttempt < 60_000) return false;
   try {
     sessionStorage.setItem(RELOGIN_GUARD_KEY, String(Date.now()));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     liff.logout();
-  } catch { /* ignore — login below still re-issues tokens */ }
+  } catch {
+    /* ignore — login below still re-issues tokens */
+  }
   liff.login({ redirectUri: window.location.href });
   return true;
 }
@@ -677,7 +689,10 @@ async function main() {
     // Resolve bot basic ID from API (multi-account support)
     try {
       const configRes = await fetch(`/api/liff/config?liffId=${encodeURIComponent(LIFF_ID)}`);
-      const configJson = await configRes.json() as { success: boolean; data?: { botBasicId?: string } };
+      const configJson = (await configRes.json()) as {
+        success: boolean;
+        data?: { botBasicId?: string };
+      };
       if (configJson.success && configJson.data?.botBasicId) {
         BOT_BASIC_ID = configJson.data.botBasicId;
       }

@@ -1,0 +1,6 @@
+{
+  "path": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.image-privacy-bhIpY9/route.mjs",
+  "bytes": 71066,
+  "sha256": "30f389cc5242164cb9e077ed78793a3b25c512fa16b1bbcc24f8b3d1a67d4f11",
+  "runtime": "Node imported bundled real Hono route, synthetic identity/database/R2; not full Worker auth or native D1"
+}

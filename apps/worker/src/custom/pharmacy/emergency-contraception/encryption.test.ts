@@ -22,11 +22,17 @@ describe('emergency intake encryption', () => {
   });
 
   it('binds ciphertext to tenant, account, patient, and intake', async () => {
-    const encrypted = await sealEmergencyPayload({ intercourseAt: 'x', intercourseTimeUnknown: true }, 'secret', context);
-    await expect(openEmergencyPayload(encrypted, 'secret', {
-      ...context,
-      lineAccountId: 'account-b',
-    })).rejects.toThrow('encrypted intake is invalid');
+    const encrypted = await sealEmergencyPayload(
+      { intercourseAt: 'x', intercourseTimeUnknown: true },
+      'secret',
+      context,
+    );
+    await expect(
+      openEmergencyPayload(encrypted, 'secret', {
+        ...context,
+        lineAccountId: 'account-b',
+      }),
+    ).rejects.toThrow('encrypted intake is invalid');
   });
 
   it('fails closed without a configured secret', async () => {
@@ -82,8 +88,14 @@ describe('emergency intake encryption', () => {
       pregnancyTestRecommended: true,
       idDocumentAvailable: true,
       detailFlags: [
-        'lng_allergy', 'liver_disease', 'pregnancy_reported', 'breastfeeding_advice',
-        'under_medical_treatment', 'drug_allergy_history', 'heart_kidney_gi_disease', 'st_johns_wort',
+        'lng_allergy',
+        'liver_disease',
+        'pregnancy_reported',
+        'breastfeeding_advice',
+        'under_medical_treatment',
+        'drug_allergy_history',
+        'heart_kidney_gi_disease',
+        'st_johns_wort',
       ],
       checklistVersion: 'lng-2026-08',
       consentContentHash: 'a'.repeat(64),

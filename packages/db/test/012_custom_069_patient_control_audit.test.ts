@@ -10,10 +10,13 @@ const MIGRATION = '012_custom_069_patient_control_audit.sql';
 function loadPreMigrationDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
-  for (const file of readdirSync(join(ROOT, 'migrations')).filter((name) =>
-    name.endsWith('.sql') && name < MIGRATION).sort()) {
+  for (const file of readdirSync(join(ROOT, 'migrations'))
+    .filter((name) => name.endsWith('.sql') && name < MIGRATION)
+    .sort()) {
     for (const statement of readFileSync(join(ROOT, 'migrations', file), 'utf8')
-      .split(/;\s*(?:\r?\n|$)/).map((sql) => sql.trim()).filter(Boolean)) {
+      .split(/;\s*(?:\r?\n|$)/)
+      .map((sql) => sql.trim())
+      .filter(Boolean)) {
       try {
         db.exec(statement);
       } catch (error) {
@@ -46,14 +49,26 @@ describe('012 custom_069 patient control audit', () => {
               'privacy_withdrawn', 1, '2026-09-01T00:00:00.000Z');
     `);
 
-    expect(() => db.prepare(`UPDATE pharmacy_patient_control_audit_events
-      SET action = 'privacy_reconsented' WHERE id = 'audit-a'`).run()).toThrow(/immutable/);
-    expect(() => db.prepare(`DELETE FROM pharmacy_patient_control_audit_events
-      WHERE id = 'audit-a'`).run()).toThrow(/immutable/);
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_control_audit_events
+    expect(() =>
+      db
+        .prepare(`UPDATE pharmacy_patient_control_audit_events
+      SET action = 'privacy_reconsented' WHERE id = 'audit-a'`)
+        .run(),
+    ).toThrow(/immutable/);
+    expect(() =>
+      db
+        .prepare(`DELETE FROM pharmacy_patient_control_audit_events
+      WHERE id = 'audit-a'`)
+        .run(),
+    ).toThrow(/immutable/);
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_control_audit_events
       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id, action,
        control_version, created_at)
       VALUES ('bad-action', 'account-a', 'patient-a', 'friend-a', 'patient', 'friend-a',
-              'answers_changed', 2, '2026-09-01T00:00:00.000Z')`).run()).toThrow(/CHECK/);
+              'answers_changed', 2, '2026-09-01T00:00:00.000Z')`)
+        .run(),
+    ).toThrow(/CHECK/);
   });
 });

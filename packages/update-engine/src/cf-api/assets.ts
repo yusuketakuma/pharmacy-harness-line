@@ -69,11 +69,7 @@ export async function uploadWorkerAssets(opts: {
         throw new Error(`worker assets API requested unknown hash ${hash}`);
       }
       const base64 = file.content.toString('base64');
-      form.append(
-        hash,
-        new Blob([base64], { type: contentTypeFor(file.path) }),
-        hash,
-      );
+      form.append(hash, new Blob([base64], { type: contentTypeFor(file.path) }), hash);
     }
 
     const uploadResponse = await fetchWithAssetRetry(

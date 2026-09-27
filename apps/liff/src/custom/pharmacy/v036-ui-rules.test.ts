@@ -28,15 +28,28 @@ const ALLOWED_SMALL_TEXT = [
   /absolute left-1 top-1 rounded px-2 py-1 text-sm font-bold/, // per-image send status chip
 ];
 
-// Collect the opening tag only: accumulate lines from `start` until the line
-// containing the tag-closing `>` (lookahead is bounded to the tag, not the
-// surrounding markup).
+// Collect the opening tag only: accumulate lines from `start` until the
+// tag-closing `>` (lookahead is bounded to the tag, not the surrounding
+// markup). `>` inside `{...}` attribute expressions (e.g. `disabled={a > 0}`)
+// does not close the tag — track brace depth while scanning.
 function openingTag(lines: string[], start: number): string {
   let tag = '';
+  let depth = 0;
   for (let i = start; i < lines.length && i < start + 15; i += 1) {
-    tag += `${lines[i]} `;
-    // Ignore `=>` and `>=` inside attribute expressions.
-    if (lines[i].replace(/=>|>=/g, '').includes('>')) break;
+    const line = lines[i];
+    let closed = false;
+    for (let j = 0; j < line.length; j += 1) {
+      const ch = line[j];
+      if (ch === '{') depth += 1;
+      else if (ch === '}') depth -= 1;
+      else if (ch === '>' && depth <= 0 && line[j - 1] !== '=' && line[j + 1] !== '=') {
+        tag += line.slice(0, j + 1);
+        closed = true;
+        break;
+      }
+    }
+    if (closed) break;
+    tag += `${line} `;
   }
   return tag;
 }
@@ -73,8 +86,8 @@ describe('v0.36 patient UI rules', () => {
         if (!isInteractive) return;
         const tag = openingTag(lines, index);
         // fieldClass is a per-file shared constant; verify it keeps the floor.
-        const usesSharedFieldClass = /className=\{fieldClass\}/.test(tag) &&
-          /fieldClass = '[^']*min-h-1[12]/.test(source);
+        const usesSharedFieldClass =
+          /className=\{fieldClass\}/.test(tag) && /fieldClass =\s*'[^']*min-h-1[12]/.test(source);
         if (/min-h-1[12]|pharmacy-control|sr-only/.test(tag) || usesSharedFieldClass) return;
         violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
       });
@@ -122,7 +135,14 @@ describe('v0.36 patient UI rules', () => {
         if (!/type="(?:number|date)"/.test(line)) return;
         // Recent-date pickers (last menstruation) are fine; the ban targets
         // remembered dates like birth dates, plus number spinners.
-        if (/type="date"/.test(line) && lines.slice(Math.max(0, index - 3), index).join('\n').includes('emergency-last-period')) return;
+        if (
+          /type="date"/.test(line) &&
+          lines
+            .slice(Math.max(0, index - 3), index)
+            .join('\n')
+            .includes('emergency-last-period')
+        )
+          return;
         violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
       });
     }
@@ -138,8 +158,8 @@ describe('v0.36 patient UI rules', () => {
         if (!/<(?:input|textarea|select)(?=[\s>]|$)/.test(line)) return;
         const tag = openingTag(lines, index);
         if (/type="(?:radio|checkbox|file|hidden|submit|button)"/.test(tag)) return;
-        const usesSharedFieldClass = /className=\{fieldClass\}/.test(tag) &&
-          /fieldClass = '[^']*text-base/.test(source);
+        const usesSharedFieldClass =
+          /className=\{fieldClass\}/.test(tag) && /fieldClass =\s*'[^']*text-base/.test(source);
         if (/text-(?:base|lg|xl|2xl)/.test(tag) || usesSharedFieldClass) return;
         violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
       });
@@ -193,9 +213,15 @@ describe('v0.36 patient UI rules', () => {
         const args = (call[2] ?? '').trim();
         const comma = args.indexOf(',');
         // AutoRetry's callback is arg2; Online's reconnect callback is arg1.
-        const callback = (call[1] === 'Online'
-          ? (comma === -1 ? args : args.slice(0, comma))
-          : (comma === -1 ? '' : args.slice(comma + 1))).trim();
+        const callback = (
+          call[1] === 'Online'
+            ? comma === -1
+              ? args
+              : args.slice(0, comma)
+            : comma === -1
+              ? ''
+              : args.slice(comma + 1)
+        ).trim();
         // No argument (banner-only usage) is fine. A named read must carry a
         // read-style name; a thin arrow may only invoke named reads — never
         // inline state writes that could stomp an in-progress form.
@@ -215,7 +241,11 @@ describe('v0.36 patient UI rules', () => {
         }
         const invoked = [...callback.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
         const hasSetterOrAssign = /set[A-Z]|[^=!<>]=[^=>]/.test(callback.replace('=>', ''));
-        if (invoked.length === 0 || invoked.some((name) => !/load|refresh|retry|fetch|read/i.test(name)) || hasSetterOrAssign) {
+        if (
+          invoked.length === 0 ||
+          invoked.some((name) => !/load|refresh|retry|fetch|read/i.test(name)) ||
+          hasSetterOrAssign
+        ) {
           violations.push(`${file.replace(SEAM_ROOT, '')} -> ${callback}`);
         }
       }
@@ -229,7 +259,9 @@ describe('v0.36 patient UI rules', () => {
   // resets only when the underlying policy text actually changed.
   it('keeps background refreshes from overwriting in-progress form state', () => {
     const intake = readFileSync(join(SEAM_ROOT, 'intake/PatientIntakePage.tsx'), 'utf8');
-    expect(intake).toMatch(/void loadPatients\(true\);\s*\n\s*void loadPrivacyPolicy\(\(\) => mountedRef\.current, true\)/);
+    expect(intake).toMatch(
+      /void loadPatients\(true\);\s*\n\s*void loadPrivacyPolicy\(\(\) => mountedRef\.current, true\)/,
+    );
     expect(intake).toMatch(/policyFingerprintRef\.current !== fingerprint[\s\S]*?setPrivacyConsent\(false\)/);
     expect(intake).toContain('newPatientDraftHandledRef.current');
     const prescriptions = readFileSync(join(SEAM_ROOT, 'prescriptions/PrescriptionPage.tsx'), 'utf8');

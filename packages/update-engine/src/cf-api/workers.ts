@@ -77,9 +77,7 @@ export async function putWorkerScript(opts: {
   // secret_text binding WITH a text value is a caller explicitly setting
   // a new secret — sent as-is, and it takes precedence over the
   // inherited one.
-  let sendableBindings = bindings.filter(
-    (b) => !SECRET_BINDING_TYPES.includes(b.type) || typeof b.text === 'string',
-  );
+  let sendableBindings = bindings.filter((b) => !SECRET_BINDING_TYPES.includes(b.type) || typeof b.text === 'string');
   if (opts.assets) {
     if (opts.keepAssets) {
       throw new Error('keepAssets and assets cannot be used together');
@@ -112,10 +110,7 @@ export async function putWorkerScript(opts: {
   }
 
   const fd = new FormData();
-  fd.set(
-    'metadata',
-    new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
-  );
+  fd.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
   // Copy bytes into a fresh ArrayBuffer so Blob accepts them in both Node and
   // Workers runtimes. Slicing avoids the SharedArrayBuffer-vs-ArrayBuffer
   // type incompatibility on Node's Buffer.
@@ -123,11 +118,7 @@ export async function putWorkerScript(opts: {
     scriptContent.byteOffset,
     scriptContent.byteOffset + scriptContent.byteLength,
   ) as ArrayBuffer;
-  fd.set(
-    'worker.js',
-    new Blob([ab], { type: 'application/javascript+module' }),
-    'worker.js',
-  );
+  fd.set('worker.js', new Blob([ab], { type: 'application/javascript+module' }), 'worker.js');
 
   const res = await fetch(`${workersApiBase(creds.accountId)}/${scriptName}`, {
     method: 'PUT',
@@ -144,10 +135,7 @@ export async function putWorkerScript(opts: {
  * Fetch the deployed Worker script source. Used to snapshot the current
  * Worker before applying an update so we can roll back if verify fails.
  */
-export async function getWorkerScriptContent(opts: {
-  creds: CfApiCreds;
-  scriptName: string;
-}): Promise<string> {
+export async function getWorkerScriptContent(opts: { creds: CfApiCreds; scriptName: string }): Promise<string> {
   const { creds, scriptName } = opts;
   const res = await fetch(`${workersApiBase(creds.accountId)}/${scriptName}`, {
     method: 'GET',
@@ -165,18 +153,12 @@ export async function getWorkerScriptContent(opts: {
  * bindings when PUTting a new script — CF does not preserve bindings
  * across script uploads.
  */
-export async function listWorkerBindings(opts: {
-  creds: CfApiCreds;
-  scriptName: string;
-}): Promise<WorkerBinding[]> {
+export async function listWorkerBindings(opts: { creds: CfApiCreds; scriptName: string }): Promise<WorkerBinding[]> {
   const { creds, scriptName } = opts;
-  const res = await fetch(
-    `${workersApiBase(creds.accountId)}/${scriptName}/bindings`,
-    {
-      method: 'GET',
-      headers: authHeader(creds.apiToken),
-    },
-  );
+  const res = await fetch(`${workersApiBase(creds.accountId)}/${scriptName}/bindings`, {
+    method: 'GET',
+    headers: authHeader(creds.apiToken),
+  });
   if (!res.ok) {
     await throwHttpError('GET worker bindings failed', res);
   }
@@ -196,18 +178,15 @@ export async function getLatestWorkerDeployment(opts: {
   scriptName: string;
 }): Promise<WorkerDeployment> {
   const { creds, scriptName } = opts;
-  const res = await fetch(
-    `${workersApiBase(creds.accountId)}/${scriptName}/deployments`,
-    { headers: authHeader(creds.apiToken) },
-  );
+  const res = await fetch(`${workersApiBase(creds.accountId)}/${scriptName}/deployments`, {
+    headers: authHeader(creds.apiToken),
+  });
   if (!res.ok) await throwHttpError('GET worker deployments failed', res);
   const body = (await res.json()) as {
     result?: { deployments?: WorkerDeployment[] };
   };
   const deployments = body.result?.deployments ?? [];
-  const latest = deployments
-    .slice()
-    .sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
+  const latest = deployments.slice().sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
   if (!latest?.versions?.[0]?.version_id) {
     throw new Error(`Worker '${scriptName}' has no deployable version snapshot`);
   }
@@ -227,23 +206,20 @@ export async function deployWorkerVersion(opts: {
   versionId: string;
 }): Promise<void> {
   const { creds, scriptName, versionId } = opts;
-  const res = await fetch(
-    `${workersApiBase(creds.accountId)}/${scriptName}/deployments`,
-    {
-      method: 'POST',
-      headers: {
-        ...authHeader(creds.apiToken),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        strategy: 'percentage',
-        versions: [{ version_id: versionId, percentage: 100 }],
-        annotations: {
-          'workers/message': 'LINE Harness automatic update rollback',
-          'workers/triggered_by': 'line-harness-update-engine',
-        },
-      }),
+  const res = await fetch(`${workersApiBase(creds.accountId)}/${scriptName}/deployments`, {
+    method: 'POST',
+    headers: {
+      ...authHeader(creds.apiToken),
+      'Content-Type': 'application/json',
     },
-  );
+    body: JSON.stringify({
+      strategy: 'percentage',
+      versions: [{ version_id: versionId, percentage: 100 }],
+      annotations: {
+        'workers/message': 'LINE Harness automatic update rollback',
+        'workers/triggered_by': 'line-harness-update-engine',
+      },
+    }),
+  });
   if (!res.ok) await throwHttpError('POST worker rollback deployment failed', res);
 }

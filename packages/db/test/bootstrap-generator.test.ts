@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { closeSync, cpSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -23,7 +33,9 @@ describe('bootstrap migration statement boundaries', () => {
       cpSync(join(root, 'schema.sql'), join(scratch, 'schema.sql'));
       mkdirSync(join(scratch, 'migrations'));
       symlinkSync(join(root, 'node_modules'), join(scratch, 'node_modules'), 'dir');
-      writeFileSync(join(scratch, 'migrations/002_synthetic.sql'), `
+      writeFileSync(
+        join(scratch, 'migrations/002_synthetic.sql'),
+        `
         CREATE TABLE audit_source (id TEXT);
         CREATE TABLE audit_copy (id TEXT, note TEXT);
         -- Benign duplicate must not skip subsequent statements.
@@ -36,14 +48,18 @@ describe('bootstrap migration statement boundaries', () => {
           INSERT INTO audit_copy VALUES (NEW.id, 'it''s;\nsecond');
         END;
         CREATE INDEX audit_copy_id ON audit_copy(id);
-      `);
+      `,
+      );
       const output = join(scratch, 'output.sql');
       const fd = openSync(output, 'w');
       try {
         execFileSync(process.execPath, [join(scratch, 'scripts/generate-bootstrap.mjs'), '--stdout'], {
-          stdio: ['ignore', fd, 'pipe'], env: { PATH: process.env.PATH, TMPDIR: scratch },
+          stdio: ['ignore', fd, 'pipe'],
+          env: { PATH: process.env.PATH, TMPDIR: scratch },
         });
-      } finally { closeSync(fd); }
+      } finally {
+        closeSync(fd);
+      }
       db.exec(readFileSync(output, 'utf8'));
       db.prepare('INSERT INTO audit_source VALUES (?)').run('one');
       expect(db.prepare('SELECT id, note FROM audit_copy ORDER BY rowid').all()).toEqual([
@@ -64,10 +80,13 @@ describe('bootstrap migration statement boundaries', () => {
         -- ignored ;
         CREATE TABLE "a;\nb" ("x" TEXT); /* ; */
         INSERT INTO "a;\nb" VALUES ('it''s;\ntext'); -- last comment
-      `)) db.exec(statement);
+      `))
+        db.exec(statement);
       expect(db.prepare('SELECT x FROM "a;\nb"').get()).toEqual({ x: "it's;\ntext" });
       expect(splitSqlStatements('-- only comment\n/* ; */')).toEqual([]);
-    } finally { db.close(); }
+    } finally {
+      db.close();
+    }
   });
 
   it.each(["SELECT 'unterminated", 'SELECT 1; /* unterminated'])('rejects incomplete lexical input %s', (sql) => {

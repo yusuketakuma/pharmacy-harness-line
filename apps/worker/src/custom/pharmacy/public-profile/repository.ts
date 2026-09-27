@@ -43,11 +43,22 @@ export interface PharmacyPublicProfileInput {
 }
 
 const LIMITS = {
-  displayName: 120, phone: 40, faxNumber: 40, postalCode: 16, address: 500,
-  businessHours: 2000, closureNotice: 1000, accessNote: 1000,
-  parkingNote: 1000, googleMapsUrl: 2000,
-  prescriptionReceptionHours: 2000, afterHoursNote: 1000, servicesNote: 2000,
-  accessibilityNote: 1000, supportedLanguages: 1000, paymentMethods: 1000,
+  displayName: 120,
+  phone: 40,
+  faxNumber: 40,
+  postalCode: 16,
+  address: 500,
+  businessHours: 2000,
+  closureNotice: 1000,
+  accessNote: 1000,
+  parkingNote: 1000,
+  googleMapsUrl: 2000,
+  prescriptionReceptionHours: 2000,
+  afterHoursNote: 1000,
+  servicesNote: 2000,
+  accessibilityNote: 1000,
+  supportedLanguages: 1000,
+  paymentMethods: 1000,
   websiteUrl: 2000,
 } as const;
 
@@ -55,10 +66,13 @@ function validGoogleMapsUrl(value: string): boolean {
   if (!value) return true;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && (
-      url.hostname === 'www.google.com' || url.hostname === 'google.com' ||
-      url.hostname === 'maps.google.com' || url.hostname === 'www.google.co.jp' ||
-      url.hostname === 'maps.app.goo.gl'
+    return (
+      url.protocol === 'https:' &&
+      (url.hostname === 'www.google.com' ||
+        url.hostname === 'google.com' ||
+        url.hostname === 'maps.google.com' ||
+        url.hostname === 'www.google.co.jp' ||
+        url.hostname === 'maps.app.goo.gl')
     );
   } catch {
     return false;
@@ -105,8 +119,9 @@ export async function getPharmacyPublicProfile(
   db: D1Database,
   lineAccountId: string,
 ): Promise<PharmacyPublicProfile | null> {
-  return db.prepare(
-    `SELECT account.id AS line_account_id,
+  return db
+    .prepare(
+      `SELECT account.id AS line_account_id,
             COALESCE(profile.display_name, account.name) AS display_name,
             COALESCE(profile.phone, '') AS phone,
             COALESCE(profile.fax_number, '') AS fax_number,
@@ -128,23 +143,29 @@ export async function getPharmacyPublicProfile(
        FROM line_accounts account
        LEFT JOIN pharmacy_public_profiles profile ON profile.line_account_id = account.id
       WHERE account.id = ?`,
-  ).bind(lineAccountId).first<PharmacyPublicProfile>();
+    )
+    .bind(lineAccountId)
+    .first<PharmacyPublicProfile>();
 }
 
-export async function savePharmacyPublicProfile(
-  db: D1Database,
-  input: PharmacyPublicProfileInput,
-): Promise<void> {
+export async function savePharmacyPublicProfile(db: D1Database, input: PharmacyPublicProfileInput): Promise<void> {
   const value = normalized(input);
-  if (!value.displayName || !value.address || !value.businessHours ||
-      Object.entries(value).some(([key, text]) => text.length > LIMITS[key as keyof typeof LIMITS]) ||
-      !validContactNumber(value.phone) || !validContactNumber(value.faxNumber) ||
-      !validGoogleMapsUrl(value.googleMapsUrl) || !validWebsiteUrl(value.websiteUrl)) {
+  if (
+    !value.displayName ||
+    !value.address ||
+    !value.businessHours ||
+    Object.entries(value).some(([key, text]) => text.length > LIMITS[key as keyof typeof LIMITS]) ||
+    !validContactNumber(value.phone) ||
+    !validContactNumber(value.faxNumber) ||
+    !validGoogleMapsUrl(value.googleMapsUrl) ||
+    !validWebsiteUrl(value.websiteUrl)
+  ) {
     throw new Error('invalid pharmacy public profile');
   }
   const now = new Date().toISOString();
-  await db.prepare(
-    `INSERT INTO pharmacy_public_profiles
+  await db
+    .prepare(
+      `INSERT INTO pharmacy_public_profiles
        (line_account_id, display_name, phone, fax_number, postal_code, address, business_hours,
         closure_notice, access_note, parking_note, google_maps_url,
         prescription_reception_hours, after_hours_note, services_note,
@@ -171,12 +192,29 @@ export async function savePharmacyPublicProfile(
        website_url = excluded.website_url,
        updated_by = excluded.updated_by,
        updated_at = excluded.updated_at`,
-  ).bind(
-    input.lineAccountId, value.displayName, value.phone, value.faxNumber, value.postalCode,
-    value.address, value.businessHours, value.closureNotice, value.accessNote,
-    value.parkingNote, value.googleMapsUrl, value.prescriptionReceptionHours,
-    value.afterHoursNote, value.servicesNote, value.accessibilityNote,
-    value.supportedLanguages, value.paymentMethods, value.websiteUrl,
-    input.staffId, now, now,
-  ).run();
+    )
+    .bind(
+      input.lineAccountId,
+      value.displayName,
+      value.phone,
+      value.faxNumber,
+      value.postalCode,
+      value.address,
+      value.businessHours,
+      value.closureNotice,
+      value.accessNote,
+      value.parkingNote,
+      value.googleMapsUrl,
+      value.prescriptionReceptionHours,
+      value.afterHoursNote,
+      value.servicesNote,
+      value.accessibilityNote,
+      value.supportedLanguages,
+      value.paymentMethods,
+      value.websiteUrl,
+      input.staffId,
+      now,
+      now,
+    )
+    .run();
 }

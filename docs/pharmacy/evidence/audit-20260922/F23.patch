@@ -1,0 +1,177 @@
+diff --git a/apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts b/apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts
+index b5f5661..d27f92f 100644
+--- a/apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts
++++ b/apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts
+@@ -201,3 +201,66 @@ it('preserves a previous unknown delivery when the expectation ends before retry
+ 
+   } finally { sqlite.close(); }
+ });
++
++it.each(['initial_patient', 'post_claim_patient', 'final_patient', 'final_account'])(
++  'retains unknown delivery history when stopped at %s', async phase => {
++    const { LineHarnessUnknownOutcomeError } = await import('../../../services/line-proxy-send.js');
++    const { setPatientNotificationPreference } = await import('../intake/repository.js');
++    const { sqlite, db } = setup();
++    try {
++      const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
++      push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic unknown delivery'));
++      expect(await deliver(reminder, db)).toBe('failed');
++      const previous = sqlite.prepare("SELECT created_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get();
++      sqlite.exec("UPDATE pharmacy_notification_events SET occurred_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','-16 minutes') WHERE idempotency_key='next-intake:expectation-000'");
++      let patientReads = 0;
++      let stopped = false;
++      const intercepted = {
++        ...db,
++        prepare: (sql: string) => {
++          const statement = db.prepare(sql);
++          const patientRead = sql.includes('SELECT patient.relationship');
++          const finalRead = sql.includes('final pharmacy dispatch scope');
++          if (!patientRead && !finalRead) return statement;
++          return {bind: (...values: unknown[]) => ({first: async () => {
++            if (patientRead) patientReads++;
++            const stopAt = phase === 'initial_patient' ? 1 : phase === 'post_claim_patient' ? 2 : 3;
++            if (!stopped && phase !== 'final_account' && patientRead && patientReads === stopAt) {
++              await setPatientNotificationPreference(db, {lineAccountId:'account-a',friendId:'friend-a'}, 'patient-000', {action:'stop',expectedControlVersion:0});
++              stopped = true;
++            }
++            if (phase === 'final_account' && finalRead) {
++              sqlite.exec("UPDATE line_accounts SET is_active=0 WHERE id='account-a'");
++              stopped = true;
++            }
++            return statement.bind(...values).first();
++          }})};
++        },
++      } as D1Database;
++      expect(await deliver(reminder, intercepted)).toBe('skipped');
++      expect(stopped).toBe(true);
++      expect(push).toHaveBeenCalledOnce();
++      expect(sqlite.prepare("SELECT outcome,created_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
++        .toEqual({...previous as object,outcome:'attempted'});
++      expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
++    } finally {sqlite.close();}
++  },
++);
++
++it.each(['new', 'known_failure'])(
++  'still records a stop as blocked for a %s notification', async previous => {
++    const { setPatientNotificationPreference } = await import('../intake/repository.js');
++    const { sqlite, db } = setup();
++    try {
++      const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
++      if (previous === 'known_failure') {
++        push.mockRejectedValueOnce(new Error('synthetic known failure'));
++        expect(await deliver(reminder, db)).toBe('failed');
++      }
++      await setPatientNotificationPreference(db, {lineAccountId:'account-a',friendId:'friend-a'}, 'patient-000', {action:'stop',expectedControlVersion:0});
++      expect(await deliver(reminder, db)).toBe('skipped');
++      expect(push).toHaveBeenCalledTimes(previous === 'new' ? 0 : 1);
++      expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get()).toEqual({outcome:'blocked'});
++    } finally {sqlite.close();}
++  },
++);
+diff --git a/apps/worker/src/custom/pharmacy/growth-loop/sender.test.ts b/apps/worker/src/custom/pharmacy/growth-loop/sender.test.ts
+index 8795407..0f03773 100644
+--- a/apps/worker/src/custom/pharmacy/growth-loop/sender.test.ts
++++ b/apps/worker/src/custom/pharmacy/growth-loop/sender.test.ts
+@@ -432,7 +432,7 @@ describe('pharmacy automated sender', () => {
+       patientAccess.mockResolvedValue(access);
+       const db = scriptedDb([
+         { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
+-        { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
++        { match: "outcome = 'failed'", run: { changes: 0 } },
+       ]);
+ 
+       await expect(sendPharmacyAutomatedPush({
+@@ -449,7 +449,7 @@ describe('pharmacy automated sender', () => {
+     patientAccess.mockResolvedValue({ notifications: 'stopped' });
+     const db = scriptedDb([
+       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 0 } },
+-      { match: "outcome IN ('attempted','failed')", run: { changes: 1 } },
++      { match: "outcome = 'failed'", run: { changes: 1 } },
+     ]);
+ 
+     await expect(sendPharmacyAutomatedPush({
+@@ -493,7 +493,7 @@ describe('pharmacy automated sender', () => {
+     betaDeliveryState.mockResolvedValue('blocked');
+     const db = scriptedDb([
+       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
+-      { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
++      { match: "outcome = 'failed'", run: { changes: 0 } },
+     ]);
+ 
+     await expect(sendPharmacyAutomatedPush({
+@@ -553,7 +553,7 @@ describe('pharmacy automated sender', () => {
+       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+       { match: 'SELECT id, outcome', first: null },
+       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
+-      { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
++      { match: "outcome = 'failed'", run: { changes: 0 } },
+     ], seen);
+ 
+     await expect(sendPharmacyAutomatedPush({
+diff --git a/apps/worker/src/custom/pharmacy/growth-loop/sender.ts b/apps/worker/src/custom/pharmacy/growth-loop/sender.ts
+index e98047c..58e4212 100644
+--- a/apps/worker/src/custom/pharmacy/growth-loop/sender.ts
++++ b/apps/worker/src/custom/pharmacy/growth-loop/sender.ts
+@@ -81,11 +81,12 @@ async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Pro
+     crypto.randomUUID(), input.lineAccountId, input.friendId, input.messageId,
+     input.category, occurredAt, input.retryKey, occurredAt,
+   ).run();
++  // A prior attempt may have reached LINE; stopping delivery cannot resolve its outcome.
+   await input.db.prepare(
+     `UPDATE pharmacy_notification_events
+         SET outcome = 'blocked', occurred_at = ?
+       WHERE line_account_id = ? AND idempotency_key = ?
+-        AND outcome IN ('attempted','failed')`,
++        AND outcome = 'failed'`,
+   ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
+ }
+ 
+@@ -115,7 +116,7 @@ async function getPatientDeliveryState(
+   return membership === 'active' ? 'allowed' : membership === 'suspended' ? 'retryable' : 'blocked';
+ }
+ 
+-type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'continuity_inactive' | 'patient_retryable' | 'operations_blocked';
++type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
+ 
+ async function medicationFollowUpOperationsReady(
+   db: D1Database,
+@@ -365,7 +366,7 @@ async function getFinalDispatchState(
+   }
+   if (continuityReminder) {
+     if (!['active', 'paused'].includes(row.expectation_status ?? '') ||
+-        !['active', 'paused'].includes(row.continuity_status ?? '')) return 'continuity_inactive';
++        !['active', 'paused'].includes(row.continuity_status ?? '')) return 'blocked';
+     // A pause can be lifted; preserve the existing attempt for a later retry.
+     if (row.expectation_status === 'paused' || row.continuity_status === 'paused') return 'patient_retryable';
+   }
+@@ -521,7 +522,7 @@ export async function sendPharmacyAutomatedPush(
+ 
+   const postClaimPatientState = await getPatientDeliveryState(input, now);
+   if (postClaimPatientState !== 'allowed') {
+-    if (postClaimPatientState === 'blocked') {
++    if (postClaimPatientState === 'blocked' && !reclaimedUnknownAttempt) {
+       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+     }
+     // No provider call has happened. Preserve an attempted row so a
+@@ -532,7 +533,7 @@ export async function sendPharmacyAutomatedPush(
+   const finalNow = new Date();
+   const finalPatientState = await getPatientDeliveryState(input, finalNow);
+   if (finalPatientState !== 'allowed') {
+-    if (finalPatientState === 'blocked') {
++    if (finalPatientState === 'blocked' && !reclaimedUnknownAttempt) {
+       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+     }
+     // The external proxy has not been called yet; do not erase result-unknown
+@@ -543,9 +544,9 @@ export async function sendPharmacyAutomatedPush(
+   if (finalDispatchState === 'paused') {
+     return 'paused';
+   }
+-  if (finalDispatchState === 'blocked' || finalDispatchState === 'continuity_inactive') {
++  if (finalDispatchState === 'blocked') {
+     // Cancellation prevents another send, but cannot determine an earlier provider result.
+-    if (finalDispatchState !== 'continuity_inactive' || !reclaimedUnknownAttempt) {
++    if (!reclaimedUnknownAttempt) {
+       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+     }
+     return 'patient_blocked';

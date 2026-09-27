@@ -57,7 +57,8 @@ describe('V032 route inventory', () => {
     ]);
 
     const routeKeys = inventory.apis.flatMap((entry) =>
-      (entry.routePaths ?? []).map((route) => `${route.method} ${route.path}`));
+      (entry.routePaths ?? []).map((route) => `${route.method} ${route.path}`),
+    );
     for (const key of [
       'GET /api/liff/config',
       'GET /api/liff/pharmacy/feature-access',
@@ -71,16 +72,20 @@ describe('V032 route inventory', () => {
       'POST /api/liff/pharmacy/emergency-contraception/intakes',
       'GET /api/liff/pharmacy/public-profile',
       'GET /api/liff/pharmacy/privacy-policy',
-    ]) expect(routeKeys).toContain(key);
+    ])
+      expect(routeKeys).toContain(key);
   });
 
   it('covers every current custom pharmacy route source', () => {
     const inventory = buildV032RouteInventory();
     const expectedSources = discoverCustomPharmacyRouteSources(repoRoot);
-    const actualSources = [...new Set(inventory.apis
-      .filter((entry) => entry.source.startsWith('apps/worker/src/custom/pharmacy/'))
-      .map((entry) => entry.source))]
-      .sort();
+    const actualSources = [
+      ...new Set(
+        inventory.apis
+          .filter((entry) => entry.source.startsWith('apps/worker/src/custom/pharmacy/'))
+          .map((entry) => entry.source),
+      ),
+    ].sort();
 
     expect(actualSources).toEqual(expectedSources);
     for (const entry of inventory.apis) {
@@ -91,7 +96,8 @@ describe('V032 route inventory', () => {
   it('rejects duplicate method/path declarations and records every expanded route', () => {
     const inventory = buildV032RouteInventory();
     const routeKeys = inventory.apis.flatMap((entry) =>
-      (entry.routePaths ?? []).map((route) => `${route.method} ${route.path}`));
+      (entry.routePaths ?? []).map((route) => `${route.method} ${route.path}`),
+    );
     expect(new Set(routeKeys).size, 'duplicate METHOD path in inventory').toBe(routeKeys.length);
     expect(routeKeys.length).toBeGreaterThan(150);
     expect(routeKeys).toContain('POST /api/friends/:id/messages');
@@ -103,12 +109,15 @@ describe('V032 route inventory', () => {
       'GET /images/:key{.+}',
       'GET /api/images/:key{.+}',
       'DELETE /api/images/:key{.+}',
-    ]) expect(routeKeys).toContain(key);
+    ])
+      expect(routeKeys).toContain(key);
 
-    expect(inventory.apis.find((entry) => entry.id === 'api-capabilities')?.source)
-      .toBe('apps/worker/src/routes/admin/capabilities.ts');
-    expect(inventory.apis.find((entry) => entry.id === 'api-images')?.source)
-      .toBe('apps/worker/src/routes/admin/images.ts');
+    expect(inventory.apis.find((entry) => entry.id === 'api-capabilities')?.source).toBe(
+      'apps/worker/src/routes/admin/capabilities.ts',
+    );
+    expect(inventory.apis.find((entry) => entry.id === 'api-images')?.source).toBe(
+      'apps/worker/src/routes/admin/images.ts',
+    );
   });
 
   it('references only existing page, component, route, and regression-test files', () => {
@@ -132,12 +141,15 @@ describe('V032 route inventory', () => {
   it('covers the pharmacy menu paths and pharmacy-only sidebar paths', () => {
     const inventory = buildV032RouteInventory();
     const menuPaths = new Set(
-      [...read('apps/web/src/custom/pharmacy/growth-loop/menu.ts').matchAll(/['"](\/[^'"]*)['"]/gu)]
-        .map((match) => match[1]),
+      [...read('apps/web/src/custom/pharmacy/growth-loop/menu.ts').matchAll(/['"](\/[^'"]*)['"]/gu)].map(
+        (match) => match[1],
+      ),
     );
-    const sidebarPaths = [...read('apps/web/src/components/layout/sidebar.tsx').matchAll(
-      /\{\s*href:\s*'([^']+)'[^}]*pharmacyOnly:\s*true/gu,
-    )].map((match) => match[1]);
+    const sidebarPaths = [
+      ...read('apps/web/src/components/layout/sidebar.tsx').matchAll(
+        /\{\s*href:\s*'([^']+)'[^}]*pharmacyOnly:\s*true/gu,
+      ),
+    ].map((match) => match[1]);
     for (const path of [...menuPaths, ...sidebarPaths]) {
       expect(
         inventory.pages.some((entry) => entry.surface === 'pharmacy-admin' && entry.path === path),
@@ -149,9 +161,7 @@ describe('V032 route inventory', () => {
       .filter((entry) => entry.surface === 'pharmacy-admin')
       .map((entry) => entry.source);
     for (const path of [...menuPaths, ...sidebarPaths]) {
-      expect(pharmacyPageSources).toContain(
-        `apps/web/src/app${path === '/' ? '/page.tsx' : `${path}/page.tsx`}`,
-      );
+      expect(pharmacyPageSources).toContain(`apps/web/src/app${path === '/' ? '/page.tsx' : `${path}/page.tsx`}`);
     }
   });
 
@@ -215,9 +225,12 @@ describe('V032 route inventory', () => {
       path: '/api/platform-admin/data-protection/recovery-operations',
     });
     const workerIndex = read('apps/worker/src/index.ts');
-    expect(workerIndex).toContain("import { platformAdminDataProtectionRoutes } from './custom/pharmacy/platform-admin/data-protection-routes.js'");
-    expect(workerIndex.indexOf("app.use('/api/platform-admin/*', platformAdminAuthMiddleware)"))
-      .toBeLessThan(workerIndex.indexOf("app.route('/', platformAdminDataProtectionRoutes)"));
+    expect(workerIndex).toContain(
+      "import { platformAdminDataProtectionRoutes } from './custom/pharmacy/platform-admin/data-protection-routes.js'",
+    );
+    expect(workerIndex.indexOf("app.use('/api/platform-admin/*', platformAdminAuthMiddleware)")).toBeLessThan(
+      workerIndex.indexOf("app.route('/', platformAdminDataProtectionRoutes)"),
+    );
   });
 
   it('does not treat patient PHI as a default platform-admin display', () => {
@@ -225,9 +238,11 @@ describe('V032 route inventory', () => {
     const patientEntries = inventory.pages.filter((entry) => entry.path.includes('/patients'));
     expect(patientEntries).toHaveLength(2);
     expect(patientEntries.every((entry) => entry.phiClassification === 'PHI-with-support-grant')).toBe(true);
-    expect(inventory.pages.filter((entry) => entry.surface === 'platform-admin')
-      .filter((entry) => !entry.path.includes('/patients'))
-      .every((entry) => entry.phiClassification === 'PHI-free-default' || entry.phiClassification === 'credentials'))
-      .toBe(true);
+    expect(
+      inventory.pages
+        .filter((entry) => entry.surface === 'platform-admin')
+        .filter((entry) => !entry.path.includes('/patients'))
+        .every((entry) => entry.phiClassification === 'PHI-free-default' || entry.phiClassification === 'credentials'),
+    ).toBe(true);
   });
 });

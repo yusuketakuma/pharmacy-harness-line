@@ -25,8 +25,12 @@ const fakeStorage = {
   },
   key: (index: number) => Array.from(store.keys())[index] ?? null,
   getItem: (key: string) => store.get(key) ?? null,
-  setItem: (key: string, value: string) => { store.set(key, value); },
-  removeItem: (key: string) => { store.delete(key); },
+  setItem: (key: string, value: string) => {
+    store.set(key, value);
+  },
+  removeItem: (key: string) => {
+    store.delete(key);
+  },
 };
 
 beforeEach(() => {
@@ -80,8 +84,12 @@ describe('draftStorage', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     saveDraft(intakeDraftKey('app', 'patient-a'), { answers: { who: 'a' } });
     saveDraft(intakeDraftKey('app', 'patient-b'), { answers: { who: 'b' } });
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-a'), NOW)?.data.answers.who).toBe('a');
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-b'), NOW)?.data.answers.who).toBe('b');
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-a'), NOW)?.data.answers.who).toBe(
+      'a',
+    );
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-b'), NOW)?.data.answers.who).toBe(
+      'b',
+    );
     clearDraft(intakeDraftKey('app', 'patient-a'));
     expect(loadDraft(intakeDraftKey('app', 'patient-a'), NOW)).toBeNull();
     expect(loadDraft(intakeDraftKey('app', 'patient-b'), NOW)).not.toBeNull();
@@ -91,16 +99,26 @@ describe('draftStorage', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     saveDraft(intakeDraftKey('app-1', 'patient-a'), { answers: { who: 'a1' } });
     saveDraft(intakeDraftKey('app-2', 'patient-a'), { answers: { who: 'a2' } });
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-1', 'patient-a'), NOW)?.data.answers.who).toBe('a1');
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-2', 'patient-a'), NOW)?.data.answers.who).toBe('a2');
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-1', 'patient-a'), NOW)?.data.answers.who).toBe(
+      'a1',
+    );
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-2', 'patient-a'), NOW)?.data.answers.who).toBe(
+      'a2',
+    );
   });
 
   it('fails soft when storage throws', () => {
     vi.stubGlobal('window', {
       localStorage: {
-        getItem: () => { throw new Error('denied'); },
-        setItem: () => { throw new Error('quota'); },
-        removeItem: () => { throw new Error('denied'); },
+        getItem: () => {
+          throw new Error('denied');
+        },
+        setItem: () => {
+          throw new Error('quota');
+        },
+        removeItem: () => {
+          throw new Error('denied');
+        },
       },
     });
     expect(loadDraft('k')).toBeNull();
@@ -159,8 +177,14 @@ describe('draftStorage', () => {
 
   it('adopts a legacy draft into the scoped key on first read', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
-    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
-    const migrated = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    store.set(
+      `pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`,
+      JSON.stringify({ savedAt: NOW, data: { a: 1 } }),
+    );
+    const migrated = migrateLegacyDraft<{ a: number }>(
+      intakeDraftKey('app', 'patient-a'),
+      legacyIntakeDraftKey('patient-a'),
+    );
     expect(migrated?.data).toEqual({ a: 1 });
     expect(loadDraft(intakeDraftKey('app', 'patient-a'), NOW)?.data).toEqual({ a: 1 });
     expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(false);
@@ -169,18 +193,38 @@ describe('draftStorage', () => {
   it('keeps the legacy draft when the scoped write cannot be confirmed', () => {
     // Reads succeed but writes are denied (quota) — the only copy must survive.
     vi.stubGlobal('window', {
-      localStorage: { ...fakeStorage, setItem: () => { throw new Error('quota'); } },
+      localStorage: {
+        ...fakeStorage,
+        setItem: () => {
+          throw new Error('quota');
+        },
+      },
     });
-    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
-    const migrated = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    store.set(
+      `pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`,
+      JSON.stringify({ savedAt: NOW, data: { a: 1 } }),
+    );
+    const migrated = migrateLegacyDraft<{ a: number }>(
+      intakeDraftKey('app', 'patient-a'),
+      legacyIntakeDraftKey('patient-a'),
+    );
     expect(migrated?.data).toEqual({ a: 1 });
     expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(true);
   });
 
   it('prefers the scoped draft and leaves the legacy key untouched when both exist', () => {
-    store.set(`pharmacy-liff-draft:v1:${intakeDraftKey('app', 'patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
-    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
-    const loaded = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    store.set(
+      `pharmacy-liff-draft:v1:${intakeDraftKey('app', 'patient-a')}`,
+      JSON.stringify({ savedAt: NOW, data: { a: 1 } }),
+    );
+    store.set(
+      `pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`,
+      JSON.stringify({ savedAt: NOW, data: { a: 2 } }),
+    );
+    const loaded = migrateLegacyDraft<{ a: number }>(
+      intakeDraftKey('app', 'patient-a'),
+      legacyIntakeDraftKey('patient-a'),
+    );
     expect(loaded?.data).toEqual({ a: 1 });
     expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(true);
   });
@@ -211,7 +255,6 @@ describe('draft key scoping', () => {
   });
 });
 
-
 describe('LINE user draft isolation', () => {
   it('restores only the same user and pharmacy draft', () => {
     const key = userNewPatientDraftKey('app', 'user-a');
@@ -223,8 +266,13 @@ describe('LINE user draft isolation', () => {
   });
 
   it('sweeps only unavailable patients belonging to the current user and app', () => {
-    const keep = [userIntakeDraftKey('app', 'a', 'present'), userIntakeDraftKey('app', 'b', 'other'),
-      userIntakeDraftKey('other', 'a', 'other'), intakeDraftKey('app', 'legacy'), legacyIntakeDraftKey('legacy')];
+    const keep = [
+      userIntakeDraftKey('app', 'a', 'present'),
+      userIntakeDraftKey('app', 'b', 'other'),
+      userIntakeDraftKey('other', 'a', 'other'),
+      intakeDraftKey('app', 'legacy'),
+      legacyIntakeDraftKey('legacy'),
+    ];
     for (const key of keep) saveDraft(key, { value: key });
     const stale = userIntakeDraftKey('app', 'a', 'removed');
     saveDraft(stale, {});

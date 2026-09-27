@@ -132,21 +132,13 @@ export async function getScenariosForTenant(
   return result.results;
 }
 
-export async function getScenarioById(
-  db: D1Database,
-  id: string,
-): Promise<ScenarioWithSteps | null> {
-  const scenario = await db
-    .prepare(`SELECT * FROM scenarios WHERE id = ?`)
-    .bind(id)
-    .first<Scenario>();
+export async function getScenarioById(db: D1Database, id: string): Promise<ScenarioWithSteps | null> {
+  const scenario = await db.prepare(`SELECT * FROM scenarios WHERE id = ?`).bind(id).first<Scenario>();
 
   if (!scenario) return null;
 
   const stepsResult = await db
-    .prepare(
-      `SELECT * FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`,
-    )
+    .prepare(`SELECT * FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`)
     .bind(id)
     .all<ScenarioStep>();
 
@@ -165,10 +157,7 @@ export interface CreateScenarioInput {
   isActive?: boolean;
 }
 
-export async function createScenario(
-  db: D1Database,
-  input: CreateScenarioInput,
-): Promise<Scenario> {
+export async function createScenario(db: D1Database, input: CreateScenarioInput): Promise<Scenario> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -233,10 +222,7 @@ export async function updateScenario(
   }
 
   if (fields.length === 0) {
-    return db
-      .prepare(`SELECT * FROM scenarios WHERE id = ?`)
-      .bind(id)
-      .first<Scenario>();
+    return db.prepare(`SELECT * FROM scenarios WHERE id = ?`).bind(id).first<Scenario>();
   }
 
   fields.push('updated_at = ?');
@@ -248,10 +234,7 @@ export async function updateScenario(
     .bind(...values)
     .run();
 
-  return db
-    .prepare(`SELECT * FROM scenarios WHERE id = ?`)
-    .bind(id)
-    .first<Scenario>();
+  return db.prepare(`SELECT * FROM scenarios WHERE id = ?`).bind(id).first<Scenario>();
 }
 
 export async function deleteScenario(db: D1Database, id: string): Promise<void> {
@@ -278,10 +261,7 @@ export interface CreateScenarioStepInput {
   onReachTagId?: string | null;
 }
 
-export async function createScenarioStep(
-  db: D1Database,
-  input: CreateScenarioStepInput,
-): Promise<ScenarioStep> {
+export async function createScenarioStep(db: D1Database, input: CreateScenarioStepInput): Promise<ScenarioStep> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -314,10 +294,7 @@ export async function createScenarioStep(
     )
     .run();
 
-  return (await db
-    .prepare(`SELECT * FROM scenario_steps WHERE id = ?`)
-    .bind(id)
-    .first<ScenarioStep>())!;
+  return (await db.prepare(`SELECT * FROM scenario_steps WHERE id = ?`).bind(id).first<ScenarioStep>())!;
 }
 
 export type UpdateScenarioStepInput = Partial<
@@ -425,23 +402,17 @@ export async function updateScenarioStep(
     .first<ScenarioStep>();
 }
 
-export async function deleteScenarioStep(
-  db: D1Database,
-  id: string,
-  scope?: ScenarioStepScope,
-): Promise<void> {
+export async function deleteScenarioStep(db: D1Database, id: string, scope?: ScenarioStepScope): Promise<void> {
   const predicate = scenarioStepPredicate(id, scope);
-  await db.prepare(`DELETE FROM scenario_steps WHERE ${predicate.sql}`).bind(...predicate.values).run();
+  await db
+    .prepare(`DELETE FROM scenario_steps WHERE ${predicate.sql}`)
+    .bind(...predicate.values)
+    .run();
 }
 
-export async function getScenarioSteps(
-  db: D1Database,
-  scenarioId: string,
-): Promise<ScenarioStep[]> {
+export async function getScenarioSteps(db: D1Database, scenarioId: string): Promise<ScenarioStep[]> {
   const result = await db
-    .prepare(
-      `SELECT * FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`,
-    )
+    .prepare(`SELECT * FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`)
     .bind(scenarioId)
     .all<ScenarioStep>();
   return result.results;
@@ -492,18 +463,15 @@ export async function enrollFriendInScenario(
 
     if (!result.meta.changes || result.meta.changes === 0) return null;
 
-    return (await db
-      .prepare(`SELECT * FROM friend_scenarios WHERE id = ?`)
-      .bind(id)
-      .first<FriendScenario>())!;
+    return (await db.prepare(`SELECT * FROM friend_scenarios WHERE id = ?`).bind(id).first<FriendScenario>())!;
   }
 
   const enrolledAtDate = new Date(Date.now() + 9 * 60 * 60_000);
-  const nextDeliveryDate = computeNextDeliveryAt(
-    { delivery_mode: scenarioRow.delivery_mode },
-    firstStep,
-    { enrolledAt: enrolledAtDate, previousDeliveredAt: enrolledAtDate, now: enrolledAtDate },
-  );
+  const nextDeliveryDate = computeNextDeliveryAt({ delivery_mode: scenarioRow.delivery_mode }, firstStep, {
+    enrolledAt: enrolledAtDate,
+    previousDeliveredAt: enrolledAtDate,
+    now: enrolledAtDate,
+  });
   const nextDeliveryAt = nextDeliveryDate.toISOString().slice(0, -1) + '+09:00';
 
   // current_step_order is initialized to -1 (NOT 0) so that the step-delivery
@@ -523,16 +491,10 @@ export async function enrollFriendInScenario(
 
   if (!result.meta.changes || result.meta.changes === 0) return null;
 
-  return (await db
-    .prepare(`SELECT * FROM friend_scenarios WHERE id = ?`)
-    .bind(id)
-    .first<FriendScenario>())!;
+  return (await db.prepare(`SELECT * FROM friend_scenarios WHERE id = ?`).bind(id).first<FriendScenario>())!;
 }
 
-export async function getFriendScenariosDueForDelivery(
-  db: D1Database,
-  now: string,
-): Promise<FriendScenario[]> {
+export async function getFriendScenariosDueForDelivery(db: D1Database, now: string): Promise<FriendScenario[]> {
   // Fetch all active scenarios with a delivery time, then filter by epoch comparison
   // to handle mixed timestamp formats (Z and +09:00) during migration
   const result = await db
@@ -562,8 +524,7 @@ export async function claimFriendScenarioForDelivery(
 ): Promise<string | null> {
   const now = jstNow();
   const claimToken = crypto.randomUUID();
-  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000)
-    .toISOString().slice(0, -1) + '+09:00';
+  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000).toISOString().slice(0, -1) + '+09:00';
   const result = await db
     .prepare(
       `UPDATE friend_scenarios
@@ -581,11 +542,14 @@ export async function markFriendScenarioDeliveryAttempt(
   id: string,
   claimToken: string,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `UPDATE friend_scenarios
+  const result = await db
+    .prepare(
+      `UPDATE friend_scenarios
         SET delivery_first_attempted_at = COALESCE(delivery_first_attempted_at, ?)
       WHERE id = ? AND status = 'delivering' AND delivery_claim_token = ?`,
-  ).bind(jstNow(), id, claimToken).run();
+    )
+    .bind(jstNow(), id, claimToken)
+    .run();
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -594,14 +558,16 @@ export async function markFriendScenarioDeliveryAttempt(
  */
 export async function recoverStuckDeliveries(db: D1Database): Promise<number> {
   const now = jstNow();
-  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000)
-    .toISOString().slice(0, -1) + '+09:00';
-  await db.prepare(
-    `UPDATE friend_scenarios
+  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000).toISOString().slice(0, -1) + '+09:00';
+  await db
+    .prepare(
+      `UPDATE friend_scenarios
         SET status = 'paused', delivery_claim_token = NULL, updated_at = ?
       WHERE status IN ('active','delivering')
         AND delivery_first_attempted_at <= ?`,
-  ).bind(now, retryHorizon).run();
+    )
+    .bind(now, retryHorizon)
+    .run();
   const fiveMinAgo = new Date(Date.now() + 9 * 60 * 60_000 - 5 * 60_000);
   const threshold = fiveMinAgo.toISOString().slice(0, -1) + '+09:00';
   const result = await db
@@ -621,11 +587,7 @@ export async function recoverStuckDeliveries(db: D1Database): Promise<number> {
  * Used for permanent recipient/payload failures and for account-bound
  * scenarios that do not have a safe destination friend for that account.
  */
-export async function pauseFriendScenarioDelivery(
-  db: D1Database,
-  id: string,
-  claimToken: string,
-): Promise<boolean> {
+export async function pauseFriendScenarioDelivery(db: D1Database, id: string, claimToken: string): Promise<boolean> {
   const result = await db
     .prepare(
       `UPDATE friend_scenarios SET status = 'paused', updated_at = ?
@@ -658,14 +620,7 @@ export async function advanceFriendScenario(
          AND delivery_claim_token = ?
          AND current_step_order = ?`,
     )
-    .bind(
-      nextStepOrder,
-      nextDeliveryAt ?? null,
-      now,
-      id,
-      claim.token,
-      claim.expectedStepOrder,
-    )
+    .bind(nextStepOrder, nextDeliveryAt ?? null, now, id, claim.token, claim.expectedStepOrder)
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }
@@ -689,12 +644,7 @@ export async function completeFriendScenario(
          AND delivery_claim_token = ?
          AND current_step_order = ?`,
     )
-    .bind(
-      now,
-      id,
-      claim.token,
-      claim.expectedStepOrder,
-    )
+    .bind(now, id, claim.token, claim.expectedStepOrder)
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }

@@ -1,15 +1,10 @@
 import { Hono } from 'hono';
-import {
-  updateStaffMember,
-} from '@line-crm/db';
+import { updateStaffMember } from '@line-crm/db';
 import type { StaffMember } from '@line-crm/db';
 import { requireRole } from '../../middleware/role-guard.js';
 import { tenantAuditStatement } from '../../lib/tenant-audit.js';
 import type { Env } from '../../index.js';
-import {
-  generateTemporaryPassword,
-  hashTenantPassword,
-} from '../../custom/pharmacy/provisioning/credentials.js';
+import { generateTemporaryPassword, hashTenantPassword } from '../../custom/pharmacy/provisioning/credentials.js';
 import { isPharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
 
 const staff = new Hono<Env>();
@@ -39,8 +34,9 @@ function staffInvariantMessage(error: unknown): string | null {
 }
 
 async function getTenantStaffMembers(db: D1Database, tenantId: string): Promise<TenantStaffMember[]> {
-  const result = await db.prepare(
-    `SELECT member.id, member.name, member.email,
+  const result = await db
+    .prepare(
+      `SELECT member.id, member.name, member.email,
             membership.role, credential.login_id,
             membership.is_active, member.created_at, member.updated_at
        FROM tenant_staff_memberships AS membership
@@ -50,7 +46,9 @@ async function getTenantStaffMembers(db: D1Database, tenantId: string): Promise<
              AND credential.staff_id = membership.staff_id
       WHERE membership.tenant_id = ?
       ORDER BY member.created_at ASC`,
-  ).bind(tenantId).all<TenantStaffMember>();
+    )
+    .bind(tenantId)
+    .all<TenantStaffMember>();
   return result.results;
 }
 
@@ -59,8 +57,9 @@ async function getTenantStaffById(
   tenantId: string,
   staffId: string,
 ): Promise<TenantStaffMember | null> {
-  return db.prepare(
-    `SELECT member.id, member.name, member.email,
+  return db
+    .prepare(
+      `SELECT member.id, member.name, member.email,
             membership.role, credential.login_id,
             membership.is_active, member.created_at, member.updated_at
        FROM tenant_staff_memberships AS membership
@@ -70,15 +69,20 @@ async function getTenantStaffById(
              AND credential.staff_id = membership.staff_id
       WHERE membership.tenant_id = ? AND membership.staff_id = ?
       LIMIT 1`,
-  ).bind(tenantId, staffId).first<TenantStaffMember>();
+    )
+    .bind(tenantId, staffId)
+    .first<TenantStaffMember>();
 }
 
 async function countActiveTenantOwners(db: D1Database, tenantId: string): Promise<number> {
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS count
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count
        FROM tenant_staff_memberships
       WHERE tenant_id = ? AND role = 'owner' AND is_active = 1`,
-  ).bind(tenantId).first<{ count: number }>();
+    )
+    .bind(tenantId)
+    .first<{ count: number }>();
   return row?.count ?? 0;
 }
 
@@ -100,8 +104,9 @@ async function getTenantStaffAccounts(
   tenantId: string,
   staffId: string,
 ): Promise<TenantStaffAccount[]> {
-  const result = await db.prepare(
-    `SELECT account.id, account.name,
+  const result = await db
+    .prepare(
+      `SELECT account.id, account.name,
             EXISTS (
               SELECT 1 FROM pharmacy_staff_accounts AS assignment
                WHERE assignment.line_account_id = account.id
@@ -131,7 +136,9 @@ async function getTenantStaffAccounts(
        INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
       WHERE mapping.tenant_id = ?
       ORDER BY account.display_order, account.created_at`,
-  ).bind(staffId, staffId, tenantId).all<TenantStaffAccount>();
+    )
+    .bind(staffId, staffId, tenantId)
+    .all<TenantStaffAccount>();
   return result.results;
 }
 
@@ -209,7 +216,7 @@ staff.get('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
   const tenantId = c.get('tenantId');
   if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
   const staffId = c.req.param('id')!;
-  if (!await getTenantStaffById(c.env.DB, tenantId, staffId)) {
+  if (!(await getTenantStaffById(c.env.DB, tenantId, staffId))) {
     return c.json({ success: false, error: 'Staff member not found' }, 404);
   }
   const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, staffId);
@@ -223,13 +230,17 @@ staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
   const tenantId = c.get('tenantId');
   if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
   const staffId = c.req.param('id')!;
-  if (!await getTenantStaffById(c.env.DB, tenantId, staffId)) {
+  if (!(await getTenantStaffById(c.env.DB, tenantId, staffId))) {
     return c.json({ success: false, error: 'Staff member not found' }, 404);
   }
   const body = await c.req.json<{ accountIds?: unknown }>().catch(() => null);
-  if (!body || !Array.isArray(body.accountIds) || body.accountIds.length > 100 ||
-      body.accountIds.some((id) => typeof id !== 'string' || !id || id.length > 128) ||
-      new Set(body.accountIds).size !== body.accountIds.length) {
+  if (
+    !body ||
+    !Array.isArray(body.accountIds) ||
+    body.accountIds.length > 100 ||
+    body.accountIds.some((id) => typeof id !== 'string' || !id || id.length > 128) ||
+    new Set(body.accountIds).size !== body.accountIds.length
+  ) {
     return c.json({ success: false, error: 'accountIds is invalid' }, 400);
   }
   const accountIds = body.accountIds as string[];
@@ -239,8 +250,7 @@ staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
     return c.json({ success: false, error: 'Account is outside the authenticated tenant' }, 400);
   }
   const selected = new Set(accountIds);
-  if (accounts.some((account) => !selected.has(account.id) &&
-      isSoleActiveAccountAssignee(account))) {
+  if (accounts.some((account) => !selected.has(account.id) && isSoleActiveAccountAssignee(account))) {
     return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
   }
   const now = new Date().toISOString();
@@ -248,24 +258,32 @@ staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
     await c.env.DB.batch([
       ...accounts
         .filter((account) => account.assigned === 1 && !selected.has(account.id))
-        .map((account) => c.env.DB.prepare(
-          `UPDATE pharmacy_staff_accounts
+        .map((account) =>
+          c.env.DB.prepare(
+            `UPDATE pharmacy_staff_accounts
               SET is_active = 0, updated_at = ?
             WHERE line_account_id = ? AND staff_id = ?
               AND line_account_id IN (
                 SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?
               )`,
-        ).bind(now, account.id, staffId, tenantId)),
-      ...accountIds.map((accountId) => c.env.DB.prepare(
-        `INSERT INTO pharmacy_staff_accounts
+          ).bind(now, account.id, staffId, tenantId),
+        ),
+      ...accountIds.map((accountId) =>
+        c.env.DB.prepare(
+          `INSERT INTO pharmacy_staff_accounts
           (line_account_id, staff_id, is_active, created_at, updated_at)
          VALUES (?, ?, 1, ?, ?)
          ON CONFLICT(line_account_id, staff_id) DO UPDATE SET
            is_active = 1, updated_at = excluded.updated_at`,
-      ).bind(accountId, staffId, now, now)),
+        ).bind(accountId, staffId, now, now),
+      ),
       tenantAuditStatement(c.env.DB, {
-        tenantId, actorStaffId: c.get('staff').id, action: 'staff.accounts_updated',
-        resourceType: 'staff', resourceId: staffId, detail: { count: accountIds.length },
+        tenantId,
+        actorStaffId: c.get('staff').id,
+        action: 'staff.accounts_updated',
+        resourceType: 'staff',
+        resourceId: staffId,
+        detail: { count: accountIds.length },
       }),
     ]);
   } catch (error) {
@@ -293,15 +311,17 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
         return c.json({ success: false, error: 'Individual staff credentials are retired' }, 410);
       }
       const name = typeof body.name === 'string' ? body.name.trim() : '';
-      const email = body.email === undefined || body.email === null
-        ? null
-        : typeof body.email === 'string' ? body.email.trim() : '__invalid__';
+      const email =
+        body.email === undefined || body.email === null
+          ? null
+          : typeof body.email === 'string'
+            ? body.email.trim()
+            : '__invalid__';
       const role = body.role;
       if (!name || name.length > 120) {
         return c.json({ success: false, error: 'name is required' }, 400);
       }
-      if (email === '__invalid__' || (email &&
-          (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)))) {
+      if (email === '__invalid__' || (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)))) {
         return c.json({ success: false, error: 'email is invalid' }, 400);
       }
       if (role !== 'admin' && role !== 'staff') {
@@ -315,8 +335,7 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
           `INSERT INTO staff_members
              (id, name, email, role, api_key, is_active, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-        ).bind(id, name, email === '__invalid__' ? null : email, role,
-          `disabled:${crypto.randomUUID()}`, now, now),
+        ).bind(id, name, email === '__invalid__' ? null : email, role, `disabled:${crypto.randomUUID()}`, now, now),
         c.env.DB.prepare(
           `INSERT INTO tenant_staff_memberships
              (tenant_id, staff_id, role, is_active, created_at, updated_at)
@@ -330,8 +349,12 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
             WHERE tenant_id = ?`,
         ).bind(id, now, now, tenantId),
         tenantAuditStatement(c.env.DB, {
-          tenantId, actorStaffId: c.get('staff').id, action: 'staff.created',
-          resourceType: 'staff', resourceId: id, detail: { role },
+          tenantId,
+          actorStaffId: c.get('staff').id,
+          action: 'staff.created',
+          resourceType: 'staff',
+          resourceId: id,
+          detail: { role },
         }),
       ]);
 
@@ -339,12 +362,14 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
       if (!member) throw new Error('Created staff member was not found');
       return c.json({ success: true, data: serializeStaff(member) }, 201);
     }
-    const body = await c.req.json<{
-      name: string;
-      loginId: string;
-      email?: string;
-      role: string;
-    }>().catch(() => null);
+    const body = await c.req
+      .json<{
+        name: string;
+        loginId: string;
+        email?: string;
+        role: string;
+      }>()
+      .catch(() => null);
     if (!body) return c.json({ success: false, error: 'Invalid JSON body' }, 400);
     const name = body.name?.trim();
     const loginId = body.loginId?.trim();
@@ -374,17 +399,12 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
         `INSERT INTO staff_members
            (id, name, email, role, api_key, is_active, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-      ).bind(
-        id, name, email, body.role,
-        `disabled:${crypto.randomUUID()}`, now, now,
-      ),
+      ).bind(id, name, email, body.role, `disabled:${crypto.randomUUID()}`, now, now),
       c.env.DB.prepare(
         `INSERT INTO tenant_staff_memberships
            (tenant_id, staff_id, role, is_active, created_at, updated_at)
          VALUES (?, ?, ?, 1, ?, ?)`,
-      ).bind(
-        tenantId, id, body.role, now, now,
-      ),
+      ).bind(tenantId, id, body.role, now, now),
       // Tenant staff are provisioned for each currently mapped pharmacy
       // account. Future account-level assignment management can narrow this
       // set without changing the authentication contract.
@@ -402,17 +422,24 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
          VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
       ).bind(tenantId, id, loginId, passwordHash, now, now),
       tenantAuditStatement(c.env.DB, {
-        tenantId, actorStaffId: c.get('staff').id, action: 'staff.created',
-        resourceType: 'staff', resourceId: id, detail: { role: body.role },
+        tenantId,
+        actorStaffId: c.get('staff').id,
+        action: 'staff.created',
+        resourceType: 'staff',
+        resourceId: id,
+        detail: { role: body.role },
       }),
     ]);
 
     const member = await getTenantStaffById(c.env.DB, tenantId, id);
     if (!member) throw new Error('Created staff member was not found');
-    return c.json({
-      success: true,
-      data: { ...serializeStaff(member), temporaryPassword },
-    }, 201);
+    return c.json(
+      {
+        success: true,
+        data: { ...serializeStaff(member), temporaryPassword },
+      },
+      201,
+    );
   } catch (err) {
     console.error('POST /api/staff error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -455,8 +482,7 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
     const validRoles = ['owner', 'admin', 'staff'] as const;
     let role: (typeof validRoles)[number] | undefined;
     if (body.role !== undefined) {
-      if (typeof body.role !== 'string' ||
-          !validRoles.includes(body.role as (typeof validRoles)[number])) {
+      if (typeof body.role !== 'string' || !validRoles.includes(body.role as (typeof validRoles)[number])) {
         return c.json({ success: false, error: 'role must be owner, admin, or staff' }, 400);
       }
       role = body.role as (typeof validRoles)[number];
@@ -472,9 +498,7 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
       return c.json({ success: false, error: 'Staff member not found' }, 404);
     }
     if (target.role === 'owner' && target.is_active === 1) {
-      const willLoseOwner =
-        (role !== undefined && role !== 'owner') ||
-        isActive === false;
+      const willLoseOwner = (role !== undefined && role !== 'owner') || isActive === false;
       if (willLoseOwner) {
         const ownerCount = await countActiveTenantOwners(c.env.DB, tenantId);
         if (ownerCount <= 1) {
@@ -490,12 +514,7 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
     }
 
     if (name !== undefined || email !== undefined) {
-      const updatedProfile = await updateStaffMember(
-        c.env.DB,
-        id,
-        { name, email },
-        tenantId,
-      );
+      const updatedProfile = await updateStaffMember(c.env.DB, id, { name, email }, tenantId);
       if (!updatedProfile) {
         return c.json({ success: false, error: 'Staff profile is shared across tenants' }, 409);
       }
@@ -518,14 +537,21 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
               SET ${sets.join(', ')}
             WHERE tenant_id = ? AND staff_id = ?`,
         ).bind(...values, tenantId, id),
-        ...(isActive === false ? [c.env.DB.prepare(
-          `UPDATE tenant_admin_sessions
+        ...(isActive === false
+          ? [
+              c.env.DB.prepare(
+                `UPDATE tenant_admin_sessions
               SET revoked_at = ?
             WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
-        ).bind(now, tenantId, id)] : []),
+              ).bind(now, tenantId, id),
+            ]
+          : []),
         tenantAuditStatement(c.env.DB, {
-          tenantId, actorStaffId: c.get('staff').id, action: 'staff.role_changed',
-          resourceType: 'staff', resourceId: id,
+          tenantId,
+          actorStaffId: c.get('staff').id,
+          action: 'staff.role_changed',
+          resourceType: 'staff',
+          resourceId: id,
           detail: { role: role ?? null, isActive: isActive ?? null },
         }),
       ]);
@@ -587,8 +613,11 @@ staff.delete('/api/staff/:id', requireRole('owner'), async (c) => {
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
       ).bind(now, tenantId, id),
       tenantAuditStatement(c.env.DB, {
-        tenantId, actorStaffId: currentStaff.id, action: 'staff.deleted',
-        resourceType: 'staff', resourceId: id,
+        tenantId,
+        actorStaffId: currentStaff.id,
+        action: 'staff.deleted',
+        resourceType: 'staff',
+        resourceId: id,
       }),
     ]);
     return c.json({ success: true, data: null });
@@ -641,8 +670,11 @@ staff.post('/api/staff/:id/reset-password', requireRole('owner'), async (c) => {
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
       ).bind(now, tenantId, id),
       tenantAuditStatement(c.env.DB, {
-        tenantId, actorStaffId: c.get('staff').id, action: 'staff.reset_password',
-        resourceType: 'staff', resourceId: id,
+        tenantId,
+        actorStaffId: c.get('staff').id,
+        action: 'staff.reset_password',
+        resourceType: 'staff',
+        resourceId: id,
       }),
     ]);
     return c.json({ success: true, data: { loginId, temporaryPassword } });

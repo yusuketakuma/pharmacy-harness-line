@@ -1,21 +1,26 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const calls = vi.hoisted(() => ({
-  refresh: vi.fn(), meet: vi.fn(), medication: vi.fn(), generic: vi.fn(),
+  refresh: vi.fn(),
+  meet: vi.fn(),
+  medication: vi.fn(),
+  generic: vi.fn(),
 }));
 vi.mock('@line-crm/db', async (original) => ({
-  ...await original<typeof import('@line-crm/db')>(),
+  ...(await original<typeof import('@line-crm/db')>()),
   getActiveTenantLineAccounts: vi.fn().mockResolvedValue([{ id: 'pharmacy-a', is_active: 1 }]),
 }));
-vi.mock('./custom/pharmacy/cron-access.js', () => ({ shouldRunGenericCron: vi.fn().mockResolvedValue(false) }));
+vi.mock('./custom/pharmacy/cron-access.js', () => ({
+  shouldRunGenericCron: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('./services/token-refresh.js', () => ({ refreshLineAccessTokens: calls.refresh }));
 vi.mock('./services/meet-consultation-reminders.js', async (original) => ({
-  ...await original<typeof import('./services/meet-consultation-reminders.js')>(),
+  ...(await original<typeof import('./services/meet-consultation-reminders.js')>()),
   processDueMeetConsultationReminders: calls.meet,
 }));
 vi.mock('./services/booking-reminders.js', () => ({ processDueReminders: calls.generic }));
 vi.mock('./custom/pharmacy/medication-followup/notifications.js', async (original) => ({
-  ...await original<typeof import('./custom/pharmacy/medication-followup/notifications.js')>(),
+  ...(await original<typeof import('./custom/pharmacy/medication-followup/notifications.js')>()),
   processDueMedicationFollowUps: calls.medication,
 }));
 import worker, { type Env } from './index.js';
@@ -35,10 +40,12 @@ const db = {
   batch: async () => [],
 } as unknown as D1Database;
 const env = {
-  DB: db, LINE_CHANNEL_ACCESS_TOKEN: 'synthetic', LINE_CREDENTIAL_KEY_V1: 'synthetic-key',
+  DB: db,
+  LINE_CHANNEL_ACCESS_TOKEN: 'synthetic',
+  LINE_CREDENTIAL_KEY_V1: 'synthetic-key',
   WORKER_PUBLIC_URL: 'https://worker.example.test',
 } as Env['Bindings'];
-const tick = { cron: '* * * * *', scheduledTime: Date.UTC(2026, 8, 22, 0, 1) } as ScheduledEvent;
+const tick = { cron: '*/5 * * * *', scheduledTime: Date.UTC(2026, 8, 22, 0, 5) } as ScheduledEvent;
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
 beforeEach(() => {
@@ -53,10 +60,15 @@ afterEach(() => vi.unstubAllGlobals());
 describe('pharmacy scheduled Meet reminders', () => {
   it('runs the reminder processor after credential refresh while generic jobs stay disabled', async () => {
     await worker.scheduled(tick, env, ctx);
-    expect(calls.meet).toHaveBeenCalledExactlyOnceWith(db, expect.objectContaining({
-      now: expect.any(Date), proxyBaseUrl: env.WORKER_PUBLIC_URL,
-      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1, proxyDispatch: expect.any(Function),
-    }));
+    expect(calls.meet).toHaveBeenCalledExactlyOnceWith(
+      db,
+      expect.objectContaining({
+        now: expect.any(Date),
+        proxyBaseUrl: env.WORKER_PUBLIC_URL,
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+        proxyDispatch: expect.any(Function),
+      }),
+    );
     expect(calls.refresh.mock.invocationCallOrder[0]).toBeLessThan(calls.meet.mock.invocationCallOrder[0]);
     expect(calls.generic).not.toHaveBeenCalled();
     expect(calls.medication).toHaveBeenCalledOnce();

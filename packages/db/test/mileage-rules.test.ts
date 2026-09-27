@@ -21,8 +21,13 @@ const BENIGN = /duplicate column name|already exists/i;
 const FIXED_NOW = new Date('2026-08-10T00:00:00.000+09:00');
 
 function execSafe(db: Database.Database, sql: string) {
-  for (const statement of sql.split(/;\s*(?:\r?\n|$)/).map((item) => item.trim()).filter(Boolean)) {
-    try { db.exec(statement); } catch (error) {
+  for (const statement of sql
+    .split(/;\s*(?:\r?\n|$)/)
+    .map((item) => item.trim())
+    .filter(Boolean)) {
+    try {
+      db.exec(statement);
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!BENIGN.test(message)) throw error;
     }
@@ -54,8 +59,12 @@ function asD1(sqlite: Database.Database): D1Database {
               const result = statement.run(...params);
               return { success: true, results: [], meta: { changes: result.changes } };
             },
-            async first<T>() { return (statement.get(...params) as T) ?? null; },
-            async all<T>() { return { success: true, results: statement.all(...params) as T[], meta: {} }; },
+            async first<T>() {
+              return (statement.get(...params) as T) ?? null;
+            },
+            async all<T>() {
+              return { success: true, results: statement.all(...params) as T[], meta: {} };
+            },
           };
         },
       };
@@ -94,8 +103,12 @@ describe('configurable mileage rules', () => {
     const summary = await getMileageSummaryForFriend(db, 'friend-1');
     expect(summary.available).toBe(5);
     expect(queue).toMatchObject({ processed: 6, granted: 5, failed: 0 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({ count: 6 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({ count: 5 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({
+      count: 6,
+    });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({
+      count: 5,
+    });
   });
 
   it('settles an excluded queued event without projecting mileage', async () => {
@@ -113,40 +126,62 @@ describe('configurable mileage rules', () => {
     });
 
     expect(result).toMatchObject({ claimed: 1, processed: 1, failed: 0, granted: 0 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({ count: 0 });
-    expect(sqlite.prepare(`SELECT status FROM mileage_event_queue`).get()).toEqual({ status: 'processed' });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare(`SELECT status FROM mileage_event_queue`).get()).toEqual({
+      status: 'processed',
+    });
   });
 
   it('awards the same tracked link once per day and the same form once overall', async () => {
     for (const id of ['click-1', 'click-2']) {
       await applyMileageRulesForEvent(db, {
-        eventType: 'link_clicked', source: 'tracked_link', sourceEventId: id,
-        friendId: 'friend-1', subjectKey: 'link-1', occurredAt: '2026-08-09T12:00:00.000+09:00',
+        eventType: 'link_clicked',
+        source: 'tracked_link',
+        sourceEventId: id,
+        friendId: 'friend-1',
+        subjectKey: 'link-1',
+        occurredAt: '2026-08-09T12:00:00.000+09:00',
       });
     }
     for (const id of ['form-1', 'form-2']) {
       await applyMileageRulesForEvent(db, {
-        eventType: 'form_submitted', source: 'form', sourceEventId: id,
-        friendId: 'friend-2', subjectKey: 'form-A', occurredAt: `2026-08-${id === 'form-1' ? '09' : '10'}T12:00:00.000+09:00`,
+        eventType: 'form_submitted',
+        source: 'form',
+        sourceEventId: id,
+        friendId: 'friend-2',
+        subjectKey: 'form-A',
+        occurredAt: `2026-08-${id === 'form-1' ? '09' : '10'}T12:00:00.000+09:00`,
       });
     }
     await processPendingMileageEvents(db, { now: '2026-08-10T13:00:00.000+09:00' });
 
     const summary = await getMileageSummaryForFriend(db, 'friend-2');
     expect(summary.available).toBe(12);
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({ count: 4 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({ count: 2 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({
+      count: 4,
+    });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({
+      count: 2,
+    });
   });
 
   it('builds one cross-account ranking row and respects edited rule amounts', async () => {
     await updateMileageRule(db, 'builtin-booking-created', { amount: 25 });
     await applyMileageRulesForEvent(db, {
-      eventType: 'message_received', source: 'line', sourceEventId: 'message-1',
-      friendId: 'friend-1', occurredAt: '2026-08-09T10:00:00.000+09:00',
+      eventType: 'message_received',
+      source: 'line',
+      sourceEventId: 'message-1',
+      friendId: 'friend-1',
+      occurredAt: '2026-08-09T10:00:00.000+09:00',
     });
     await applyMileageRulesForEvent(db, {
-      eventType: 'booking_created', source: 'booking', sourceEventId: 'booking-1',
-      friendId: 'friend-2', occurredAt: '2026-08-09T11:00:00.000+09:00',
+      eventType: 'booking_created',
+      source: 'booking',
+      sourceEventId: 'booking-1',
+      friendId: 'friend-2',
+      occurredAt: '2026-08-09T11:00:00.000+09:00',
     });
     await processPendingMileageEvents(db, { now: '2026-08-10T12:00:00.000+09:00' });
 
@@ -173,8 +208,9 @@ describe('configurable mileage rules', () => {
 
   it('shows only incomplete webinar mileage opportunities for the current LINE account', async () => {
     sqlite.prepare(`UPDATE line_accounts SET liff_id = '2000000000-TestLiff' WHERE id = 'account-1'`).run();
-    sqlite.prepare(
-      `INSERT INTO webinars
+    sqlite
+      .prepare(
+        `INSERT INTO webinars
          (id, account_id, title, slug, status, duration_seconds, schedule_json,
           cta_json, created_at, updated_at)
        VALUES ('webinar-1', 'account-1', 'AI活用ウェビナー', 'ai-webinar', 'active',
@@ -183,7 +219,8 @@ describe('configurable mileage rules', () => {
               ('webinar-other', 'account-2', '別アカウント配信', 'other-webinar', 'active',
                1263, '[]', NULL,
                '2026-08-01T10:00:00.000+09:00', '2026-08-09T11:00:00.000+09:00')`,
-    ).run();
+      )
+      .run();
 
     const fresh = await getMileageEarningOpportunitiesForFriend(db, 'friend-1', {
       now: '2026-08-10T10:00:00.000+09:00',
@@ -206,12 +243,14 @@ describe('configurable mileage rules', () => {
     expect(freshWebinar?.description).toContain('5分視聴');
     expect(freshWebinar?.url).toContain('2000000000-TestLiff');
 
-    sqlite.prepare(
-      `INSERT INTO webinar_viewers
+    sqlite
+      .prepare(
+        `INSERT INTO webinar_viewers
          (id, webinar_id, friend_id, session_start_at, joined_at, last_position_seconds)
        VALUES ('viewer-1', 'webinar-1', 'friend-1', 1,
                '2026-08-10T10:00:00.000+09:00', 400)`,
-    ).run();
+      )
+      .run();
     const inProgress = await getMileageEarningOpportunitiesForFriend(db, 'friend-1');
     const inProgressWebinar = inProgress.find((item) => item.type === 'webinar');
     expect(inProgressWebinar).toMatchObject({
@@ -221,24 +260,28 @@ describe('configurable mileage rules', () => {
     });
     expect(inProgressWebinar?.description).toContain('続きからあと約9分');
 
-    sqlite.prepare(
-      `UPDATE webinar_viewers
+    sqlite
+      .prepare(
+        `UPDATE webinar_viewers
           SET last_position_seconds = 1263,
               cta_clicked_at = '2026-08-10T10:20:00.000+09:00'
         WHERE id = 'viewer-1'`,
-    ).run();
+      )
+      .run();
     const completed = await getMileageEarningOpportunitiesForFriend(db, 'friend-1');
     expect(completed.filter((item) => item.type === 'webinar')).toEqual([]);
     expect(completed.filter((item) => item.type === 'friend_add')).toHaveLength(1);
   });
 
   it('shows one friend-add mileage mission for each active unregistered LINE account', async () => {
-    sqlite.prepare(
-      `INSERT INTO line_accounts
+    sqlite
+      .prepare(
+        `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret, liff_id, display_order)
        VALUES ('account-3', 'channel-3', '公式C', 'token', 'secret',
                '2000000000-FriendC', 3)`,
-    ).run();
+      )
+      .run();
 
     const opportunities = await getMileageEarningOpportunitiesForFriend(db, 'friend-1');
     expect(opportunities).toHaveLength(1);
@@ -254,11 +297,13 @@ describe('configurable mileage rules', () => {
     expect(opportunities[0].description).toContain('4アカウント分のマイルを合算');
     expect(opportunities[0].url).toContain('2000000000-FriendC');
 
-    sqlite.prepare(
-      `INSERT INTO friends
+    sqlite
+      .prepare(
+        `INSERT INTO friends
          (id, line_user_id, display_name, user_id, line_account_id, is_following)
        VALUES ('friend-3', 'U3', 'ユーザーC', 'user-1', 'account-3', 1)`,
-    ).run();
+      )
+      .run();
     const registered = await getMileageEarningOpportunitiesForFriend(db, 'friend-1');
     expect(registered).toHaveLength(1);
     expect(registered[0]).toMatchObject({
@@ -287,15 +332,21 @@ describe('configurable mileage rules', () => {
   });
 
   it('keeps ingestion asynchronous and applies a configured tag reward and tier multiplier', async () => {
-    sqlite.prepare(
-      `INSERT INTO tags
+    sqlite
+      .prepare(
+        `INSERT INTO tags
          (id, name, color, mileage_reward, mileage_multiplier_bps, mileage_multiplier_priority)
        VALUES ('tier-gold', 'Gold会員', '#F59E0B', 20, 15000, 10)`,
-    ).run();
+      )
+      .run();
     await addTagToFriend(db, 'friend-1', 'tier-gold');
     await applyMileageRulesForEvent(db, {
-      eventType: 'form_submitted', source: 'form', sourceEventId: 'form-tier',
-      friendId: 'friend-2', subjectKey: 'form-tier', occurredAt: '2026-08-10T10:00:00.000+09:00',
+      eventType: 'form_submitted',
+      source: 'form',
+      sourceEventId: 'form-tier',
+      friendId: 'friend-2',
+      subjectKey: 'form-tier',
+      occurredAt: '2026-08-10T10:00:00.000+09:00',
     });
 
     expect((await getMileageSummaryForFriend(db, 'friend-1')).available).toBe(0);
@@ -303,28 +354,34 @@ describe('configurable mileage rules', () => {
     expect(queue).toMatchObject({ processed: 2, granted: 2, failed: 0 });
     expect((await getMileageSummaryForFriend(db, 'friend-1')).available).toBe(35);
 
-    const formLedger = sqlite.prepare(
-      `SELECT amount, json_extract(metadata, '$.baseAmount') AS base_amount,
+    const formLedger = sqlite
+      .prepare(
+        `SELECT amount, json_extract(metadata, '$.baseAmount') AS base_amount,
               json_extract(metadata, '$.multiplierBps') AS multiplier_bps
          FROM mileage_ledger WHERE source_event_id = 'form-tier'`,
-    ).get();
+      )
+      .get();
     expect(formLedger).toEqual({ amount: 15, base_amount: 10, multiplier_bps: 15000 });
   });
 
   it('rewards registration and continuous following once without tier multiplication', async () => {
-    sqlite.prepare(
-      `UPDATE friends
+    sqlite
+      .prepare(
+        `UPDATE friends
           SET is_following = 1,
               first_followed_at = '2026-05-01T10:00:00.000+09:00',
               current_follow_started_at = '2026-05-01T10:00:00.000+09:00',
               last_followed_at = '2026-05-01T10:00:00.000+09:00'
         WHERE id = 'friend-1'`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO tags
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO tags
          (id, name, color, mileage_multiplier_bps, mileage_multiplier_priority)
        VALUES ('tier-loyalty', '特別会員', '#84CC16', 15000, 20)`,
-    ).run();
+      )
+      .run();
     await addTagToFriend(db, 'friend-1', 'tier-loyalty');
 
     const first = await enqueueFollowingMileageMilestones(db, {
@@ -350,14 +407,16 @@ describe('configurable mileage rules', () => {
   });
 
   it('resets the continuous-follow streak after a block and preserves earned miles', async () => {
-    sqlite.prepare(
-      `UPDATE friends
+    sqlite
+      .prepare(
+        `UPDATE friends
           SET is_following = 1,
               first_followed_at = '2026-07-01T10:00:00.000+09:00',
               current_follow_started_at = '2026-07-01T10:00:00.000+09:00',
               last_followed_at = '2026-07-01T10:00:00.000+09:00'
         WHERE id = 'friend-1'`,
-    ).run();
+      )
+      .run();
     await enqueueFollowingMileageMilestones(db, {
       now: '2026-08-10T10:00:00.000+09:00',
       limitPerMilestone: 100,
@@ -367,10 +426,16 @@ describe('configurable mileage rules', () => {
 
     await updateFriendFollowStatus(db, 'U1', false, 'account-1');
     await updateFriendFollowStatus(db, 'U1', true, 'account-1');
-    const relationship = sqlite.prepare(
-      `SELECT is_following, current_follow_started_at, unfollow_count
+    const relationship = sqlite
+      .prepare(
+        `SELECT is_following, current_follow_started_at, unfollow_count
          FROM friends WHERE id = 'friend-1'`,
-    ).get() as { is_following: number; current_follow_started_at: string | null; unfollow_count: number };
+      )
+      .get() as {
+      is_following: number;
+      current_follow_started_at: string | null;
+      unfollow_count: number;
+    };
     expect(relationship.is_following).toBe(1);
     expect(relationship.current_follow_started_at).not.toBe('2026-07-01T10:00:00.000+09:00');
     expect(relationship.unfollow_count).toBe(1);
@@ -385,58 +450,79 @@ describe('configurable mileage rules', () => {
 
   it('rewards the introducer for referred booking, viewing, purchase, and tag quality', async () => {
     sqlite.prepare(`INSERT INTO users (id, display_name) VALUES ('user-referrer', '紹介者')`).run();
-    sqlite.prepare(
-      `INSERT INTO friends
+    sqlite
+      .prepare(
+        `INSERT INTO friends
          (id, line_user_id, display_name, user_id, line_account_id, created_at, updated_at)
        VALUES ('friend-referrer', 'U-REFERRER', '紹介者', 'user-referrer', 'account-1',
                '2026-07-01T10:00:00.000+09:00', '2026-07-01T10:00:00.000+09:00')`,
-    ).run();
-    sqlite.prepare(
-      `UPDATE friends
+      )
+      .run();
+    sqlite
+      .prepare(
+        `UPDATE friends
           SET created_at = '2026-08-01T10:00:00.000+09:00',
               updated_at = '2026-08-01T10:00:00.000+09:00'
         WHERE id = 'friend-1'`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO affiliates (id, name, code, friend_id)
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO affiliates (id, name, code, friend_id)
        VALUES ('affiliate-referrer', '紹介者', 'REFERRER', 'friend-referrer')`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO affiliate_links
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO affiliate_links
          (id, affiliate_id, ref_code, is_active, created_at)
        VALUES ('affiliate-link-referrer', 'affiliate-referrer', 'GOODREF', 1,
                '2026-08-01T09:59:00.000+09:00')`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO ref_tracking (id, ref_code, friend_id, created_at)
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO ref_tracking (id, ref_code, friend_id, created_at)
        VALUES ('ref-touch', 'GOODREF', 'friend-1', '2026-08-01T10:00:01.000+09:00')`,
-    ).run();
+      )
+      .run();
 
     for (const sourceEventId of ['booking-quality-1', 'booking-quality-2']) {
       await applyMileageRulesForEvent(db, {
-        eventType: 'booking_created', source: 'booking', sourceEventId,
-        friendId: 'friend-1', occurredAt: '2026-08-05T10:00:00.000+09:00',
+        eventType: 'booking_created',
+        source: 'booking',
+        sourceEventId,
+        friendId: 'friend-1',
+        occurredAt: '2026-08-05T10:00:00.000+09:00',
       });
     }
     for (const sourceEventId of ['watch-quality-1', 'watch-quality-2']) {
       await applyMileageRulesForEvent(db, {
-        eventType: 'webinar_completed', source: 'webinar', sourceEventId,
-        friendId: 'friend-1', subjectKey: 'webinar-quality',
+        eventType: 'webinar_completed',
+        source: 'webinar',
+        sourceEventId,
+        friendId: 'friend-1',
+        subjectKey: 'webinar-quality',
         occurredAt: '2026-08-06T10:00:00.000+09:00',
       });
     }
     for (const sourceEventId of ['purchase-quality-1', 'purchase-quality-2']) {
       await applyMileageRulesForEvent(db, {
-        eventType: 'purchase_completed', source: 'stripe', sourceEventId,
-        friendId: 'friend-1', subjectKey: sourceEventId,
+        eventType: 'purchase_completed',
+        source: 'stripe',
+        sourceEventId,
+        friendId: 'friend-1',
+        subjectKey: sourceEventId,
         occurredAt: '2026-08-07T10:00:00.000+09:00',
       });
     }
-    sqlite.prepare(
-      `INSERT INTO tags
+    sqlite
+      .prepare(
+        `INSERT INTO tags
          (id, name, color, mileage_reward, referral_mileage_reward)
        VALUES ('seminar-attended', 'セミナー参加', '#10B981', 10, 0)`,
-    ).run();
+      )
+      .run();
     await addTagToFriend(db, 'friend-1', 'seminar-attended');
 
     await processPendingMileageEvents(db, {
@@ -445,9 +531,7 @@ describe('configurable mileage rules', () => {
     });
     expect((await getMileageSummaryForFriend(db, 'friend-referrer')).available).toBe(180);
 
-    sqlite.prepare(
-      `UPDATE tags SET referral_mileage_reward = 25 WHERE id = 'seminar-attended'`,
-    ).run();
+    sqlite.prepare(`UPDATE tags SET referral_mileage_reward = 25 WHERE id = 'seminar-attended'`).run();
     expect(await enqueueHistoricTagMileage(db, 'seminar-attended')).toBeGreaterThan(0);
     await processPendingMileageEvents(db, {
       now: '2026-08-10T10:05:00.000+09:00',
@@ -456,12 +540,14 @@ describe('configurable mileage rules', () => {
     const referrerSummary = await getMileageSummaryForFriend(db, 'friend-referrer');
     expect(referrerSummary.available).toBe(205);
 
-    const referralEntries = sqlite.prepare(
-      `SELECT amount, source, json_extract(metadata, '$.referredFriendId') AS referred_friend_id
+    const referralEntries = sqlite
+      .prepare(
+        `SELECT amount, source, json_extract(metadata, '$.referredFriendId') AS referred_friend_id
          FROM mileage_ledger
         WHERE beneficiary_friend_id = 'friend-referrer'
         ORDER BY amount`,
-    ).all();
+      )
+      .all();
     expect(referralEntries).toEqual([
       { amount: 25, source: 'tag_referral', referred_friend_id: 'friend-1' },
       { amount: 30, source: 'webinar', referred_friend_id: 'friend-1' },
@@ -483,25 +569,32 @@ describe('configurable mileage rules', () => {
   });
 
   it('does not award quality miles for a self-referral', async () => {
-    sqlite.prepare(
-      `INSERT INTO affiliates (id, name, code, friend_id)
+    sqlite
+      .prepare(
+        `INSERT INTO affiliates (id, name, code, friend_id)
        VALUES ('affiliate-self', '本人', 'SELF', 'friend-1')`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO affiliate_links (id, affiliate_id, ref_code, is_active, created_at)
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO affiliate_links (id, affiliate_id, ref_code, is_active, created_at)
        VALUES ('affiliate-link-self', 'affiliate-self', 'SELFREF', 1, '2026-08-01')`,
-    ).run();
-    sqlite.prepare(
-      `UPDATE friends SET created_at = '2026-08-01T10:00:00.000+09:00' WHERE id = 'friend-1'`,
-    ).run();
-    sqlite.prepare(
-      `INSERT INTO ref_tracking (id, ref_code, friend_id, created_at)
+      )
+      .run();
+    sqlite.prepare(`UPDATE friends SET created_at = '2026-08-01T10:00:00.000+09:00' WHERE id = 'friend-1'`).run();
+    sqlite
+      .prepare(
+        `INSERT INTO ref_tracking (id, ref_code, friend_id, created_at)
        VALUES ('self-touch', 'SELFREF', 'friend-1', '2026-08-01T10:00:01.000+09:00')`,
-    ).run();
+      )
+      .run();
 
     await applyMileageRulesForEvent(db, {
-      eventType: 'booking_created', source: 'booking', sourceEventId: 'self-booking',
-      friendId: 'friend-1', occurredAt: '2026-08-02T10:00:00.000+09:00',
+      eventType: 'booking_created',
+      source: 'booking',
+      sourceEventId: 'self-booking',
+      friendId: 'friend-1',
+      occurredAt: '2026-08-02T10:00:00.000+09:00',
     });
     await processPendingMileageEvents(db, { now: '2026-08-10T10:00:00.000+09:00' });
     expect((await getMileageSummaryForFriend(db, 'friend-1')).available).toBe(20);

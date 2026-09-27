@@ -8,47 +8,47 @@
 // ─── Types ─────────────────────────────────────────────────
 
 export interface Customer {
-  id: string
-  name: string
-  email: string
-  lineUserId: string | null
-  tier: 'free' | 'basic' | 'premium'
-  lastVisitDate: string | null
-  visitCount: number
+  id: string;
+  name: string;
+  email: string;
+  lineUserId: string | null;
+  tier: 'free' | 'basic' | 'premium';
+  lastVisitDate: string | null;
+  visitCount: number;
 }
 
 export interface Appointment {
-  id: string
-  customerId: string
-  lineHarnessFriendId: string | null
-  date: string
-  time: string
-  location: string
-  status: 'confirmed' | 'cancelled' | 'completed'
+  id: string;
+  customerId: string;
+  lineHarnessFriendId: string | null;
+  date: string;
+  time: string;
+  location: string;
+  status: 'confirmed' | 'cancelled' | 'completed';
 }
 
 export interface Membership {
-  id: string
-  customerId: string
-  lineHarnessFriendId: string | null
-  planName: string
-  expiresAt: string
-  renewUrl: string
+  id: string;
+  customerId: string;
+  lineHarnessFriendId: string | null;
+  planName: string;
+  expiresAt: string;
+  renewUrl: string;
 }
 
 // ─── Client ────────────────────────────────────────────────
 
-const BASE_URL = 'https://api.myservice.example.com/v1'
+const BASE_URL = 'https://api.myservice.example.com/v1';
 
 export class MyServiceClient {
-  private readonly apiKey: string
+  private readonly apiKey: string;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey
+    this.apiKey = apiKey;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    let response: Response
+    let response: Response;
     try {
       response = await fetch(`${BASE_URL}${path}`, {
         ...init,
@@ -57,22 +57,22 @@ export class MyServiceClient {
           'Content-Type': 'application/json',
           ...init?.headers,
         },
-      })
+      });
     } catch {
       // Transport errors can include external input; callers may log this error.
-      throw new Error('MyService API request failed')
+      throw new Error('MyService API request failed');
     }
 
     if (!response.ok) {
       // Do not read or propagate a response body that may contain private data.
-      await response.body?.cancel().catch(() => undefined)
-      throw new Error(`MyService API error ${response.status}`)
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`MyService API error ${response.status}`);
     }
 
     try {
-      return await response.json() as T
+      return (await response.json()) as T;
     } catch {
-      throw new Error('MyService API returned invalid JSON')
+      throw new Error('MyService API returned invalid JSON');
     }
   }
 
@@ -80,31 +80,27 @@ export class MyServiceClient {
    * List all customers from MyService.
    */
   async listCustomers(): Promise<Customer[]> {
-    return this.request<Customer[]>('/customers')
+    return this.request<Customer[]>('/customers');
   }
 
   /**
    * Get a single customer by ID.
    */
   async getCustomer(id: string): Promise<Customer> {
-    return this.request<Customer>(`/customers/${id}`)
+    return this.request<Customer>(`/customers/${id}`);
   }
 
   /**
    * Get appointments within the next N hours.
    */
   async getUpcomingAppointments(withinHours: number): Promise<Appointment[]> {
-    return this.request<Appointment[]>(
-      `/appointments?upcoming_hours=${withinHours}`,
-    )
+    return this.request<Appointment[]>(`/appointments?upcoming_hours=${withinHours}`);
   }
 
   /**
    * Get memberships expiring within the next N days.
    */
   async getExpiringMemberships(withinDays: number): Promise<Membership[]> {
-    return this.request<Membership[]>(
-      `/memberships?expiring_within_days=${withinDays}`,
-    )
+    return this.request<Membership[]>(`/memberships?expiring_within_days=${withinDays}`);
   }
 }

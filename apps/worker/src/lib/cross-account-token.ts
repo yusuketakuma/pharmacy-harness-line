@@ -8,13 +8,9 @@ function base64Url(bytes: ArrayBuffer | Uint8Array): string {
 }
 
 async function hmac(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
   return base64Url(await crypto.subtle.sign('HMAC', key, encoder.encode(payload)));
 }
 

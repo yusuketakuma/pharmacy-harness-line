@@ -54,12 +54,8 @@ describe('sanitizeSubdomainCandidate', () => {
 
 describe('subdomainFromWorkersDevUrl', () => {
   it('extracts the account subdomain from a workers.dev URL', () => {
-    expect(
-      subdomainFromWorkersDevUrl('https://line-harness.acc.workers.dev'),
-    ).toBe('acc');
-    expect(
-      subdomainFromWorkersDevUrl('https://my-bot.example-team.workers.dev/health'),
-    ).toBe('example-team');
+    expect(subdomainFromWorkersDevUrl('https://line-harness.acc.workers.dev')).toBe('acc');
+    expect(subdomainFromWorkersDevUrl('https://my-bot.example-team.workers.dev/health')).toBe('example-team');
   });
 
   it('returns null for custom domains and unparsable input', () => {

@@ -6,10 +6,7 @@ const { getActiveTenantLineAccounts } = vi.hoisted(() => ({
 
 vi.mock('@line-crm/db', () => ({ getActiveTenantLineAccounts }));
 
-import {
-  verifyCallerLineIdentity,
-  verifyCallerLineUserId,
-} from './liff-auth.js';
+import { verifyCallerLineIdentity, verifyCallerLineUserId } from './liff-auth.js';
 
 const env = {
   LINE_LOGIN_CHANNEL_ID: 'default-channel',
@@ -67,9 +64,7 @@ describe('verifyCallerLineIdentity', () => {
       }),
     );
 
-    await expect(
-      verifyCallerLineIdentity(`Bearer ${idToken('account-channel')}`, envWith(accounts)),
-    ).resolves.toEqual({
+    await expect(verifyCallerLineIdentity(`Bearer ${idToken('account-channel')}`, envWith(accounts))).resolves.toEqual({
       lineUserId: 'U123',
       loginChannelId: 'account-channel',
       lineAccountId: 'account-1',
@@ -83,11 +78,13 @@ describe('verifyCallerLineIdentity', () => {
   });
 
   it('keeps the existing user-id helper as a compatibility wrapper', async () => {
-    const accounts = [{
-      id: 'account-default',
-      tenant_id: 'tenant-default',
-      login_channel_id: 'default-channel',
-    }];
+    const accounts = [
+      {
+        id: 'account-default',
+        tenant_id: 'tenant-default',
+        login_channel_id: 'default-channel',
+      },
+    ];
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ sub: 'U456', aud: 'default-channel' }), {
         status: 200,
@@ -95,18 +92,16 @@ describe('verifyCallerLineIdentity', () => {
       }),
     );
 
-    await expect(
-      verifyCallerLineUserId(`Bearer ${idToken('default-channel')}`, envWith(accounts)),
-    ).resolves.toBe('U456');
+    await expect(verifyCallerLineUserId(`Bearer ${idToken('default-channel')}`, envWith(accounts))).resolves.toBe(
+      'U456',
+    );
   });
 
   it('rejects the environment default channel when it is not mapped to an active tenant', async () => {
     getActiveTenantLineAccounts.mockResolvedValue([]);
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
-    await expect(
-      verifyCallerLineIdentity('Bearer token', env),
-    ).resolves.toBeNull();
+    await expect(verifyCallerLineIdentity('Bearer token', env)).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -123,23 +118,25 @@ describe('verifyCallerLineIdentity', () => {
         : new Response('{}', { status: 400 });
     });
 
-    await expect(
-      verifyCallerLineIdentity(`Bearer ${idToken('channel-99')}`, envWith(accounts)),
-    ).resolves.toMatchObject({ lineAccountId: 'account-99', tenantId: 'tenant-99' });
+    await expect(verifyCallerLineIdentity(`Bearer ${idToken('channel-99')}`, envWith(accounts))).resolves.toMatchObject(
+      { lineAccountId: 'account-99', tenantId: 'tenant-99' },
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a LINE response whose audience does not match the selected channel', async () => {
-    const accounts = [{
-      id: 'account-1', tenant_id: 'tenant-1', login_channel_id: 'channel-1',
-    }];
+    const accounts = [
+      {
+        id: 'account-1',
+        tenant_id: 'tenant-1',
+        login_channel_id: 'channel-1',
+      },
+    ];
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ sub: 'U123', aud: 'other-channel' }), { status: 200 }),
     );
 
-    await expect(
-      verifyCallerLineIdentity(`Bearer ${idToken('channel-1')}`, envWith(accounts)),
-    ).resolves.toBeNull();
+    await expect(verifyCallerLineIdentity(`Bearer ${idToken('channel-1')}`, envWith(accounts))).resolves.toBeNull();
   });
 
   it('rejects malformed tokens before D1 or LINE lookup', async () => {

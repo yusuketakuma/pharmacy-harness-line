@@ -1,37 +1,37 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { useAccount } from '@/contexts/account-context'
-import { api } from '@/lib/api'
-import { TEMPLATES, templateToAreas } from '@/lib/rich-menu-templates'
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { useAccount } from '@/contexts/account-context';
+import { api } from '@/lib/api';
+import { TEMPLATES, templateToAreas } from '@/lib/rich-menu-templates';
 
 export default function NewRichMenuPage() {
-  const router = useRouter()
-  const { selectedAccount } = useAccount()
-  const [name, setName] = useState('')
-  const [chatBarText, setChatBarText] = useState('メニュー')
-  const [selected, setSelected] = useState(true)
-  const [templateKey, setTemplateKey] = useState(TEMPLATES[0].key)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter();
+  const { selectedAccount } = useAccount();
+  const [name, setName] = useState('');
+  const [chatBarText, setChatBarText] = useState('メニュー');
+  const [selected, setSelected] = useState(true);
+  const [templateKey, setTemplateKey] = useState(TEMPLATES[0].key);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const tmpl = TEMPLATES.find((t) => t.key === templateKey) ?? TEMPLATES[0]
+  const tmpl = TEMPLATES.find((t) => t.key === templateKey) ?? TEMPLATES[0];
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+    e.preventDefault();
     if (!selectedAccount) {
-      setError('アカウントを選択してください')
-      return
+      setError('アカウントを選択してください');
+      return;
     }
     if (!name.trim()) {
-      setError('名前を入力してください')
-      return
+      setError('名前を入力してください');
+      return;
     }
-    setSubmitting(true)
-    setError(null)
+    setSubmitting(true);
+    setError(null);
     try {
       const res = await api.richMenuGroups.create({
         accountId: selectedAccount.id,
@@ -39,28 +39,20 @@ export default function NewRichMenuPage() {
         chatBarText: chatBarText.trim(),
         size: tmpl.size,
         selected,
-        pages: [
-          { name: 'ページ 1', orderIndex: 0, areas: templateToAreas(tmpl) },
-        ],
-      })
-      if (!res.success) throw new Error(res.error ?? '作成失敗')
-      router.push(`/rich-menus/edit?id=${res.data.id}`)
+        pages: [{ name: 'ページ 1', orderIndex: 0, areas: templateToAreas(tmpl) }],
+      });
+      if (!res.success) throw new Error(res.error ?? '作成失敗');
+      router.push(`/rich-menus/edit?id=${res.data.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setSubmitting(false)
+      setError(e instanceof Error ? e.message : String(e));
+      setSubmitting(false);
     }
   }
 
   return (
     <main className="p-6 max-w-2xl mx-auto">
-      <Header
-        title="新規リッチメニュー"
-        description="作成後の編集画面で画像 upload や areas 編集ができます。"
-      />
-      <Link
-        href="/rich-menus"
-        className="text-sm text-gray-500 hover:underline mb-4 inline-block"
-      >
+      <Header title="新規リッチメニュー" description="作成後の編集画面で画像 upload や areas 編集ができます。" />
+      <Link href="/rich-menus" className="text-sm text-gray-500 hover:underline mb-4 inline-block">
         ← 一覧に戻る
       </Link>
 
@@ -89,9 +81,7 @@ export default function NewRichMenuPage() {
             required
             className="block w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
           />
-          <p className="mt-1 text-xs text-gray-500">
-            ユーザーがトーク画面でメニューを開く前に表示される文言。
-          </p>
+          <p className="mt-1 text-xs text-gray-500">ユーザーがトーク画面でメニューを開く前に表示される文言。</p>
         </div>
 
         <div>
@@ -103,9 +93,7 @@ export default function NewRichMenuPage() {
               className="mt-0.5"
             />
             <span>
-              <span className="block text-sm font-medium text-gray-700">
-                トークを開いたときにメニューを表示する
-              </span>
+              <span className="block text-sm font-medium text-gray-700">トークを開いたときにメニューを表示する</span>
               <span className="block mt-1 text-xs text-gray-500">
                 ON にすると、友だちがトーク画面を開いた直後からリッチメニューを展開します。
               </span>
@@ -114,17 +102,13 @@ export default function NewRichMenuPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            初期テンプレート
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">初期テンプレート</label>
           <div className="grid grid-cols-1 gap-2">
             {TEMPLATES.map((t) => (
               <label
                 key={t.key}
                 className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  templateKey === t.key
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-200 hover:bg-gray-50'
+                  templateKey === t.key ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 <input
@@ -142,20 +126,14 @@ export default function NewRichMenuPage() {
                       {t.size === 'large' ? '2500×1686' : '2500×843'}
                     </span>
                   </div>
-                  {t.description && (
-                    <p className="text-xs text-gray-500 mt-0.5">{t.description}</p>
-                  )}
+                  {t.description && <p className="text-xs text-gray-500 mt-0.5">{t.description}</p>}
                 </div>
               </label>
             ))}
           </div>
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">
-            {error}
-          </div>
-        )}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">{error}</div>}
 
         <div className="flex justify-end gap-2 pt-4 border-t border-gray-200">
           <Link
@@ -175,5 +153,5 @@ export default function NewRichMenuPage() {
         </div>
       </form>
     </main>
-  )
+  );
 }

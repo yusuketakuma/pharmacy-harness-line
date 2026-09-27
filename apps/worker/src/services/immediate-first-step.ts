@@ -26,10 +26,7 @@ import {
   isDeterministicInvalidReplyToken,
 } from './step-delivery.js';
 import { decorateForFriendPush } from './auto-track.js';
-import {
-  hasPharmacyModeAccount,
-  isPharmacyModeAccount,
-} from '../custom/pharmacy/growth-loop/access.js';
+import { hasPharmacyModeAccount, isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { deliverTrackedLinePush, deliverTrackedLineReply } from './outbound-line-delivery.js';
 
@@ -155,12 +152,15 @@ export async function pushImmediateFirstStep(
   const resumePausedClaim = async () => {
     if (!pausedDelivery) return;
     const delivery = pausedDelivery;
-    const result = await db.prepare(
-      `UPDATE friend_scenarios
+    const result = await db
+      .prepare(
+        `UPDATE friend_scenarios
           SET status = 'active', delivery_first_attempted_at = NULL,
               delivery_claim_token = NULL, updated_at = ?
         WHERE id = ? AND status = 'paused' AND delivery_claim_token = ?`,
-    ).bind(jstNow(), delivery.enrollmentId, delivery.token).run();
+      )
+      .bind(jstNow(), delivery.enrollmentId, delivery.token)
+      .run();
     if ((result.meta?.changes ?? 0) === 1) pausedDelivery = null;
   };
   try {
@@ -190,11 +190,11 @@ export async function pushImmediateFirstStep(
     const enrolledAtJst = new Date(Date.now() + 9 * 60 * 60_000);
     const immediateSteps: typeof steps = [];
     for (const step of steps) {
-      const scheduledAt = computeNextDeliveryAt(
-        { delivery_mode: scenarioRow.delivery_mode ?? 'relative' },
-        step,
-        { enrolledAt: enrolledAtJst, previousDeliveredAt: enrolledAtJst, now: enrolledAtJst },
-      );
+      const scheduledAt = computeNextDeliveryAt({ delivery_mode: scenarioRow.delivery_mode ?? 'relative' }, step, {
+        enrolledAt: enrolledAtJst,
+        previousDeliveredAt: enrolledAtJst,
+        now: enrolledAtJst,
+      });
       if (scheduledAt.getTime() > enrolledAtJst.getTime()) break;
       immediateSteps.push(step);
     }
@@ -243,11 +243,11 @@ export async function pushImmediateFirstStep(
       // condition evaluation skipped ahead.
       const nextStep = steps[steps.indexOf(firstStep) + 1];
       if (nextStep) {
-        const next = computeNextDeliveryAt(
-          { delivery_mode: scenarioRow.delivery_mode ?? 'relative' },
-          nextStep,
-          { enrolledAt: enrolledAtJst, previousDeliveredAt: enrolledAtJst, now: enrolledAtJst },
-        );
+        const next = computeNextDeliveryAt({ delivery_mode: scenarioRow.delivery_mode ?? 'relative' }, nextStep, {
+          enrolledAt: enrolledAtJst,
+          previousDeliveredAt: enrolledAtJst,
+          now: enrolledAtJst,
+        });
         // `next` is already in the shifted-JST frame (its inputs were
         // Date.now()+9h), so serialize by relabeling — NOT toJstString(),
         // which would add the offset a second time and schedule step 2
@@ -286,11 +286,7 @@ export async function pushImmediateFirstStep(
       // Optimistic lock shared with the cron worker: whoever claims first
       // delivers step 1; the loser backs off. Closes the double-send window
       // between the enrollment INSERT and the post-push advance.
-      const claimToken = await claimFriendScenarioForDelivery(
-        db,
-        enrollmentRow.id,
-        enrollmentRow.current_step_order,
-      );
+      const claimToken = await claimFriendScenarioForDelivery(db, enrollmentRow.id, enrollmentRow.current_step_order);
       if (!claimToken) return false;
       claimedDelivery = {
         enrollmentId: enrollmentRow.id,
@@ -366,36 +362,21 @@ export async function pushImmediateFirstStep(
       resolveStepContent(db, firstStep),
       ctx.accountChannelId ? getLineAccountByChannelId(db, ctx.accountChannelId) : null,
     ]);
-    if (
-      ctxAccount?.id
-      && friend.line_account_id
-      && friend.line_account_id !== ctxAccount.id
-    ) {
+    if (ctxAccount?.id && friend.line_account_id && friend.line_account_id !== ctxAccount.id) {
       await releaseClaim();
       return false;
     }
-    if (
-      ctx.lineAccountId
-      && ctxAccount?.id
-      && ctx.lineAccountId !== ctxAccount.id
-    ) {
+    if (ctx.lineAccountId && ctxAccount?.id && ctx.lineAccountId !== ctxAccount.id) {
       await releaseClaim();
       return false;
     }
-    if (
-      ctx.lineAccountId
-      && friend.line_account_id
-      && ctx.lineAccountId !== friend.line_account_id
-    ) {
+    if (ctx.lineAccountId && friend.line_account_id && ctx.lineAccountId !== friend.line_account_id) {
       await releaseClaim();
       return false;
     }
-    const lineAccountId = ctx.lineAccountId !== undefined
-      ? ctx.lineAccountId
-      : ctxAccount?.id ?? friend.line_account_id ?? null;
-    if (lineAccountId
-      ? await isPharmacyModeAccount(db, lineAccountId)
-      : await hasPharmacyModeAccount(db)) {
+    const lineAccountId =
+      ctx.lineAccountId !== undefined ? ctx.lineAccountId : (ctxAccount?.id ?? friend.line_account_id ?? null);
+    if (lineAccountId ? await isPharmacyModeAccount(db, lineAccountId) : await hasPharmacyModeAccount(db)) {
       await releaseClaim();
       return false;
     }
@@ -410,13 +391,10 @@ export async function pushImmediateFirstStep(
     // caller-resolved channel — LIFF/OAuth entry points run BEFORE the follow
     // webhook wires friend.line_account_id, and an owner-less link would send
     // that account's friends through the global LIFF consent screen.
-    const decorated = await decorateForFriendPush(
-      db,
-      resolved.messageType,
-      expanded,
-      ctx.workerUrl,
-      { lineAccountId, friendId },
-    );
+    const decorated = await decorateForFriendPush(db, resolved.messageType, expanded, ctx.workerUrl, {
+      lineAccountId,
+      friendId,
+    });
     const sentMessage = buildMessage(decorated.messageType, decorated.content);
     const logPayload = messageToLogPayload(sentMessage);
     let replyAttempted = false;
@@ -430,11 +408,7 @@ export async function pushImmediateFirstStep(
         }
         const replyDelivery = claimedDelivery;
         if (!replyDelivery) return false;
-        if (!(await markFriendScenarioDeliveryAttempt(
-          db,
-          replyDelivery.enrollmentId,
-          replyDelivery.token,
-        ))) {
+        if (!(await markFriendScenarioDeliveryAttempt(db, replyDelivery.enrollmentId, replyDelivery.token))) {
           await releaseClaim();
           return false;
         }
@@ -487,7 +461,7 @@ export async function pushImmediateFirstStep(
           return false;
         }
         const deliveryTenantId = lineAccountId
-          ? ctx.tenantId ?? await getActiveMappedAccountTenantId(db, lineAccountId)
+          ? (ctx.tenantId ?? (await getActiveMappedAccountTenantId(db, lineAccountId)))
           : null;
         if (!claimedDelivery || !lineAccountId || !deliveryTenantId) {
           if (claimedDelivery) await pauseClaim();
@@ -508,11 +482,7 @@ export async function pushImmediateFirstStep(
           firstStep.id,
           String(firstStep.step_order),
         );
-        if (!(await markFriendScenarioDeliveryAttempt(
-          db,
-          claimedDelivery.enrollmentId,
-          claimedDelivery.token,
-        ))) {
+        if (!(await markFriendScenarioDeliveryAttempt(db, claimedDelivery.enrollmentId, claimedDelivery.token))) {
           await releaseClaim();
           return false;
         }
@@ -564,7 +534,7 @@ export async function pushImmediateFirstStep(
     }
     sent = true;
     settleAfterSend = async () => {
-      if (advanceTarget && await advancePastFirstStep(advanceTarget)) {
+      if (advanceTarget && (await advancePastFirstStep(advanceTarget))) {
         claimedDelivery = null;
         pausedDelivery = null;
         await attachReachTag();
@@ -584,11 +554,7 @@ export async function pushImmediateFirstStep(
       } else if (replyProvenNotSent) {
         await resumePausedClaim();
         if (claimedDelivery) {
-          await releaseClaimById(
-            db,
-            claimedDelivery.enrollmentId,
-            claimedDelivery.token,
-          );
+          await releaseClaimById(db, claimedDelivery.enrollmentId, claimedDelivery.token);
           claimedDelivery = null;
         }
       } else if (replyOutcomeUnknown) {
@@ -610,11 +576,7 @@ export async function pushImmediateFirstStep(
   }
 }
 
-async function releaseClaimById(
-  db: D1Database,
-  enrollmentId: string,
-  claimToken: string,
-): Promise<void> {
+async function releaseClaimById(db: D1Database, enrollmentId: string, claimToken: string): Promise<void> {
   await db
     .prepare(
       `UPDATE friend_scenarios

@@ -75,9 +75,7 @@ function database() {
       sql.push(statementSql);
       const statement = {
         bind: (..._values: unknown[]) => statement,
-        first: async () => statementSql.includes('FROM tenant_line_accounts')
-          ? { ok: 1 }
-          : null,
+        first: async () => (statementSql.includes('FROM tenant_line_accounts') ? { ok: 1 } : null),
         all: async () => ({
           results: statementSql.includes('FROM friends')
             ? [{ id: 'friend-a', line_user_id: 'U-a', display_name: 'Alice' }]
@@ -120,10 +118,13 @@ function statefulDatabase(state: {
             ? [...state.logged].map((friend_id) => ({ friend_id }))
             : statementSql.includes('FROM outbound_line_deliveries')
               ? [...(state.retired ?? [])]
-                .filter((friend_id) => !statementSql.includes("payload.log_delivery_type != 'test'")
-                  || !(state.retiredTest ?? new Set()).has(friend_id))
-                .map((friend_id) => ({ friend_id }))
-            : [],
+                  .filter(
+                    (friend_id) =>
+                      !statementSql.includes("payload.log_delivery_type != 'test'") ||
+                      !(state.retiredTest ?? new Set()).has(friend_id),
+                  )
+                  .map((friend_id) => ({ friend_id }))
+              : [],
         }),
         run: async () => {
           if (statementSql.includes('SET batch_offset = -1')) {
@@ -158,12 +159,14 @@ describe('queued personalized broadcast delivery', () => {
     vi.clearAllMocks();
     dbMocks.getBroadcasts.mockResolvedValue([]);
     dbMocks.getQueuedBroadcasts.mockResolvedValue([broadcast]);
-    dbMocks.getFriendsByTag.mockResolvedValue([{
-      id: 'friend-a',
-      line_user_id: 'U-a',
-      display_name: 'Alice',
-      is_following: 1,
-    }]);
+    dbMocks.getFriendsByTag.mockResolvedValue([
+      {
+        id: 'friend-a',
+        line_user_id: 'U-a',
+        display_name: 'Alice',
+        is_following: 1,
+      },
+    ]);
     dbMocks.getLineAccountById.mockResolvedValue({
       id: 'account-a',
       channel_access_token: 'token-a',
@@ -192,13 +195,15 @@ describe('queued personalized broadcast delivery', () => {
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      friendId: 'friend-a',
-      broadcastId: 'broadcast-a',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        broadcastId: 'broadcast-a',
+        source: 'broadcast',
+      }),
+    );
     expect(lineSdk.pushMessage).toHaveBeenCalledOnce();
     expect(sql.filter((statement) => statement.includes('INSERT INTO messages_log'))).toEqual([]);
   });
@@ -207,17 +212,20 @@ describe('queued personalized broadcast delivery', () => {
     const { db } = database();
 
     await processQueuedBroadcasts(db, {} as never);
-    dbMocks.getFriendsByTag.mockResolvedValue([{
-      id: 'friend-a',
-      line_user_id: 'U-a',
-      display_name: 'Bob',
-      is_following: 1,
-    }]);
+    dbMocks.getFriendsByTag.mockResolvedValue([
+      {
+        id: 'friend-a',
+        line_user_id: 'U-a',
+        display_name: 'Bob',
+        is_following: 1,
+      },
+    ]);
     await processQueuedBroadcasts(db, {} as never);
 
     expect(deliverTrackedLinePush).toHaveBeenCalledTimes(2);
-    expect(deliverTrackedLinePush.mock.calls[1]?.[0].operationId)
-      .toBe(deliverTrackedLinePush.mock.calls[0]?.[0].operationId);
+    expect(deliverTrackedLinePush.mock.calls[1]?.[0].operationId).toBe(
+      deliverTrackedLinePush.mock.calls[0]?.[0].operationId,
+    );
   });
 
   it('does not skip an unsent recipient when the live audience shrinks', async () => {
@@ -269,14 +277,9 @@ describe('queued personalized broadcast delivery', () => {
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush.mock.calls.map(([params]) => params.friendId))
-      .toEqual(['friend-a', 'friend-b']);
+    expect(deliverTrackedLinePush.mock.calls.map(([params]) => params.friendId)).toEqual(['friend-a', 'friend-b']);
     expect(state.failedAccountIds).toBe(JSON.stringify(['account-a']));
-    expect(dbMocks.updateBroadcastStatus).not.toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'sent',
-    );
+    expect(dbMocks.updateBroadcastStatus).not.toHaveBeenCalledWith(db, 'broadcast-a', 'sent');
   });
 
   it('does not let retired recipients consume the next provider batch', async () => {
@@ -303,8 +306,7 @@ describe('queued personalized broadcast delivery', () => {
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush.mock.calls.map(([params]) => params.friendId))
-      .toEqual(['friend-10']);
+    expect(deliverTrackedLinePush.mock.calls.map(([params]) => params.friendId)).toEqual(['friend-10']);
     expect(state.failedAccountIds).toBe(JSON.stringify(['account-a']));
   });
 
@@ -325,10 +327,12 @@ describe('queued personalized broadcast delivery', () => {
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      friendId: 'friend-a',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        friendId: 'friend-a',
+        source: 'broadcast',
+      }),
+    );
     expect(state.broadcast.success_count).toBe(1);
     expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(db, 'broadcast-a', 'sent');
   });
@@ -341,11 +345,7 @@ describe('queued personalized broadcast delivery', () => {
 
     expect(deliverTrackedLinePush).toHaveBeenCalledOnce();
     expect(lineSdk.pushMessage).not.toHaveBeenCalled();
-    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'sent',
-    );
+    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(db, 'broadcast-a', 'sent');
   });
 
   it('releases the queue lock without LINE when tenant mapping disappears', async () => {
@@ -360,65 +360,77 @@ describe('queued personalized broadcast delivery', () => {
   });
 
   it('uses the scoped recipient ledger for a non-personalized tag broadcast', async () => {
-    dbMocks.getQueuedBroadcasts.mockResolvedValue([{
-      ...broadcast,
-      message_content: 'same message',
-    }]);
+    dbMocks.getQueuedBroadcasts.mockResolvedValue([
+      {
+        ...broadcast,
+        message_content: 'same message',
+      },
+    ]);
     const { db } = database();
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      friendId: 'friend-a',
-      content: 'same message',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        content: 'same message',
+        source: 'broadcast',
+      }),
+    );
     expect(lineSdk.pushMessage).toHaveBeenCalledOnce();
   });
 
   it('preserves the provider audience for a queued non-personalized all broadcast', async () => {
     dbMocks.getQueuedBroadcasts.mockResolvedValue([]);
-    dbMocks.getBroadcasts.mockResolvedValue([{
-      ...broadcast,
-      message_content: 'same message',
-      target_type: 'all',
-      target_tag_id: null,
-    }]);
+    dbMocks.getBroadcasts.mockResolvedValue([
+      {
+        ...broadcast,
+        message_content: 'same message',
+        target_type: 'all',
+        target_tag_id: null,
+      },
+    ]);
     const { db, sql } = database();
 
     await processQueuedBroadcasts(db, {} as never);
 
     expect(sql.some((statement) => statement.includes('FROM friends'))).toBe(false);
-    expect(deliverTrackedLineBroadcast).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      request: { messages: [{ type: 'text', text: 'same message' }] },
-    }));
+    expect(deliverTrackedLineBroadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        request: { messages: [{ type: 'text', text: 'same message' }] },
+      }),
+    );
     expect(lineSdk.broadcast).toHaveBeenCalledOnce();
     expect(deliverTrackedLinePush).not.toHaveBeenCalled();
   });
 
   it('does not use the provider-wide path for legacy all broadcasts with conditions', async () => {
-    dbMocks.getQueuedBroadcasts.mockResolvedValue([{
-      ...broadcast,
-      message_content: 'same message',
-      target_type: 'all',
-      target_tag_id: null,
-      segment_conditions: JSON.stringify({
-        operator: 'AND',
-        rules: [{ type: 'is_following', value: true }],
-      }),
-    }]);
+    dbMocks.getQueuedBroadcasts.mockResolvedValue([
+      {
+        ...broadcast,
+        message_content: 'same message',
+        target_type: 'all',
+        target_tag_id: null,
+        segment_conditions: JSON.stringify({
+          operator: 'AND',
+          rules: [{ type: 'is_following', value: true }],
+        }),
+      },
+    ]);
     const { db } = database();
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      friendId: 'friend-a',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        friendId: 'friend-a',
+        source: 'broadcast',
+      }),
+    );
     expect(deliverTrackedLineBroadcast).not.toHaveBeenCalled();
     expect(lineSdk.broadcast).not.toHaveBeenCalled();
   });
@@ -435,12 +447,10 @@ describe('queued personalized broadcast delivery', () => {
     await processQueuedBroadcasts(db, {} as never);
 
     expect(state.broadcast.batch_offset).toBe(0);
-    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'sent',
-      { totalCount: 0, successCount: 0 },
-    );
+    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(db, 'broadcast-a', 'sent', {
+      totalCount: 0,
+      successCount: 0,
+    });
   });
 
   it('keeps the provider request id across settlement retry completion', async () => {
@@ -463,19 +473,12 @@ describe('queued personalized broadcast delivery', () => {
 
     expect(lineSdk.broadcast).toHaveBeenCalledOnce();
     expect(dbMocks.updateBroadcastLineRequestId).toHaveBeenCalledOnce();
-    expect(dbMocks.updateBroadcastLineRequestId).toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'request-a',
-      null,
-    );
+    expect(dbMocks.updateBroadcastLineRequestId).toHaveBeenCalledWith(db, 'broadcast-a', 'request-a', null);
     expect(dbMocks.createBroadcastInsight).toHaveBeenCalledOnce();
-    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'sent',
-      { totalCount: 0, successCount: 0 },
-    );
+    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(db, 'broadcast-a', 'sent', {
+      totalCount: 0,
+      successCount: 0,
+    });
     expect(state.broadcast.batch_offset).toBe(0);
   });
 
@@ -497,12 +500,10 @@ describe('queued personalized broadcast delivery', () => {
 
     expect(storedRequestId).toBe('existing-request');
     expect(dbMocks.updateBroadcastLineRequestId).not.toHaveBeenCalled();
-    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(
-      db,
-      'broadcast-a',
-      'sent',
-      { totalCount: 0, successCount: 0 },
-    );
+    expect(dbMocks.updateBroadcastStatus).toHaveBeenCalledWith(db, 'broadcast-a', 'sent', {
+      totalCount: 0,
+      successCount: 0,
+    });
   });
 
   it('expands the denominator when the live audience grows between batches', async () => {
@@ -528,12 +529,15 @@ describe('queued personalized broadcast delivery', () => {
 
     await processQueuedBroadcasts(db, {} as never);
     expect(state.broadcast).toMatchObject({ total_count: 11, success_count: 10 });
-    friends = [...friends, {
-      id: 'friend-11',
-      line_user_id: 'U-11',
-      display_name: 'Friend 11',
-      is_following: 1,
-    }];
+    friends = [
+      ...friends,
+      {
+        id: 'friend-11',
+        line_user_id: 'U-11',
+        display_name: 'Friend 11',
+        is_following: 1,
+      },
+    ];
     await processQueuedBroadcasts(db, {} as never);
 
     expect(state.broadcast).toMatchObject({ total_count: 12, success_count: 12 });
@@ -572,23 +576,27 @@ describe('queued personalized broadcast delivery', () => {
   });
 
   it('delivers a queued segment broadcast per recipient', async () => {
-    dbMocks.getQueuedBroadcasts.mockResolvedValue([{
-      ...broadcast,
-      target_type: 'segment' as never,
-      message_content: 'same message',
-      segment_conditions: JSON.stringify({
-        operator: 'AND',
-        rules: [{ type: 'is_following', value: true }],
-      }),
-    }]);
+    dbMocks.getQueuedBroadcasts.mockResolvedValue([
+      {
+        ...broadcast,
+        target_type: 'segment' as never,
+        message_content: 'same message',
+        segment_conditions: JSON.stringify({
+          operator: 'AND',
+          rules: [{ type: 'is_following', value: true }],
+        }),
+      },
+    ]);
     const { db } = database();
 
     await processQueuedBroadcasts(db, {} as never);
 
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      friendId: 'friend-a',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        friendId: 'friend-a',
+        source: 'broadcast',
+      }),
+    );
     expect(deliverTrackedLineBroadcast).not.toHaveBeenCalled();
     expect(lineSdk.broadcast).not.toHaveBeenCalled();
   });
