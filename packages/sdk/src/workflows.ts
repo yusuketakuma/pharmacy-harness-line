@@ -23,7 +23,9 @@ export class Workflows {
     triggerType: ScenarioTriggerType,
     steps: StepDefinition[],
   ): Promise<ScenarioWithSteps> {
-    const scenario = await this.scenarios.create({ name, triggerType });
+    // Triggers must not enroll friends while the step list is incomplete.
+    // Leave a failed construction inactive so staff can inspect and repair it.
+    const scenario = await this.scenarios.create({ name, triggerType, isActive: false });
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -35,6 +37,7 @@ export class Workflows {
       });
     }
 
+    await this.scenarios.update(scenario.id, { isActive: true });
     return this.scenarios.get(scenario.id);
   }
 

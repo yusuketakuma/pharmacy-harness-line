@@ -1,5 +1,14 @@
 # Plans
 
+
+## audit-v5-20260928 — 契約保全監査・修復（BLOCKED）
+
+- 基準 H=B=`6fa678b5`、専用branch `audit/v5-20260928`。元checkoutへの反映・外部操作なし。
+- stream故障解放、認証path統一、SDK段階作成、LINE再試行ID、EC受付別下書きを有限packetとして採択。
+- 12共通領域+8追加領域はPARTIAL。全体COMPLETEを宣言しない。
+- セキュリティ再現に必要なOS sandboxが起動不能、Worker型検査の既存75診断、最終統合/配布検証が未完。
+- 証拠・残条件・再開手順: [監査記録](docs/pharmacy/evidence/audit-v5-20260928.md)。
+
 ## Active
 
 ### AUDIT-20260922 — 契約保全型の全体監査・修復・構造改善

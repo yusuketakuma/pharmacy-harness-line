@@ -57,7 +57,7 @@ describe('Workflows', () => {
       { delay: '1d', type: 'text', content: 'Day 2' },
     ]);
 
-    expect(scenarios.create).toHaveBeenCalledWith({ name: 'Test', triggerType: 'friend_add' });
+    expect(scenarios.create).toHaveBeenCalledWith({ name: 'Test', triggerType: 'friend_add', isActive: false });
     expect(scenarios.addStep).toHaveBeenCalledTimes(2);
     expect(scenarios.addStep).toHaveBeenCalledWith('sc-1', {
       stepOrder: 1,
@@ -72,6 +72,56 @@ describe('Workflows', () => {
       messageContent: 'Day 2',
     });
     expect(scenarios.get).toHaveBeenCalledWith('sc-1');
+    expect(scenarios.update).toHaveBeenCalledWith('sc-1', { isActive: true });
+    expect(vi.mocked(scenarios.update).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(scenarios.addStep).mock.invocationCallOrder[1],
+    );
+    expect(vi.mocked(scenarios.get).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(scenarios.update).mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps a partially constructed scenario inactive when a step write fails', async () => {
+    const scenarios = mockScenarios();
+    let active = true;
+    const writtenSteps: string[] = [];
+    vi.mocked(scenarios.create).mockImplementation(async (input) => {
+      active = input.isActive !== false;
+      return { id: 'sc-1', ...input } as Awaited<ReturnType<ScenariosResource['create']>>;
+    });
+    const failure = new Error('step write failed');
+    vi.mocked(scenarios.addStep).mockImplementation(async (_id, step) => {
+      if (writtenSteps.length === 1) throw failure;
+      writtenSteps.push(step.messageContent);
+      return {} as Awaited<ReturnType<ScenariosResource['addStep']>>;
+    });
+    const workflows = new Workflows(mockFriends(), scenarios, mockBroadcasts());
+
+    await expect(
+      workflows.createStepScenario('Test', 'friend_add', [
+        { delay: '0m', type: 'text', content: 'First' },
+        { delay: '1d', type: 'text', content: 'Second' },
+      ]),
+    ).rejects.toBe(failure);
+
+    expect(writtenSteps).toEqual(['First']);
+    expect(active).toBe(false);
+    expect(scenarios.update).not.toHaveBeenCalled();
+    expect(scenarios.get).not.toHaveBeenCalled();
+  });
+
+  it('propagates activation failure without reporting an active completed scenario', async () => {
+    const scenarios = mockScenarios();
+    vi.mocked(scenarios.create).mockResolvedValue({ id: 'sc-1' } as any);
+    vi.mocked(scenarios.addStep).mockResolvedValue({} as any);
+    const failure = new Error('activation failed');
+    vi.mocked(scenarios.update).mockRejectedValue(failure);
+    const workflows = new Workflows(mockFriends(), scenarios, mockBroadcasts());
+
+    await expect(
+      workflows.createStepScenario('Test', 'friend_add', [{ delay: '0m', type: 'text', content: 'First' }]),
+    ).rejects.toBe(failure);
+    expect(scenarios.get).not.toHaveBeenCalled();
   });
 
   it('broadcastText creates and sends broadcast', async () => {
