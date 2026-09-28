@@ -291,6 +291,8 @@ export default function EmergencyContraceptionAdminPage() {
   const [queueError, setQueueError] = useState('');
   const [message, setMessage] = useState('');
   const requestGate = useRef(createRequestGate()).current;
+  const detailRequestGate = useRef(createRequestGate()).current;
+  const draftIntakeIdRef = useRef<string | null>(null);
   const queueFiltersRef = useRef({ status: statusFilter, slotId: slotFilter, deadlineBefore: '' });
   queueFiltersRef.current = {
     status: statusFilter,
@@ -304,6 +306,7 @@ export default function EmergencyContraceptionAdminPage() {
     if (!selectedAccountId || selectedAccountRef.current !== selectedAccountId) return;
     const accountId = selectedAccountId;
     const request = requestGate.start();
+    detailRequestGate.abort();
     setLoading(true);
     setError('');
     setQueueError('');
@@ -366,7 +369,7 @@ export default function EmergencyContraceptionAdminPage() {
     if (reminderResult.status === 'fulfilled') setReminderControl(reminderResult.value);
     else setError('予約前通知の設定を取得できませんでした。');
     setLoading(false);
-  }, [requestGate, selectedAccountId]);
+  }, [detailRequestGate, requestGate, selectedAccountId]);
 
   useEffect(() => {
     setConfig(emptyConfig);
@@ -379,6 +382,8 @@ export default function EmergencyContraceptionAdminPage() {
     setReminderControl(emptyReminderControl);
     setIntakes([]);
     setSelectedDetail(null);
+    draftIntakeIdRef.current = null;
+    detailRequestGate.abort();
     setCounterConfirmations({});
     setMismatchDrafts({ ...emptyMismatchDrafts });
     setSaleRecord(null);
@@ -401,8 +406,11 @@ export default function EmergencyContraceptionAdminPage() {
       return;
     }
     void load();
-    return () => requestGate.abort();
-  }, [load, requestGate, selectedAccountId]);
+    return () => {
+      requestGate.abort();
+      detailRequestGate.abort();
+    };
+  }, [detailRequestGate, load, requestGate, selectedAccountId]);
 
   async function saveConfig() {
     if (!selectedAccountId || busy) return;
@@ -596,11 +604,23 @@ export default function EmergencyContraceptionAdminPage() {
   async function loadIntakeDetail(intakeId: string) {
     if (!selectedAccountId || busy) return;
     const accountId = selectedAccountId;
+    const request = detailRequestGate.start();
+    const isCurrentDetail = () => detailRequestGate.isCurrent(request) && selectedAccountRef.current === accountId;
+    // Clinical input belongs to one intake. Preserve an unsent draft only
+    // when refreshing that same intake, never when opening another patient.
+    if (draftIntakeIdRef.current !== intakeId) {
+      draftIntakeIdRef.current = intakeId;
+      setSaleDraft({ ...emptySaleDraft });
+      setMismatchDrafts({ ...emptyMismatchDrafts });
+    }
+    setSelectedDetail(null);
+    setCounterConfirmations({});
+    setSaleRecord(null);
     setBusy(`detail:${intakeId}`);
     setQueueError('');
     try {
       const result = await emergencyContraceptionAdminApi.intakeDetail(accountId, intakeId);
-      if (selectedAccountRef.current !== accountId) return;
+      if (!isCurrentDetail()) return;
       setSelectedDetail(result.intake);
       const sections: EmergencyCounterSection[] = ['A', 'B', 'C', 'D'];
       const confirmations = await Promise.all(
@@ -611,7 +631,7 @@ export default function EmergencyContraceptionAdminPage() {
             .catch(() => null),
         ),
       );
-      if (selectedAccountRef.current !== accountId) return;
+      if (!isCurrentDetail()) return;
       setCounterConfirmations(
         Object.fromEntries(
           sections.map((section, index) => [section, confirmations[index]]).filter(([, value]) => value),
@@ -619,16 +639,17 @@ export default function EmergencyContraceptionAdminPage() {
       );
       try {
         const sale = await emergencyContraceptionAdminApi.saleRecord(accountId, intakeId);
-        if (selectedAccountRef.current === accountId) setSaleRecord(sale.sale);
+        if (!isCurrentDetail()) return;
+        setSaleRecord(sale.sale);
       } catch {
-        if (selectedAccountRef.current === accountId) setSaleRecord(null);
+        if (!isCurrentDetail()) return;
+        setSaleRecord(null);
       }
       setSaleDraft((current) => ({ ...current, expectedVersion: result.intake.version }));
     } catch {
-      if (selectedAccountRef.current === accountId)
-        setQueueError('申告詳細を表示できません。研修修了状態と通信状態を確認してください。');
+      if (isCurrentDetail()) setQueueError('申告詳細を表示できません。研修修了状態と通信状態を確認してください。');
     } finally {
-      if (selectedAccountRef.current === accountId) setBusy('');
+      if (isCurrentDetail()) setBusy('');
     }
   }
 
@@ -695,6 +716,7 @@ export default function EmergencyContraceptionAdminPage() {
 
   async function loadQueue(cursor?: string, append = false) {
     if (!selectedAccountId) return;
+    if (!append) detailRequestGate.abort();
     const accountId = selectedAccountId;
     setBusy(append ? 'queue-more' : 'queue-filter');
     setQueueError('');
