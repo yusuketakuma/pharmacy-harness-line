@@ -1,3 +1,5 @@
+import { asBuffer, decodeBase64Url, deriveAesGcmKey, isValidRootSecret, toBase64Url } from '../crypto-utils.js';
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
@@ -5,13 +7,10 @@ export const INVALID_PATIENT_INTAKE_ENVELOPE_ERROR = 'Invalid patient intake env
 export const PATIENT_INTAKE_ENVELOPE_VERSION = 1 as const;
 export const PATIENT_INTAKE_KEY_VERSION = 1 as const;
 export const PATIENT_INTAKE_KEY_VERSIONS = [1, 2] as const;
-export const PATIENT_INTAKE_ENCRYPTED_FIELDS = [
-  'patient_snapshot_json',
-  'answers_json',
-] as const;
+export const PATIENT_INTAKE_ENCRYPTED_FIELDS = ['patient_snapshot_json', 'answers_json'] as const;
 
-export type PatientIntakeEncryptedField = typeof PATIENT_INTAKE_ENCRYPTED_FIELDS[number];
-export type PatientIntakeKeyVersion = typeof PATIENT_INTAKE_KEY_VERSIONS[number];
+export type PatientIntakeEncryptedField = (typeof PATIENT_INTAKE_ENCRYPTED_FIELDS)[number];
+export type PatientIntakeKeyVersion = (typeof PATIENT_INTAKE_KEY_VERSIONS)[number];
 
 export interface PatientIntakeEncryptionContext {
   tenantId: string;
@@ -42,39 +41,27 @@ function invalid(): never {
   throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
 }
 
-function asBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.slice().buffer as ArrayBuffer;
-}
+export { toBase64Url };
 
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
-}
-
-function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: number): Uint8Array {
-  if (typeof value !== 'string' || value.length === 0 ||
-      !/^[A-Za-z0-9_-]+$/u.test(value) || value.length % 4 === 1) invalid();
-  try {
-    const padded = value.replaceAll('-', '+').replaceAll('_', '/')
-      .padEnd(Math.ceil(value.length / 4) * 4, '=');
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-    if (toBase64Url(bytes) !== value ||
-        (expectedLength !== undefined && bytes.length !== expectedLength) ||
-        (maxLength !== undefined && bytes.length > maxLength)) invalid();
-    return bytes;
-  } catch {
-    invalid();
-  }
+export function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: number): Uint8Array {
+  const bytes = decodeBase64Url(value, expectedLength, maxLength);
+  if (!bytes) invalid();
+  return bytes;
 }
 
 function validateId(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 160 ||
-      value.trim() !== value || /[\u0000-\u001F\u007F]/u.test(value)) invalid();
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 160 ||
+    value.trim() !== value ||
+    /[\u0000-\u001F\u007F]/u.test(value)
+  )
+    invalid();
 }
 
 function validateRootSecret(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || encoder.encode(value).length < 32 || value.length > 4096) invalid();
+  if (!isValidRootSecret(value)) invalid();
 }
 
 function validateContext(context: PatientIntakeEncryptionContext): void {
@@ -83,11 +70,16 @@ function validateContext(context: PatientIntakeEncryptionContext): void {
   validateId(context.ownerFriendId);
   validateId(context.patientId);
   validateId(context.responseId);
-  if (!Number.isSafeInteger(context.schemaVersion) || context.schemaVersion < 1 ||
-      !Number.isSafeInteger(context.sourceRevision) || context.sourceRevision < 1 ||
-      context.envelopeVersion !== PATIENT_INTAKE_ENVELOPE_VERSION ||
-      !(PATIENT_INTAKE_KEY_VERSIONS as readonly number[]).includes(context.keyVersion) ||
-      !(PATIENT_INTAKE_ENCRYPTED_FIELDS as readonly string[]).includes(context.fieldName)) invalid();
+  if (
+    !Number.isSafeInteger(context.schemaVersion) ||
+    context.schemaVersion < 1 ||
+    !Number.isSafeInteger(context.sourceRevision) ||
+    context.sourceRevision < 1 ||
+    context.envelopeVersion !== PATIENT_INTAKE_ENVELOPE_VERSION ||
+    !(PATIENT_INTAKE_KEY_VERSIONS as readonly number[]).includes(context.keyVersion) ||
+    !(PATIENT_INTAKE_ENCRYPTED_FIELDS as readonly string[]).includes(context.fieldName)
+  )
+    invalid();
 }
 
 function validatePlaintext(value: unknown): asserts value is string {
@@ -103,28 +95,24 @@ function validatePlaintext(value: unknown): asserts value is string {
 }
 
 function additionalData(context: PatientIntakeEncryptionContext): Uint8Array {
-  return encoder.encode(JSON.stringify({
-    tenantId: context.tenantId,
-    lineAccountId: context.lineAccountId,
-    ownerFriendId: context.ownerFriendId,
-    patientId: context.patientId,
-    responseId: context.responseId,
-    schemaVersion: context.schemaVersion,
-    sourceRevision: context.sourceRevision,
-    fieldName: context.fieldName,
-    envelopeVersion: context.envelopeVersion,
-    keyVersion: context.keyVersion,
-  }));
+  return encoder.encode(
+    JSON.stringify({
+      tenantId: context.tenantId,
+      lineAccountId: context.lineAccountId,
+      ownerFriendId: context.ownerFriendId,
+      patientId: context.patientId,
+      responseId: context.responseId,
+      schemaVersion: context.schemaVersion,
+      sourceRevision: context.sourceRevision,
+      fieldName: context.fieldName,
+      envelopeVersion: context.envelopeVersion,
+      keyVersion: context.keyVersion,
+    }),
+  );
 }
 
-async function encryptionKey(rootSecret: string, keyVersion: number): Promise<CryptoKey> {
-  const hmacKey = await crypto.subtle.importKey(
-    'raw', asBuffer(encoder.encode(rootSecret)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const material = new Uint8Array(await crypto.subtle.sign(
-    'HMAC', hmacKey, encoder.encode(`${ROOT_SECRET_LABEL}:encryption:${keyVersion}`),
-  ));
-  return crypto.subtle.importKey('raw', asBuffer(material), 'AES-GCM', false, ['encrypt', 'decrypt']);
+function encryptionKey(rootSecret: string, keyVersion: number): Promise<CryptoKey> {
+  return deriveAesGcmKey(rootSecret, `${ROOT_SECRET_LABEL}:encryption:${keyVersion}`);
 }
 
 export async function sealPatientIntakeField(
@@ -139,7 +127,8 @@ export async function sealPatientIntakeField(
     const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
     const ciphertext = await crypto.subtle.encrypt(
       {
-        name: 'AES-GCM', iv: asBuffer(nonce),
+        name: 'AES-GCM',
+        iv: asBuffer(nonce),
         additionalData: asBuffer(additionalData(context)),
       },
       await encryptionKey(rootSecret, context.keyVersion),
@@ -164,16 +153,14 @@ export async function openPatientIntakeField(
   try {
     validateRootSecret(rootSecret);
     validateContext(context);
-    if (envelope.envelopeVersion !== context.envelopeVersion ||
-        envelope.keyVersion !== context.keyVersion) invalid();
+    if (envelope.envelopeVersion !== context.envelopeVersion || envelope.keyVersion !== context.keyVersion) invalid();
     const nonce = fromBase64Url(envelope.nonce, NONCE_BYTES);
-    const ciphertext = fromBase64Url(
-      envelope.ciphertext, undefined, MAX_PLAINTEXT_BYTES + AUTH_TAG_BYTES,
-    );
+    const ciphertext = fromBase64Url(envelope.ciphertext, undefined, MAX_PLAINTEXT_BYTES + AUTH_TAG_BYTES);
     if (ciphertext.length <= AUTH_TAG_BYTES) invalid();
     const plaintext = await crypto.subtle.decrypt(
       {
-        name: 'AES-GCM', iv: asBuffer(nonce),
+        name: 'AES-GCM',
+        iv: asBuffer(nonce),
         additionalData: asBuffer(additionalData(context)),
       },
       await encryptionKey(rootSecret, context.keyVersion),

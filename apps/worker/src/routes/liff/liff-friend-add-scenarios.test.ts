@@ -76,10 +76,9 @@ function installFetchMock() {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === 'https://api.line.me/oauth2/v2.1/token') {
-        return new Response(
-          JSON.stringify({ access_token: 'at', id_token: 'idt', token_type: 'Bearer' }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ access_token: 'at', id_token: 'idt', token_type: 'Bearer' }), {
+          status: 200,
+        });
       }
       if (url === 'https://api.line.me/oauth2/v2.1/verify') {
         return new Response(JSON.stringify({ sub: 'U-new-friend', name: 'Tester' }), {
@@ -87,10 +86,9 @@ function installFetchMock() {
         });
       }
       if (url === 'https://api.line.me/v2/profile') {
-        return new Response(
-          JSON.stringify({ userId: 'U-new-friend', displayName: 'Tester' }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ userId: 'U-new-friend', displayName: 'Tester' }), {
+          status: 200,
+        });
       }
       // bot/info etc → 404 so the handler falls through to the completion page
       return new Response('not found', { status: 404 });
@@ -101,9 +99,7 @@ function installFetchMock() {
 function callback(state: Record<string, string>) {
   const encoded = btoa(JSON.stringify(state));
   return worker.fetch(
-    new Request(
-      `https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(encoded)}`,
-    ),
+    new Request(`https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(encoded)}`),
     env,
     { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
   );
@@ -243,13 +239,10 @@ describe('GET /auth/callback — friend_add auto-enroll delegates to pushImmedia
     // scn-a failed, scn-b must still be enrolled and pushed.
     expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledTimes(2);
     expect(pushImmediateFirstStep).toHaveBeenCalledTimes(2);
-    expect(pushImmediateFirstStep).toHaveBeenLastCalledWith(
-      DB,
-      'F-new',
-      'scn-b',
-      expect.anything(),
-      { enrollment: ENROLLMENT, targetLineUserId: 'U-new-friend' },
-    );
+    expect(pushImmediateFirstStep).toHaveBeenLastCalledWith(DB, 'F-new', 'scn-b', expect.anything(), {
+      enrollment: ENROLLMENT,
+      targetLineUserId: 'U-new-friend',
+    });
     errorSpy.mockRestore();
   });
 });

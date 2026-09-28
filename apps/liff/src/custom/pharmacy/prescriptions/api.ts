@@ -18,10 +18,27 @@ export interface PrescriptionSubmission {
   updated_at: string;
 }
 
-function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+export type PrescriptionRecovery =
+  | { state: 'none' }
+  | { state: 'ambiguous'; reason: 'multiple' | 'patient_binding_unavailable' }
+  | {
+      state: 'recoverable';
+      submission: {
+        id: string;
+        status: 'draft' | 'needs_resubmission';
+        uploadRevision: number;
+        updatedAt: string;
+        patientId: string;
+        desiredPickupAt: string | null;
+        desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
+        readyPositions: number[];
+        pendingPositions: number[];
+      };
+    };
+
+export type PrescriptionRecoverySelector = { idempotencyKey: string } | { submissionId: string };
+
+function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return requestPharmacyJson<T>(path, init);
 }
 
@@ -34,6 +51,17 @@ function json<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const prescriptionApi = {
+  recovery: (selector?: PrescriptionRecoverySelector) => {
+    const params = new URLSearchParams();
+    if (selector) {
+      params.set(
+        'idempotencyKey' in selector ? 'idempotencyKey' : 'submissionId',
+        'idempotencyKey' in selector ? selector.idempotencyKey : selector.submissionId,
+      );
+    }
+    const query = params.size > 0 ? `?${params}` : '';
+    return request<{ recovery: PrescriptionRecovery }>(`/api/liff/pharmacy/prescriptions/recovery${query}`);
+  },
   reserve: (body: {
     idempotencyKey: string;
     desiredPickupAt: string | null;
@@ -42,28 +70,24 @@ export const prescriptionApi = {
     readinessNoticeConsent: boolean;
     patientId?: string;
     intakeResponseId?: string;
-  }) => json<{ submission: PrescriptionSubmission }>(
-    '/api/liff/pharmacy/prescriptions', body,
-  ),
+  }) => json<{ submission: PrescriptionSubmission }>('/api/liff/pharmacy/prescriptions', body),
   upload: (submissionId: string, position: number, image: Blob) =>
     request<{ file: { id: string; revision: number; position: number; state: 'ready' } }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${position}`,
       { method: 'PUT', headers: { 'Content-Type': image.type }, body: image },
     ),
-  submit: (submissionId: string, body: {
-    expectedUpdatedAt: string;
-    desiredPickupAt: string | null;
-    desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
-    originalPrescriptionConsent: boolean;
-    readinessNoticeConsent: boolean;
-  }) =>
-    json<{ status: 'received' }>(
-      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/submit`,
-      body,
-    ),
-  history: () => request<{ submissions: PrescriptionSubmission[] }>(
-    '/api/liff/pharmacy/prescriptions/me',
-  ),
+  submit: (
+    submissionId: string,
+    body: {
+      expectedUpdatedAt: string;
+      desiredPickupAt: string | null;
+      desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
+      originalPrescriptionConsent: boolean;
+      readinessNoticeConsent: boolean;
+    },
+  ) =>
+    json<{ status: 'received' }>(`/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/submit`, body),
+  history: () => request<{ submissions: PrescriptionSubmission[] }>('/api/liff/pharmacy/prescriptions/me'),
   cancel: (submissionId: string, expectedUpdatedAt: string) =>
     json<{ status: 'cancelled'; cleanupPending: boolean }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/cancel`,

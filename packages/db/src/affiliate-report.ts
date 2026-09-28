@@ -69,7 +69,12 @@ export interface AffiliateReportV2 {
   /** Attributed CVs rejected by a reviewer (excluded from headline conversions/revenue). */
   conversionsRejected: number;
   /** Conversion count broken down by conversion point (rejected excluded). */
-  conversionsByPoint: Array<{ conversionPointId: string; name: string; count: number; value: number }>;
+  conversionsByPoint: Array<{
+    conversionPointId: string;
+    name: string;
+    count: number;
+    value: number;
+  }>;
   /** Sum of conversion point values across non-rejected attributed conversions. */
   revenue: number;
   /** revenue * commissionRate. */
@@ -268,7 +273,13 @@ export async function getAffiliateReportV2(
         ORDER BY approved DESC, off.name ASC`,
     )
     .bind(...cvBinds)
-    .all<{ offer_id: string; offer_name: string; reward_amount: number; approved: number; pending: number }>();
+    .all<{
+      offer_id: string;
+      offer_name: string;
+      reward_amount: number;
+      approved: number;
+      pending: number;
+    }>();
 
   const byOffer = offerRows.results.map((r) => ({
     offerId: r.offer_id,
@@ -472,14 +483,8 @@ export interface JourneyEvent {
  * over the four sources ordered by julianday() so mixed timestamp formats sort
  * by true instant.
  */
-export async function getFriendJourney(
-  db: D1Database,
-  friendId: string,
-): Promise<JourneyEvent[]> {
-  const friend = await db
-    .prepare(`SELECT id FROM friends WHERE id = ?`)
-    .bind(friendId)
-    .first<{ id: string }>();
+export async function getFriendJourney(db: D1Database, friendId: string): Promise<JourneyEvent[]> {
+  const friend = await db.prepare(`SELECT id FROM friends WHERE id = ?`).bind(friendId).first<{ id: string }>();
   if (!friend) return [];
 
   const rows = await db

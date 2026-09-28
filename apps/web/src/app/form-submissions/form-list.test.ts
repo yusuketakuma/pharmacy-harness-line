@@ -1,13 +1,11 @@
-import { describe, expect, test } from 'vitest'
-import { displayFormName, sortFormsByLatestAnswer } from './form-list'
+import { describe, expect, test } from 'vitest';
+import { displayFormName, sortFormsByLatestAnswer } from './form-list';
 
 describe('displayFormName', () => {
   test('escaped line breaks and uneven whitespace are made readable', () => {
-    expect(displayFormName('Step1.\\nLINE  Harnessを体験する(3分)')).toBe(
-      'Step1. LINE Harnessを体験する(3分)',
-    )
-  })
-})
+    expect(displayFormName('Step1.\\nLINE  Harnessを体験する(3分)')).toBe('Step1. LINE Harnessを体験する(3分)');
+  });
+});
 
 describe('sortFormsByLatestAnswer', () => {
   test('sorts by latest answer and keeps unanswered forms at the bottom', () => {
@@ -36,13 +34,8 @@ describe('sortFormsByLatestAnswer', () => {
         createdAt: '2026-06-01T12:00:00+09:00',
         lastSubmittedAt: null,
       },
-    ])
+    ]);
 
-    expect(sorted.map((form) => form.id)).toEqual([
-      'answered-new',
-      'answered-old',
-      'unanswered-new',
-      'unanswered-old',
-    ])
-  })
-})
+    expect(sorted.map((form) => form.id)).toEqual(['answered-new', 'answered-old', 'unanswered-new', 'unanswered-old']);
+  });
+});

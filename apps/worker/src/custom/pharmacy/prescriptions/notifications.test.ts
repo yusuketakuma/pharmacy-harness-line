@@ -14,61 +14,113 @@ import {
 const STATUS_EVENT_ID = '123e4567-e89b-42d3-a456-426614174000';
 const CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
 
-function fakeDb(options: {
-  recipient?: Record<string, unknown> | null;
-  due?: unknown[];
-  sent?: boolean;
-  notificationAuditError?: boolean;
-  notificationInProgress?: boolean;
-} = {}) {
+function fakeDb(
+  options: {
+    recipient?: Record<string, unknown> | null;
+    due?: unknown[];
+    bound?: unknown[];
+    sent?: boolean;
+    notificationAuditError?: boolean;
+    notificationInProgress?: boolean;
+    bindingError?: Error;
+    betaEnabled?: boolean;
+  } = {},
+) {
   const calls: Array<{ sql: string; values: unknown[]; operation: string }> = [];
-  const recipient = options.sent ? null : options.recipient === undefined ? {
-    status_event_id: STATUS_EVENT_ID,
-    status: 'ready',
-    reason_code: null,
-    revision: 1,
-    line_user_id: 'U-patient',
-    tenant_id: 'tenant-a',
-    line_account_id: 'account-a',
-    friend_id: 'friend-a',
-    intake_method: 'PAPER',
-    liff_id: 'liff-1',
-    estimated_ready_at: null,
-  } : options.recipient;
+  const recipient = options.sent
+    ? null
+    : options.recipient === undefined
+      ? {
+          status_event_id: STATUS_EVENT_ID,
+          status: 'ready',
+          reason_code: null,
+          revision: 1,
+          line_user_id: 'U-patient',
+          tenant_id: 'tenant-a',
+          line_account_id: 'account-a',
+          friend_id: 'friend-a',
+          patient_id: 'patient-a',
+          intake_method: 'PAPER',
+          liff_id: 'liff-1',
+          estimated_ready_at: null,
+        }
+      : options.recipient;
   const db = {
-    prepare: (sql: string) => ({
-      bind: (...values: unknown[]) => ({
-        first: async () => {
-          calls.push({ sql, values, operation: 'first' });
-          if (options.notificationInProgress && sql.includes('SELECT id, outcome')) {
-            return { id: 'notification-1', outcome: 'attempted', occurred_at: new Date().toISOString() };
-          }
-          if (sql.includes('pharmacy_account_capabilities')) {
-            return { line_account_id: 'account-a', mode: 'pharmacy', capabilities_json: '["prescription_intake"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' };
-          }
-          if (options.sent) {
-            if (sql.includes('SELECT e.to_status')) return { to_status: 'ready', status: 'ready' };
-            if (sql.includes('sent.actor_id = ?')) return { sent: 1 };
-          }
-          return recipient;
-        },
-        all: async () => {
-          calls.push({ sql, values, operation: 'all' });
-          return { results: options.due ?? [] };
-        },
-        run: async () => {
-          calls.push({ sql, values, operation: 'run' });
-          if (options.notificationInProgress &&
-              sql.includes('INSERT OR IGNORE INTO pharmacy_notification_events')) {
-            return { success: true, meta: { changes: 0 } };
-          }
-          if (options.notificationAuditError && sql.includes('pharmacy_prescription_events')) {
-            throw new Error('audit unavailable');
-          }
-          return { success: true, meta: { changes: 1 } };
-        },
-      }),
-    }),
+    prepare: (sql: string) => {
+      if (options.bindingError && sql.includes('pharmacy_beta_notification_bindings')) {
+        throw options.bindingError;
+      }
+      return {
+        bind: (...values: unknown[]) => ({
+          first: async () => {
+            calls.push({ sql, values, operation: 'first' });
+            if (sql.includes('final pharmacy dispatch scope')) {
+              return {
+                destination_line_user_id: 'U-patient',
+                is_following: 1,
+                account_active: 1,
+                tenant_status: 'active',
+                outbound_messaging_paused_at: null,
+                capability_enabled: 1,
+                followup_status: null,
+                followup_operations_enabled: null,
+              };
+            }
+            if (sql.includes('SELECT patient.relationship')) {
+              return {
+                relationship: 'self',
+                proxy_expires_at: null,
+                privacy_withdrawn: 0,
+                notifications_stopped: 0,
+                control_version: 0,
+              };
+            }
+            if (options.notificationInProgress && sql.includes('SELECT id, outcome')) {
+              return {
+                id: 'notification-1',
+                outcome: 'attempted',
+                occurred_at: new Date().toISOString(),
+              };
+            }
+            if (sql.includes('pharmacy_account_capabilities')) {
+              return {
+                line_account_id: 'account-a',
+                mode: 'pharmacy',
+                beta_enabled: options.betaEnabled ? 1 : 0,
+                capabilities_json: '["prescription_intake"]',
+                proactive_monthly_limit: 1,
+                unfollow_alert_state: 'alert_only',
+                created_at: '',
+                updated_at: '',
+              };
+            }
+            if (options.sent) {
+              if (sql.includes('SELECT e.to_status')) return { to_status: 'ready', status: 'ready' };
+              if (sql.includes('sent.actor_id = ?')) return { sent: 1 };
+            }
+            return recipient;
+          },
+          all: async () => {
+            calls.push({ sql, values, operation: 'all' });
+            return {
+              results: sql.includes('pharmacy_beta_notification_bindings')
+                ? (options.bound ?? [])
+                : (options.due ?? []),
+            };
+          },
+          run: async () => {
+            calls.push({ sql, values, operation: 'run' });
+            if (options.notificationInProgress && sql.includes('INSERT OR IGNORE INTO pharmacy_notification_events')) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            if (options.notificationAuditError && sql.includes('pharmacy_prescription_events')) {
+              throw new Error('audit unavailable');
+            }
+            return { success: true, meta: { changes: 1 } };
+          },
+        }),
+      };
+    },
   } as unknown as D1Database;
   return { db, calls };
 }
@@ -87,10 +139,12 @@ describe('prescription status notifications', () => {
       submissionId: 'submission-1',
     };
     expect(prescriptionNotificationText('accepted', null, details)).toContain('準備予定:');
-    expect(prescriptionNotificationText('accepted', null, {
-      ...details,
-      estimated_ready_at: '2000-08-17T06:30:00.000Z',
-    })).not.toContain('準備予定:');
+    expect(
+      prescriptionNotificationText('accepted', null, {
+        ...details,
+        estimated_ready_at: '2000-08-17T06:30:00.000Z',
+      }),
+    ).not.toContain('準備予定:');
   });
 
   it('uses the submission account token and omits the manual attribution header', async () => {
@@ -101,11 +155,13 @@ describe('prescription status notifications', () => {
       return new Response('{}', { status: 200 });
     });
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'sent' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'sent' });
 
     expect(request!.headers.get('Authorization')).toBe('Bearer account-token');
     expect(request!.headers.get('X-Line-Harness-Source')).toBeNull();
@@ -124,11 +180,13 @@ describe('prescription status notifications', () => {
     const { db, calls } = fakeDb();
     const dispatch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }));
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'failed' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'failed' });
 
     const failure = calls.find((call) => call.values.includes('notification_failed'));
     expect(failure?.values).toContain(STATUS_EVENT_ID);
@@ -139,11 +197,13 @@ describe('prescription status notifications', () => {
     const { db } = fakeDb({ notificationAuditError: true });
     const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'failed' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'failed' });
   });
 
   it('does not ask electronic prescription patients to bring the paper original', async () => {
@@ -163,16 +223,18 @@ describe('prescription status notifications', () => {
       },
     });
     const dispatch = vi.fn(async (request: Request) => {
-      const body = await request.json() as { messages: Array<{ text: string }> };
+      const body = (await request.json()) as { messages: Array<{ text: string }> };
       expect(body.messages[0].text).not.toContain('原本');
       return new Response('{}', { status: 200 });
     });
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'sent' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'sent' });
   });
 
   it('adds a direct existing intake link for resubmission without patient identity', async () => {
@@ -192,7 +254,7 @@ describe('prescription status notifications', () => {
       },
     });
     const dispatch = vi.fn(async (request: Request) => {
-      const body = await request.json() as { messages: Array<{ text: string }> };
+      const body = (await request.json()) as { messages: Array<{ text: string }> };
       expect(body.messages[0].text).toContain('https://liff.line.me/liff-1/');
       expect(body.messages[0].text).toContain('submission-1');
       expect(body.messages[0].text).toContain('liffId=liff-1');
@@ -200,22 +262,26 @@ describe('prescription status notifications', () => {
       return new Response('{}', { status: 200 });
     });
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'sent' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'sent' });
   });
 
   it('does not send when readiness notice consent is absent', async () => {
     const { db, calls } = fakeDb({ recipient: null });
     const dispatch = vi.fn();
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'skipped' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'skipped' });
     expect(dispatch).not.toHaveBeenCalled();
     expect(calls[0].sql).toContain('s.readiness_notice_consent_at IS NOT NULL');
   });
@@ -224,11 +290,17 @@ describe('prescription status notifications', () => {
     const { db } = fakeDb({ sent: true });
     const dispatch = vi.fn();
 
-    const result = await deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    }, STATUS_EVENT_ID);
+    const result = await deliverPrescriptionNotification(
+      db,
+      'account-1',
+      'submission-1',
+      {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      },
+      STATUS_EVENT_ID,
+    );
     expect(result).toEqual({ status: 'already_sent' });
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -237,11 +309,13 @@ describe('prescription status notifications', () => {
     const { db, calls } = fakeDb({ notificationInProgress: true });
     const dispatch = vi.fn();
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'skipped' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'skipped' });
 
     expect(dispatch).not.toHaveBeenCalled();
     expect(calls.some((call) => call.values.includes('notification_sent'))).toBe(false);
@@ -249,15 +323,27 @@ describe('prescription status notifications', () => {
 
   it('retries unresolved failures in a bounded batch', async () => {
     const { db, calls } = fakeDb({
-      due: [{ line_account_id: 'account-1', submission_id: 'submission-1', status_event_id: STATUS_EVENT_ID }],
+      due: [
+        {
+          line_account_id: 'account-1',
+          submission_id: 'submission-1',
+          status_event_id: STATUS_EVENT_ID,
+        },
+      ],
     });
     const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
 
-    await expect(retryFailedPrescriptionNotifications(db, {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    }, 10)).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
+    await expect(
+      retryFailedPrescriptionNotifications(
+        db,
+        {
+          proxyBaseUrl: 'https://worker.example',
+          proxyDispatch: dispatch,
+          lineCredentialKey: CREDENTIAL_KEY,
+        },
+        10,
+      ),
+    ).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
 
     expect(calls[0].sql).toContain("failed.event_type = 'notification_failed'");
     expect(calls[0].sql).toContain('FROM pharmacy_notification_events delivery');
@@ -267,16 +353,62 @@ describe('prescription status notifications', () => {
     expect(calls[0].values).toEqual([expect.any(String), 10]);
   });
 
+  it('rediscovers a status event bound during suspension after the membership resumes', async () => {
+    const { db, calls } = fakeDb({
+      bound: [
+        {
+          line_account_id: 'account-1',
+          submission_id: 'submission-1',
+          status_event_id: STATUS_EVENT_ID,
+        },
+      ],
+    });
+    const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await expect(
+      retryFailedPrescriptionNotifications(db, {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
+
+    expect(calls.some((call) => call.sql.includes('pharmacy_beta_notification_bindings'))).toBe(true);
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a transient binding read failure retryable instead of recording blocked', async () => {
+    const { db, calls } = fakeDb({
+      bindingError: new Error('temporary D1 read failure'),
+      betaEnabled: true,
+    });
+    const dispatch = vi.fn();
+
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'failed' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(calls.some((call) => call.sql.includes("'blocked'"))).toBe(false);
+    expect(calls.some((call) => call.values.includes('notification_failed'))).toBe(true);
+  });
+
   it('does not send when the tenant-scoped credential is missing or corrupt', async () => {
     const { db } = fakeDb();
     const dispatch = vi.fn();
     readCredential.mockResolvedValue(null);
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'skipped' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'skipped' });
 
     expect(readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, {
       tenantId: 'tenant-a',
@@ -287,32 +419,40 @@ describe('prescription status notifications', () => {
   });
 
   it('does not send when the credential store rejects the recipient tenant', async () => {
-    const { db } = fakeDb({ recipient: {
-      status_event_id: STATUS_EVENT_ID,
-      status: 'ready',
-      reason_code: null,
-      revision: 1,
-      line_user_id: 'U-patient',
-      tenant_id: 'tenant-b',
-      line_account_id: 'account-a',
-      friend_id: 'friend-a',
-      intake_method: 'PAPER',
-      liff_id: 'liff-1',
-      estimated_ready_at: null,
-    } });
+    const { db } = fakeDb({
+      recipient: {
+        status_event_id: STATUS_EVENT_ID,
+        status: 'ready',
+        reason_code: null,
+        revision: 1,
+        line_user_id: 'U-patient',
+        tenant_id: 'tenant-b',
+        line_account_id: 'account-a',
+        friend_id: 'friend-a',
+        intake_method: 'PAPER',
+        liff_id: 'liff-1',
+        estimated_ready_at: null,
+      },
+    });
     const dispatch = vi.fn();
     readCredential.mockResolvedValue(null);
 
-    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: dispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toEqual({ status: 'skipped' });
+    await expect(
+      deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+        proxyBaseUrl: 'https://worker.example',
+        proxyDispatch: dispatch,
+        lineCredentialKey: CREDENTIAL_KEY,
+      }),
+    ).resolves.toEqual({ status: 'skipped' });
 
-    expect(readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, expect.objectContaining({
-      tenantId: 'tenant-b',
-      lineAccountId: 'account-a',
-    }));
+    expect(readCredential).toHaveBeenCalledWith(
+      db,
+      CREDENTIAL_KEY,
+      expect.objectContaining({
+        tenantId: 'tenant-b',
+        lineAccountId: 'account-a',
+      }),
+    );
     expect(dispatch).not.toHaveBeenCalled();
   });
 });

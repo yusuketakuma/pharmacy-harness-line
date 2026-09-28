@@ -69,7 +69,7 @@ describe('messages_log write contract', () => {
       if (relativeFile === 'src/services/dedup-broadcast.ts') {
         expect(provider.multicast).toBe(1);
         expect(source).toContain("'dedup-multicast'");
-        expect(source).toContain('retryKey);');
+        expect(source).toMatch(/retryKey,?\s*\);/);
       } else {
         expect(provider.multicast, `${relativeFile} multicast contract`).toBe(0);
       }
@@ -79,8 +79,11 @@ describe('messages_log write contract', () => {
   it('freezes account and delivery type on every current message write path', () => {
     const inserts = sourceFiles(join(process.cwd(), 'src')).flatMap((file) => {
       const source = readFileSync(file, 'utf8');
-      return [...source.matchAll(/INSERT(?:\s+OR\s+IGNORE)?\s+INTO messages_log\s*\(([^)]*)\)/g)]
-        .map((match) => ({ file, columns: match[1], sql: source.slice(match.index, match.index + 600) }));
+      return [...source.matchAll(/INSERT(?:\s+OR\s+IGNORE)?\s+INTO messages_log\s*\(([^)]*)\)/g)].map((match) => ({
+        file,
+        columns: match[1],
+        sql: source.slice(match.index, match.index + 600),
+      }));
     });
 
     expect(inserts.map((insert) => relative(process.cwd(), insert.file)).sort()).toEqual([
@@ -106,9 +109,7 @@ describe('messages_log write contract', () => {
       .map((file) => relative(process.cwd(), file))
       .sort();
 
-    expect(multicastFiles).toEqual([
-      'src/services/dedup-broadcast.ts',
-    ]);
+    expect(multicastFiles).toEqual(['src/services/dedup-broadcast.ts']);
     for (const file of multicastFiles) {
       const source = readFileSync(join(process.cwd(), file), 'utf8');
       for (const call of source.matchAll(/\.multicast\(([\s\S]*?)\);/g)) {
@@ -118,13 +119,8 @@ describe('messages_log write contract', () => {
   });
 
   it('excludes test sends from production broadcast state', () => {
-    const profileRefresh = readFileSync(
-      join(process.cwd(), 'src/routes/crm/profile-refresh.ts'),
-      'utf8',
-    );
+    const profileRefresh = readFileSync(join(process.cwd(), 'src/routes/crm/profile-refresh.ts'), 'utf8');
 
-    expect(profileRefresh).toContain(
-      "WHERE broadcast_id = ? AND COALESCE(delivery_type, '') != 'test'",
-    );
+    expect(profileRefresh).toContain("WHERE broadcast_id = ? AND COALESCE(delivery_type, '') != 'test'");
   });
 });

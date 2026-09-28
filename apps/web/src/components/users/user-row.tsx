@@ -1,12 +1,12 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
+import { useState } from 'react';
 
 const fmt = new Intl.DateTimeFormat('ja-JP', {
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
-})
+});
 
 const ACCOUNT_BADGE_COLORS = [
   'bg-emerald-100 text-emerald-700',
@@ -15,44 +15,40 @@ const ACCOUNT_BADGE_COLORS = [
   'bg-amber-100 text-amber-700',
   'bg-rose-100 text-rose-700',
   'bg-slate-100 text-slate-700',
-]
+];
 
 export interface UserRowData {
-  identityKey: string
-  identityKeyKind: 'url_token' | 'uid' | 'solo'
-  displayName: string | null
-  pictureUrl: string | null
+  identityKey: string;
+  identityKeyKind: 'url_token' | 'uid' | 'solo';
+  displayName: string | null;
+  pictureUrl: string | null;
   accounts: Array<{
-    accountId: string
-    accountName: string
-    lineUserId: string
-    isFollowing: boolean
-    joinedAt: string
-    friendId: string
-  }>
-  xUsername: string | null
-  emails: string[]
-  phones: string[]
-  lastActivityAt: string
-  isDuplicate: boolean
+    accountId: string;
+    accountName: string;
+    lineUserId: string;
+    isFollowing: boolean;
+    joinedAt: string;
+    friendId: string;
+  }>;
+  xUsername: string | null;
+  emails: string[];
+  phones: string[];
+  lastActivityAt: string;
+  isDuplicate: boolean;
 }
 
 interface Props {
-  row: UserRowData
-  accountColorMap: Map<string, string>
+  row: UserRowData;
+  accountColorMap: Map<string, string>;
 }
 
 export default function UserRow({ row, accountColorMap }: Props) {
-  const [expanded, setExpanded] = useState(false)
-  const idShort =
-    row.identityKey.length > 12 ? `${row.identityKey.slice(0, 8)}...` : row.identityKey
+  const [expanded, setExpanded] = useState(false);
+  const idShort = row.identityKey.length > 12 ? `${row.identityKey.slice(0, 8)}...` : row.identityKey;
 
   return (
     <>
-      <tr
-        className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
-        onClick={() => setExpanded((v) => !v)}
-      >
+      <tr className="cursor-pointer border-b border-gray-100 hover:bg-gray-50" onClick={() => setExpanded((v) => !v)}>
         <td className="px-4 py-3 font-mono text-xs text-gray-500">{idShort}</td>
         <td className="px-4 py-3 text-sm font-medium text-gray-900">
           {row.displayName || <span className="text-gray-400">—</span>}
@@ -60,7 +56,7 @@ export default function UserRow({ row, accountColorMap }: Props) {
         <td className="px-4 py-3">
           <div className="flex flex-wrap gap-1">
             {row.accounts.map((a) => {
-              const color = accountColorMap.get(a.accountId) ?? ACCOUNT_BADGE_COLORS[0]
+              const color = accountColorMap.get(a.accountId) ?? ACCOUNT_BADGE_COLORS[0];
               return (
                 <span
                   key={a.accountId}
@@ -69,7 +65,7 @@ export default function UserRow({ row, accountColorMap }: Props) {
                 >
                   {a.accountName}
                 </span>
-              )
+              );
             })}
           </div>
         </td>
@@ -78,15 +74,11 @@ export default function UserRow({ row, accountColorMap }: Props) {
         </td>
         <td className="px-4 py-3 text-sm text-gray-600">
           {row.emails[0] ?? <span className="text-gray-300">—</span>}
-          {row.emails.length > 1 ? (
-            <span className="text-gray-400"> +{row.emails.length - 1}</span>
-          ) : null}
+          {row.emails.length > 1 ? <span className="text-gray-400"> +{row.emails.length - 1}</span> : null}
         </td>
         <td className="px-4 py-3 text-sm text-gray-600">
           {row.phones[0] ?? <span className="text-gray-300">—</span>}
-          {row.phones.length > 1 ? (
-            <span className="text-gray-400"> +{row.phones.length - 1}</span>
-          ) : null}
+          {row.phones.length > 1 ? <span className="text-gray-400"> +{row.phones.length - 1}</span> : null}
         </td>
       </tr>
       {expanded && (
@@ -98,14 +90,10 @@ export default function UserRow({ row, accountColorMap }: Props) {
                 <ul className="space-y-1 text-sm">
                   {row.accounts.map((a) => (
                     <li key={a.friendId} className="flex flex-wrap items-center gap-2 text-gray-700">
-                      <span
-                        className={`h-2 w-2 rounded-full ${a.isFollowing ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                      />
+                      <span className={`h-2 w-2 rounded-full ${a.isFollowing ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                       <span className="font-medium">{a.accountName}</span>
                       <span className="font-mono text-xs text-gray-400">{a.lineUserId}</span>
-                      <span className="text-xs text-gray-400">
-                        登録: {fmt.format(new Date(a.joinedAt))}
-                      </span>
+                      <span className="text-xs text-gray-400">登録: {fmt.format(new Date(a.joinedAt))}</span>
                     </li>
                   ))}
                 </ul>
@@ -138,5 +126,5 @@ export default function UserRow({ row, accountColorMap }: Props) {
         </tr>
       )}
     </>
-  )
+  );
 }

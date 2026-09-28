@@ -1,9 +1,5 @@
 import { LineClient } from '@line-crm/line-sdk';
-import {
-  getAffiliateById,
-  getFriendById,
-  getLineAccountById,
-} from '@line-crm/db';
+import { getAffiliateById, getFriendById, getLineAccountById } from '@line-crm/db';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 import { getActiveMappedAccountTenantId } from './step-delivery.js';
@@ -112,9 +108,7 @@ export async function notifyAffiliateFriendAdd(
     `🎉 あなたの紹介リンクから友だち追加がありました！\n` +
     `案件: ${offerLine}\n` +
     `『アフィリ』と送るとマイページで実績を確認できます`;
-  const retryKey = await createBroadcastRetryKey(
-    'affiliate-friend-add', affiliateId, sourceEventId,
-  );
+  const retryKey = await createBroadcastRetryKey('affiliate-friend-add', affiliateId, sourceEventId);
   await notifyAffiliate(db, env, affiliateId, text, retryKey);
 }
 
@@ -142,12 +136,8 @@ export async function notifyAffiliateApproval(
       `確定報酬: ¥${formatYen(rewardAmount)}\n` +
       `『アフィリ』と送るとマイページで確認できます`;
   } else {
-    text =
-      `✅ 成果が承認されました！\n` +
-      `『アフィリ』と送るとマイページで確認できます`;
+    text = `✅ 成果が承認されました！\n` + `『アフィリ』と送るとマイページで確認できます`;
   }
-  const retryKey = await createBroadcastRetryKey(
-    'affiliate-approval', affiliateId, sourceEventId,
-  );
+  const retryKey = await createBroadcastRetryKey('affiliate-approval', affiliateId, sourceEventId);
   await notifyAffiliate(db, env, affiliateId, text, retryKey);
 }

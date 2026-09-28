@@ -42,13 +42,8 @@ describe('putWorkerScript', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit,
-    ];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname',
-    );
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname');
     expect(init.method).toBe('PUT');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer tok_abc');
@@ -183,9 +178,7 @@ describe('getWorkerScriptContent', () => {
 
     expect(content).toBe('export default { fetch() {} }');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname');
     expect(init.method ?? 'GET').toBe('GET');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer tok_abc');
@@ -199,9 +192,7 @@ describe('getWorkerScriptContent', () => {
       text: async () => 'not found',
     } as Response);
 
-    await expect(
-      getWorkerScriptContent({ creds, scriptName: 'missing' }),
-    ).rejects.toThrow(/HTTP 404/);
+    await expect(getWorkerScriptContent({ creds, scriptName: 'missing' })).rejects.toThrow(/HTTP 404/);
   });
 });
 
@@ -233,9 +224,7 @@ describe('listWorkerBindings', () => {
 
     expect(result).toEqual(bindings);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname/bindings',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/workers/scripts/myname/bindings');
     expect(init.method ?? 'GET').toBe('GET');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer tok_abc');
@@ -249,9 +238,7 @@ describe('listWorkerBindings', () => {
       text: async () => 'oops',
     } as Response);
 
-    await expect(
-      listWorkerBindings({ creds, scriptName: 'myname' }),
-    ).rejects.toThrow(/HTTP 500/);
+    await expect(listWorkerBindings({ creds, scriptName: 'myname' })).rejects.toThrow(/HTTP 500/);
   });
 });
 
@@ -264,29 +251,32 @@ describe('Worker version snapshots', () => {
   });
 
   it('selects the newest deployment returned by Cloudflare', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        result: {
-          deployments: [
-            {
-              id: 'older',
-              created_on: '2026-08-01T00:00:00Z',
-              versions: [{ version_id: 'v1', percentage: 100 }],
-            },
-            {
-              id: 'newer',
-              created_on: '2026-08-02T00:00:00Z',
-              versions: [
-                { version_id: 'canary', percentage: 20 },
-                { version_id: 'stable', percentage: 80 },
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            result: {
+              deployments: [
+                {
+                  id: 'older',
+                  created_on: '2026-08-01T00:00:00Z',
+                  versions: [{ version_id: 'v1', percentage: 100 }],
+                },
+                {
+                  id: 'newer',
+                  created_on: '2026-08-02T00:00:00Z',
+                  versions: [
+                    { version_id: 'canary', percentage: 20 },
+                    { version_id: 'stable', percentage: 80 },
+                  ],
+                },
               ],
             },
-          ],
-        },
-      }),
-    } as Response));
+          }),
+        }) as Response,
+    );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const deployment = await getLatestWorkerDeployment({
@@ -298,11 +288,14 @@ describe('Worker version snapshots', () => {
   });
 
   it('redeploys a saved version at 100 percent traffic', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true }),
-    } as Response));
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        }) as Response,
+    );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await deployWorkerVersion({

@@ -66,10 +66,12 @@ vi.mock('./step-delivery.js', () => ({
   evaluateCondition: stepDeliveryMocks.evaluateCondition,
   getActiveMappedAccountTenantId: stepDeliveryMocks.getActiveMappedAccountTenantId,
   getLineApiErrorStatus: stepDeliveryMocks.getLineApiErrorStatus,
-  isDeterministicInvalidReplyToken: vi.fn((error: unknown) =>
-    stepDeliveryMocks.getLineApiErrorStatus(error) === 400
-      && error instanceof Error
-      && /\bInvalid reply token\b/iu.test(error.message)),
+  isDeterministicInvalidReplyToken: vi.fn(
+    (error: unknown) =>
+      stepDeliveryMocks.getLineApiErrorStatus(error) === 400 &&
+      error instanceof Error &&
+      /\bInvalid reply token\b/iu.test(error.message),
+  ),
 }));
 
 // Cron-parity decoration (shared decorateForFriendPush pipeline).
@@ -80,28 +82,32 @@ const autoTrackMocks = vi.hoisted(() => ({
 vi.mock('./auto-track.js', () => autoTrackMocks);
 
 const outboundDeliveryMocks = vi.hoisted(() => ({
-  deliverTrackedLinePush: vi.fn(async (params: {
-    request: { to: string; messages: unknown[] };
-    operationId: string;
-    send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
-  }): Promise<'sent' | 'already_sent' | 'reconciliation_required'> => {
-    await params.send(params.request, params.operationId);
-    return 'sent' as const;
-  }),
-  deliverTrackedLineReply: vi.fn(async (params: {
-    beforeSend?: () => Promise<boolean>;
-    isDeterministicRejection?: (error: unknown) => boolean;
-    send: () => Promise<void>;
-  }) => {
-    if (params.beforeSend && !(await params.beforeSend())) return 'not_sent' as const;
-    try {
-      await params.send();
-    } catch (error) {
-      if (params.isDeterministicRejection?.(error)) return 'not_sent' as const;
-      throw error;
-    }
-    return 'sent' as const;
-  }),
+  deliverTrackedLinePush: vi.fn(
+    async (params: {
+      request: { to: string; messages: unknown[] };
+      operationId: string;
+      send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+    }): Promise<'sent' | 'already_sent' | 'reconciliation_required'> => {
+      await params.send(params.request, params.operationId);
+      return 'sent' as const;
+    },
+  ),
+  deliverTrackedLineReply: vi.fn(
+    async (params: {
+      beforeSend?: () => Promise<boolean>;
+      isDeterministicRejection?: (error: unknown) => boolean;
+      send: () => Promise<void>;
+    }) => {
+      if (params.beforeSend && !(await params.beforeSend())) return 'not_sent' as const;
+      try {
+        await params.send();
+      } catch (error) {
+        if (params.isDeterministicRejection?.(error)) return 'not_sent' as const;
+        throw error;
+      }
+      return 'sent' as const;
+    },
+  ),
 }));
 vi.mock('./outbound-line-delivery.js', () => outboundDeliveryMocks);
 
@@ -122,12 +128,14 @@ interface DbCall {
  * `cooldownHit` backs the messages_log probe; `enrollmentLookup` backs the
  * friend_scenarios fallback lookup.
  */
-function makeDb(opts: {
-  cooldownHit?: boolean;
-  enrollmentLookup?: { id: string; current_step_order: number } | null;
-  pharmacyAccountId?: string;
-  failResumeUpdate?: boolean;
-} = {}) {
+function makeDb(
+  opts: {
+    cooldownHit?: boolean;
+    enrollmentLookup?: { id: string; current_step_order: number } | null;
+    pharmacyAccountId?: string;
+    failResumeUpdate?: boolean;
+  } = {},
+) {
   const calls: DbCall[] = [];
   let resumeUpdateFailures = opts.failResumeUpdate ? 1 : 0;
   const successfulResumeUpdates: DbCall[] = [];
@@ -232,8 +240,11 @@ beforeEach(() => {
 describe("mode 'once' (default) — claim protocol with the cron", () => {
   it('does not send a generic immediate scenario to a pharmacy friend', async () => {
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'pharmacy-a',
-      user_id: null, metadata: '{}',
+      id: 'friend-1',
+      line_user_id: 'U-1',
+      line_account_id: 'pharmacy-a',
+      user_id: null,
+      metadata: '{}',
     });
     const { db, calls } = makeDb({ pharmacyAccountId: 'pharmacy-a' });
 
@@ -248,11 +259,15 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
 
   it('rejects a friend from another account when the channel context is pharmacy', async () => {
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'generic-a',
-      user_id: null, metadata: '{}',
+      id: 'friend-1',
+      line_user_id: 'U-1',
+      line_account_id: 'generic-a',
+      user_id: null,
+      metadata: '{}',
     });
     dbMocks.getLineAccountByChannelId.mockResolvedValue({
-      id: 'pharmacy-a', channel_access_token: 'pharmacy-token',
+      id: 'pharmacy-a',
+      channel_access_token: 'pharmacy-token',
     });
     const { db, calls } = makeDb({ pharmacyAccountId: 'pharmacy-a' });
 
@@ -279,21 +294,25 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     expect(dbMocks.claimFriendScenarioForDelivery).toHaveBeenCalledWith(db, 'fs-1', 0);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
-    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
-      db, 'fs-1', CLAIM_TOKEN,
-    );
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
     expect(insertedLog(calls)).toBeUndefined();
   });
 
   it('uses the account-scoped outbound ledger before LINE for an immediate push', async () => {
     const { db, calls } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', {
-      ...ctx,
-      tenantId: 'tenant-1',
-      lineAccountId: 'account-1',
-    }, {
-      enrollment: { id: 'fs-1', current_step_order: 0 },
-    });
+    const sent = await pushImmediateFirstStep(
+      db,
+      'friend-1',
+      'scn-1',
+      {
+        ...ctx,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+      },
+      {
+        enrollment: { id: 'fs-1', current_step_order: 0 },
+      },
+    );
 
     expect(sent).toBe(true);
     expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
@@ -310,8 +329,9 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
       scenarioClaimToken: CLAIM_TOKEN,
       operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
     });
-    expect(outboundDeliveryMocks.deliverTrackedLinePush.mock.invocationCallOrder[0])
-      .toBeLessThan(lineClientMock.pushMessage.mock.invocationCallOrder[0]);
+    expect(outboundDeliveryMocks.deliverTrackedLinePush.mock.invocationCallOrder[0]).toBeLessThan(
+      lineClientMock.pushMessage.mock.invocationCallOrder[0],
+    );
     expect(lineClientMock.pushMessage.mock.calls[0]?.[2]).toBe(operation.operationId);
     expect(insertedLog(calls)).toBeUndefined();
   });
@@ -320,26 +340,33 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('already_sent');
     const { db, calls } = makeDb();
 
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', {
-      ...ctx,
-      tenantId: 'tenant-1',
-      lineAccountId: 'account-1',
-    }, {
-      enrollment: { id: 'fs-1', current_step_order: 0 },
-    });
+    const sent = await pushImmediateFirstStep(
+      db,
+      'friend-1',
+      'scn-1',
+      {
+        ...ctx,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+      },
+      {
+        enrollment: { id: 'fs-1', current_step_order: 0 },
+      },
+    );
 
     expect(sent).toBe(true);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
     expect(insertedLog(calls)).toBeUndefined();
   });
 
   it('derives the active tenant for an account-scoped immediate push', async () => {
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'account-1',
-      user_id: null, metadata: '{}',
+      id: 'friend-1',
+      line_user_id: 'U-1',
+      line_account_id: 'account-1',
+      user_id: null,
+      metadata: '{}',
     });
     stepDeliveryMocks.getActiveMappedAccountTenantId.mockResolvedValue('tenant-1');
     const { db } = makeDb();
@@ -348,8 +375,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
 
-    expect(stepDeliveryMocks.getActiveMappedAccountTenantId)
-      .toHaveBeenCalledWith(db, 'account-1');
+    expect(stepDeliveryMocks.getActiveMappedAccountTenantId).toHaveBeenCalledWith(db, 'account-1');
     expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant-1', lineAccountId: 'account-1' }),
     );
@@ -357,8 +383,11 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
 
   it('pauses an account-scoped claim when no active tenant mapping exists', async () => {
     dbMocks.getFriendById.mockResolvedValue({
-      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'account-1',
-      user_id: null, metadata: '{}',
+      id: 'friend-1',
+      line_user_id: 'U-1',
+      line_account_id: 'account-1',
+      user_id: null,
+      metadata: '{}',
     });
     const { db } = makeDb();
 
@@ -390,9 +419,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     });
     expect(sent).toBe(false);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
   });
 
   it('compares UTC messages_log timestamps against a +09:00 cooldown cutoff by instant', async () => {
@@ -446,9 +473,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     });
     expect(sent).toBe(true);
     expect(lineClientMock.pushMessage).toHaveBeenCalled();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
   });
 
   it('advances (best effort) in the outer catch when the send succeeded but logging threw — cron must not re-send', async () => {
@@ -472,11 +497,11 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
     expect(sent).toBe(true); // the message DID go out
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
     // The claim must not be left held once the enrollment is advanced.
-    expect(calls.some((c) => c.sql.includes(`status = 'delivering'`) && c.sql.includes(`status = 'active'`))).toBe(false);
+    expect(calls.some((c) => c.sql.includes(`status = 'delivering'`) && c.sql.includes(`status = 'active'`))).toBe(
+      false,
+    );
     errorSpy.mockRestore();
   });
 
@@ -508,13 +533,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
         enrollment: { id: 'fs-1', current_step_order: 0 },
       });
       // STEP2 delay is 60 min → 13:00 JST.
-      expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-        db,
-        'fs-1',
-        1,
-        '2026-07-19T13:00:00.000+09:00',
-        CLAIM,
-      );
+      expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, '2026-07-19T13:00:00.000+09:00', CLAIM);
     } finally {
       vi.useRealTimers();
     }
@@ -565,13 +584,13 @@ describe("mode 'every-click' — click-campaign re-delivery", () => {
     expect(dbMocks.claimFriendScenarioForDelivery).toHaveBeenCalledWith(db, 'fs-1', 0);
     // Push target is the id_token-derived LINE user id, not friend.line_user_id.
     expect(lineClientMock.pushMessage).toHaveBeenCalledWith(
-      'U-token', [{ type: 'text', text: 'welcome!' }], expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      'U-token',
+      [{ type: 'text', text: 'welcome!' }],
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
     );
     expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
     expect(insertedLog(calls)).toBeUndefined();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
   });
 
   it('skips the push when the claim fails — a concurrent deliverer (cron / follow webhook) owns step 1', async () => {
@@ -603,9 +622,7 @@ describe("mode 'every-click' — click-campaign re-delivery", () => {
     expect(sent).toBe(false);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
-    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
-      db, 'fs-1', CLAIM_TOKEN,
-    );
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
   });
 
   it('repairs a stale behind row: re-click with an active step-0 enrollment advances it', async () => {
@@ -613,22 +630,14 @@ describe("mode 'every-click' — click-campaign re-delivery", () => {
     const { db } = makeDb({ enrollmentLookup: { id: 'fs-stale', current_step_order: 0 } });
     const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
     expect(sent).toBe(true);
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-stale', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-stale', 1, expect.any(String), CLAIM);
   });
 
   it('resolves the account token from accountChannelId before friend.line_account_id', async () => {
     dbMocks.getLineAccountByChannelId.mockResolvedValue({ channel_access_token: 'acct-token' });
     const { LineClient } = await import('@line-crm/line-sdk');
     const { db } = makeDb();
-    await pushImmediateFirstStep(
-      db,
-      'friend-1',
-      'scn-1',
-      { ...everyClickCtx, accountChannelId: 'CH-1' },
-      everyClick,
-    );
+    await pushImmediateFirstStep(db, 'friend-1', 'scn-1', { ...everyClickCtx, accountChannelId: 'CH-1' }, everyClick);
     expect(dbMocks.getLineAccountByChannelId).toHaveBeenCalledWith(db, 'CH-1');
     expect(vi.mocked(LineClient)).toHaveBeenCalledWith('acct-token');
     expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
@@ -646,36 +655,33 @@ describe('reply option — webhook follow sends via the free reply token', () =>
     });
     expect(sent).toBe(true);
     expect(replyClient.replyMessage).toHaveBeenCalledWith('rt-1', [{ type: 'text', text: 'welcome!' }]);
-    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
-      db, 'fs-1', CLAIM_TOKEN,
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
+    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0]).toBeLessThan(
+      replyClient.replyMessage.mock.invocationCallOrder[0],
     );
-    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0])
-      .toBeLessThan(replyClient.replyMessage.mock.invocationCallOrder[0]);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(vi.mocked(LineClient)).not.toHaveBeenCalled();
-    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
-      db,
-      tenantId: 'tenant-1',
-      lineAccountId: 'account-1',
-      friendId: 'friend-1',
-      source: 'scenario',
-      scenarioEnrollmentId: 'fs-1',
-      scenarioStepId: 'step-1',
-      scenarioClaimToken: CLAIM_TOKEN,
-      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
-    }));
-    expect(calls.some((call) => call.sql.includes('UPDATE messages_log'))).toBe(false);
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
+    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        source: 'scenario',
+        scenarioEnrollmentId: 'fs-1',
+        scenarioStepId: 'step-1',
+        scenarioClaimToken: CLAIM_TOKEN,
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      }),
     );
+    expect(calls.some((call) => call.sql.includes('UPDATE messages_log'))).toBe(false);
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
   });
 
   it('releases the claim when the reply fails (token consumed) so the cron pushes on schedule', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const replyClient = {
-      replyMessage: vi.fn().mockRejectedValue(
-        new Error('LINE API error: 400  — Invalid reply token'),
-      ),
+      replyMessage: vi.fn().mockRejectedValue(new Error('LINE API error: 400  — Invalid reply token')),
     };
     const { db, calls } = makeDb();
     const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
@@ -691,9 +697,7 @@ describe('reply option — webhook follow sends via the free reply token', () =>
   it('keeps deterministic invalid-token recovery after a transient resume failure', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const replyClient = {
-      replyMessage: vi.fn().mockRejectedValue(
-        new Error('LINE API error: 400  — Invalid reply token'),
-      ),
+      replyMessage: vi.fn().mockRejectedValue(new Error('LINE API error: 400  — Invalid reply token')),
     };
     const { db, successfulResumeUpdates } = makeDb({ failResumeUpdate: true });
 
@@ -741,9 +745,7 @@ describe('reply option — webhook follow sends via the free reply token', () =>
 
     expect(sent).toBe(false);
     expect(replyClient.replyMessage).not.toHaveBeenCalled();
-    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
-      db, 'fs-1', CLAIM_TOKEN,
-    );
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
     expect(pausedClaimResumed(calls)).toBe(false);
     expect(claimReleased(calls)).toBe(false);
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
@@ -760,16 +762,17 @@ describe('reply option — webhook follow sends via the free reply token', () =>
     });
 
     expect(sent).toBe(false);
-    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-1',
-      lineAccountId: 'account-1',
-      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
-    }));
-    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
-      db, 'fs-1', CLAIM_TOKEN,
+    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      }),
     );
-    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0])
-      .toBeLessThan(replyClient.replyMessage.mock.invocationCallOrder[0]);
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
+    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0]).toBeLessThan(
+      replyClient.replyMessage.mock.invocationCallOrder[0],
+    );
     expect(claimReleased(calls)).toBe(false);
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
     errorSpy.mockRestore();
@@ -789,18 +792,17 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
 
     expect(sent).toBe(true);
     // Same helper + argument shape as processStepDeliveries.
-    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
-      db,
-      'text',
-      'welcome!',
-      ctx.workerUrl,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-    );
+    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(db, 'text', 'welcome!', ctx.workerUrl, {
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+    });
     // What LINE receives AND what messages_log records is the decorated
     // message, mirroring the cron.
-    expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-1', [
-      { type: 'flex', text: 'tracked!&f=friend-1' },
-    ], expect.stringMatching(/^[0-9a-f-]{36}$/u));
+    expect(lineClientMock.pushMessage).toHaveBeenCalledWith(
+      'U-1',
+      [{ type: 'flex', text: 'tracked!&f=friend-1' }],
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
     expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
       expect.objectContaining({ messageType: 'flex', content: 'tracked!&f=friend-1' }),
     );
@@ -820,13 +822,10 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
     await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
-    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
-      db,
-      'text',
-      'welcome!',
-      ctx.workerUrl,
-      { lineAccountId: 'acct-7', friendId: 'friend-1' },
-    );
+    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(db, 'text', 'welcome!', ctx.workerUrl, {
+      lineAccountId: 'acct-7',
+      friendId: 'friend-1',
+    });
   });
 
   it('falls back to the caller-resolved account as link owner when friend.line_account_id is not yet wired (LIFF-before-webhook)', async () => {
@@ -844,13 +843,10 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       { enrollment: { id: 'fs-1', current_step_order: 0 } },
     );
     expect(dbMocks.getLineAccountByChannelId).toHaveBeenCalledWith(db, 'CH-9');
-    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
-      db,
-      'text',
-      'welcome!',
-      ctx.workerUrl,
-      { lineAccountId: 'acct-9', friendId: 'friend-1' },
-    );
+    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(db, 'text', 'welcome!', ctx.workerUrl, {
+      lineAccountId: 'acct-9',
+      friendId: 'friend-1',
+    });
   });
 
   it('passes workerUrl through even when unset — the helper is the single no-op gate', async () => {
@@ -863,13 +859,10 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       { enrollment: { id: 'fs-1', current_step_order: 0 } },
     );
     expect(sent).toBe(false);
-    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
-      db,
-      'text',
-      'welcome!',
-      undefined,
-      { lineAccountId: null, friendId: 'friend-1' },
-    );
+    expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(db, 'text', 'welcome!', undefined, {
+      lineAccountId: null,
+      friendId: 'friend-1',
+    });
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
   });
@@ -886,9 +879,7 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       reply: { client: replyClient, replyToken: 'rt-1' },
     });
     expect(sent).toBe(true);
-    expect(replyClient.replyMessage).toHaveBeenCalledWith('rt-1', [
-      { type: 'text', text: 'welcome!&f=friend-1' },
-    ]);
+    expect(replyClient.replyMessage).toHaveBeenCalledWith('rt-1', [{ type: 'text', text: 'welcome!&f=friend-1' }]);
   });
 });
 
@@ -950,12 +941,12 @@ describe('step conditions — cron parity on the instant path', () => {
     });
     expect(sent).toBe(true);
     expect(lineClientMock.pushMessage).toHaveBeenCalledWith(
-      'U-1', [{ type: 'text', text: 'reward!' }], expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      'U-1',
+      [{ type: 'text', text: 'reward!' }],
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
     );
     // advanced to step 1's order, next scheduled from step 2
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
-      db, 'fs-1', 1, expect.any(String), CLAIM,
-    );
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String), CLAIM);
   });
 
   it('skips a failing step 1 and instantly delivers the next immediate step whose condition passes', async () => {

@@ -30,11 +30,7 @@ vi.mock('./auto-track.js', () => ({
   autoTrackContent: mocks.autoTrackContent,
 }));
 
-import {
-  processBroadcastSend,
-  processQueuedBroadcasts,
-  processScheduledBroadcasts,
-} from './broadcast.js';
+import { processBroadcastSend, processQueuedBroadcasts, processScheduledBroadcasts } from './broadcast.js';
 
 const broadcast = {
   id: 'broadcast-1',
@@ -126,8 +122,7 @@ describe('generic broadcast exclusion for pharmacy accounts', () => {
 
     expect(result.status).toBe('sending');
     expect(lineClient.broadcast).not.toHaveBeenCalled();
-    expect(vi.mocked(db.prepare).mock.calls.some(([sql]) => String(sql).includes('FROM friends')))
-      .toBe(false);
+    expect(vi.mocked(db.prepare).mock.calls.some(([sql]) => String(sql).includes('FROM friends'))).toBe(false);
   });
 
   it('rejects a persisted scheduled segment before it can be widened to all followers', async () => {
@@ -168,29 +163,29 @@ describe('generic broadcast exclusion for pharmacy accounts', () => {
     await processQueuedBroadcasts(db, {} as never);
 
     expect(mocks.processMultiAccountDedupBroadcast).toHaveBeenCalledOnce();
-    expect(mocks.updateBroadcastStatus).toHaveBeenCalledWith(
-      db,
-      dedupBroadcast.id,
-      'sent',
-      { totalCount: 1, successCount: 0 },
-    );
+    expect(mocks.updateBroadcastStatus).toHaveBeenCalledWith(db, dedupBroadcast.id, 'sent', {
+      totalCount: 1,
+      successCount: 0,
+    });
   });
 
   it('does not auto-track an empty corrupt dedup continuation', async () => {
     mocks.pharmacyMode.mockResolvedValue(false);
-    mocks.getQueuedBroadcasts.mockResolvedValue([{
-      ...broadcast,
-      status: 'sending',
-      target_type: 'multi-account-dedup',
-      line_account_id: null,
-      account_ids: JSON.stringify(['account-active']),
-      dedup_priority: JSON.stringify(['account-active']),
-      batch_offset: 0,
-      batch_lock_at: null,
-      dedup_progress: '',
-      segment_conditions: null,
-      track_links: 1,
-    }]);
+    mocks.getQueuedBroadcasts.mockResolvedValue([
+      {
+        ...broadcast,
+        status: 'sending',
+        target_type: 'multi-account-dedup',
+        line_account_id: null,
+        account_ids: JSON.stringify(['account-active']),
+        dedup_priority: JSON.stringify(['account-active']),
+        batch_offset: 0,
+        batch_lock_at: null,
+        dedup_progress: '',
+        segment_conditions: null,
+        track_links: 1,
+      },
+    ]);
     const { db } = database(false);
 
     await processQueuedBroadcasts(db, {} as never, 'https://worker.example');

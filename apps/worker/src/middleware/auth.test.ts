@@ -1,11 +1,11 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { authMiddleware, authenticateApiToken } from './auth.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
 import { adminAuth } from '../routes/admin/admin-auth.js';
-import type { Env } from '../index.js';
+import worker, { type Env } from '../index.js';
 
 vi.mock('@line-crm/db', () => ({
   getStaffByApiKey: vi.fn(async (_db: unknown, token: string) => {
@@ -48,9 +48,7 @@ function tenantDb(pharmacyMode = 1, sqlLog: string[] = []): D1Database {
                   : null;
               }
               if (sql.includes('FROM tenant_staff_memberships')) {
-                return values.includes('staff-1') && values.includes(TENANT_ID)
-                  ? { role: 'admin' }
-                  : null;
+                return values.includes('staff-1') && values.includes(TENANT_ID) ? { role: 'admin' } : null;
               }
               return null;
             },
@@ -87,22 +85,33 @@ function crossSiteEnv(): Env['Bindings'] {
 
 function app() {
   const a = new Hono<Env>();
-  a.use('*', cors({
-    origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
-    credentials: true,
-    allowHeaders: CORS_ALLOW_HEADERS,
-  }));
+  a.use(
+    '*',
+    cors({
+      origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
+      credentials: true,
+      allowHeaders: CORS_ALLOW_HEADERS,
+    }),
+  );
   a.use('*', authMiddleware);
   a.route('/', adminAuth);
-  a.get('/api/protected', (c) => c.json({
-    success: true,
-    data: { ...c.get('staff'), tenantId: c.get('tenantId') },
-  }));
+  a.get('/api/protected', (c) =>
+    c.json({
+      success: true,
+      data: { ...c.get('staff'), tenantId: c.get('tenantId') },
+    }),
+  );
   a.post('/api/protected', (c) => c.json({ success: true, data: c.get('staff') }));
-  a.get('/api/account-settings/link-base-url', (c) => c.json({
-    success: true,
-    data: { staff: c.get('staff'), tenantId: c.get('tenantId'), platformAdmin: c.get('platformAdmin') },
-  }));
+  a.get('/api/account-settings/link-base-url', (c) =>
+    c.json({
+      success: true,
+      data: {
+        staff: c.get('staff'),
+        tenantId: c.get('tenantId'),
+        platformAdmin: c.get('platformAdmin'),
+      },
+    }),
+  );
   a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/staff', (c) => c.json({ success: true }));
   a.post('/api/staff', (c) => c.json({ success: true }));
@@ -117,6 +126,12 @@ function app() {
   a.post('/api/forms/:id/partial', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/prescriptions/recovery', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/patients/:id/access', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/privacy-consent', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/notification-preference', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/patients/:id/proxy-grant', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/timeline', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
@@ -134,10 +149,12 @@ function app() {
   a.delete('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
-  a.post('/api/meet-callback', (c) => c.json({
-    success: true,
-    tenantId: c.get('tenantId') ?? null,
-  }));
+  a.post('/api/meet-callback', (c) =>
+    c.json({
+      success: true,
+      tenantId: c.get('tenantId') ?? null,
+    }),
+  );
   return a;
 }
 
@@ -154,16 +171,19 @@ function cookieFor(res: Response, name: string): string | undefined {
 
 describe('admin login boundary', () => {
   test('does not allow the retired browser API-key header through CORS', () => {
-    expect(CORS_ALLOW_HEADERS.map((header) => header.toLowerCase()))
-      .not.toContain('x-admin-api-key');
+    expect(CORS_ALLOW_HEADERS.map((header) => header.toLowerCase())).not.toContain('x-admin-api-key');
   });
 
   test('rejects legacy API-key browser login without issuing cookies', async () => {
-    const res = await app().request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ apiKey: 'staff-key', pharmacyCode: TENANT_CODE }),
-      headers: { 'Content-Type': 'application/json' },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: 'staff-key', pharmacyCode: TENANT_CODE }),
+        headers: { 'Content-Type': 'application/json' },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(400);
     expect(cookieFor(res, 'lh_admin_session')).toBeUndefined();
     expect(cookieFor(res, 'lh_tenant')).toBeUndefined();
@@ -172,23 +192,30 @@ describe('admin login boundary', () => {
   test('runs password verification even when the tenant login does not exist', async () => {
     const derive = vi.spyOn(crypto.subtle, 'deriveBits');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const res = await app().request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        pharmacyCode: 'missing',
-        loginId: 'missing-login-id',
-        password: 'A guessed password 42',
-      }),
-      headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          pharmacyCode: 'missing',
+          password: 'A guessed password 42',
+        }),
+        headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      },
+      crossSiteEnv(),
+    );
 
     expect(res.status).toBe(401);
     expect(derive).toHaveBeenCalledTimes(1);
     const lines = warn.mock.calls.map((call) => String(call[0]));
     const failed = lines.find((line) => line.includes('"event":"auth.login_failed"'));
     expect(failed).toBeDefined();
-    expect(JSON.parse(failed!)).toMatchObject({ realm: 'tenant', ip: '203.0.113.9', reason: 'unknown_login' });
-    expect(lines.join('\n')).not.toMatch(/missing-login-id|guessed password/);
+    expect(JSON.parse(failed!)).toMatchObject({
+      realm: 'tenant',
+      ip: '203.0.113.9',
+      reason: 'unknown_pharmacy_code',
+    });
+    expect(lines.join('\n')).not.toContain('guessed password');
     derive.mockRestore();
     warn.mockRestore();
   });
@@ -198,10 +225,14 @@ describe('admin login boundary', () => {
     const res = await app().request('/api/protected', {}, env());
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ success: false, error: 'Unauthorized' });
-    const denied = warn.mock.calls.map((call) => String(call[0]))
+    const denied = warn.mock.calls
+      .map((call) => String(call[0]))
       .find((line) => line.includes('"event":"authz.denied"'));
     expect(JSON.parse(denied!)).toMatchObject({
-      route: '/api/protected', method: 'GET', status: 401, reason: 'Unauthorized',
+      route: '/*',
+      method: 'GET',
+      status: 401,
+      reason: 'Unauthorized',
     });
     warn.mockRestore();
   });
@@ -209,18 +240,22 @@ describe('admin login boundary', () => {
 
 describe('topology guard', () => {
   test('cross-site WITHOUT opt-in refuses login with an actionable error', async () => {
-    const res = await app().request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        pharmacyCode: TENANT_CODE,
-        loginId: 'admin',
-        password: 'Temporary password 42',
-      }),
-      headers: { 'Content-Type': 'application/json' },
-    }, env({ ADMIN_ORIGIN: PAGES })); // no ADMIN_ALLOW_CROSS_SITE
+    const res = await app().request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          pharmacyCode: TENANT_CODE,
+          loginId: 'admin',
+          password: 'Temporary password 42',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      },
+      env({ ADMIN_ORIGIN: PAGES }),
+    ); // no ADMIN_ALLOW_CROSS_SITE
 
     expect(res.status).toBe(500);
-    const body = await res.json() as { success: boolean; error: string };
+    const body = (await res.json()) as { success: boolean; error: string };
     expect(body.success).toBe(false);
     expect(body.error).toMatch(/cross-site/i);
     expect(cookieFor(res, 'lh_admin_session')).toBeUndefined();
@@ -233,9 +268,13 @@ describe('protected API access', () => {
   test('allows a platform-admin session bearer only on tenant setting APIs', async () => {
     const sqlLog: string[] = [];
     const testEnv = env({ DB: tenantDb(1, sqlLog) });
-    const allowed = await app().request('/api/account-settings/link-base-url', {
-      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
-    }, testEnv);
+    const allowed = await app().request(
+      '/api/account-settings/link-base-url',
+      {
+        headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+      },
+      testEnv,
+    );
 
     expect(allowed.status).toBe(200);
     await expect(allowed.json()).resolves.toMatchObject({
@@ -247,9 +286,13 @@ describe('protected API access', () => {
     });
     expect(sqlLog.some((sql) => sql.includes('INSERT INTO platform_admin_access_events'))).toBe(true);
 
-    const phi = await app().request('/api/custom/pharmacy/prescriptions', {
-      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
-    }, testEnv);
+    const phi = await app().request(
+      '/api/custom/pharmacy/prescriptions',
+      {
+        headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+      },
+      testEnv,
+    );
     expect(phi.status).toBe(401);
   });
 
@@ -257,13 +300,15 @@ describe('protected API access', () => {
     ['GET', '/api/liff/pharmacy/privacy-policy'],
     ['GET', '/api/liff/pharmacy/feature-access'],
     ['GET', '/api/liff/pharmacy/myna-handoffs/active'],
+    ['GET', '/api/liff/pharmacy/prescriptions/recovery'],
+    ['GET', '/api/liff/pharmacy/timeline'],
     ['POST', '/api/liff/pharmacy/prescriptions/rx-1/arrival'],
   ])('lets the route-level LINE gate handle the patient action %s %s', async (method, path) => {
     const res = await app().request(path, { method }, env());
     expect(res.status).toBe(200);
   });
 
-  test('allows the tenant-scoped staff lifecycle over a platform-admin session bearer', async () => {
+  test('allows the tenant-scoped staff lifecycle but blocks retired credential reset', async () => {
     const headers = {
       Authorization: `Bearer ${platformSession}`,
       'X-Tenant-Id': TENANT_ID,
@@ -272,59 +317,117 @@ describe('protected API access', () => {
     const read = await app().request('/api/staff', { headers }, env());
     expect(read.status).toBe(200);
 
-    const create = await app().request('/api/staff', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ name: 'x', loginId: 'new-staff', role: 'owner' }),
-    }, env());
-    const role = await app().request('/api/staff/staff-a', {
-      method: 'PATCH', headers, body: JSON.stringify({ role: 'admin' }),
-    }, env());
-    const accounts = await app().request('/api/staff/staff-a/accounts', {
-      method: 'PUT', headers, body: JSON.stringify({ accountIds: ['account-a'] }),
-    }, env());
-    const resetPassword = await app().request('/api/staff/staff-a/reset-password', {
-      method: 'POST', headers, body: '{}',
-    }, env());
-    const remove = await app().request('/api/staff/staff-a', {
-      method: 'DELETE', headers,
-    }, env());
+    const create = await app().request(
+      '/api/staff',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: 'x', loginId: 'new-staff', role: 'owner' }),
+      },
+      env(),
+    );
+    const role = await app().request(
+      '/api/staff/staff-a',
+      {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ role: 'admin' }),
+      },
+      env(),
+    );
+    const accounts = await app().request(
+      '/api/staff/staff-a/accounts',
+      {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ accountIds: ['account-a'] }),
+      },
+      env(),
+    );
+    const resetPassword = await app().request(
+      '/api/staff/staff-a/reset-password',
+      {
+        method: 'POST',
+        headers,
+        body: '{}',
+      },
+      env(),
+    );
+    const remove = await app().request(
+      '/api/staff/staff-a',
+      {
+        method: 'DELETE',
+        headers,
+      },
+      env(),
+    );
     expect(create.status).toBe(200);
     expect(role.status).toBe(200);
     expect(accounts.status).toBe(200);
-    expect(resetPassword.status).toBe(200);
+    expect(resetPassword.status).toBe(401);
     expect(remove.status).toBe(200);
   });
 
   test('requires an explicit tenant for a platform-admin CLI session', async () => {
-    const response = await app().request('/api/account-settings/link-base-url', {
-      headers: { Authorization: `Bearer ${platformSession}` },
-    }, env());
+    const response = await app().request(
+      '/api/account-settings/link-base-url',
+      {
+        headers: { Authorization: `Bearer ${platformSession}` },
+      },
+      env(),
+    );
     expect(response.status).toBe(401);
   });
   test('allows LIFF preflight requests for pharmacy APIs', async () => {
-    const res = await app().request('/api/liff/pharmacy/patients?liffId=test', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: LIFF,
-        'Access-Control-Request-Method': 'GET',
-        'Access-Control-Request-Headers': 'authorization',
+    const res = await app().request(
+      '/api/liff/pharmacy/patients?liffId=test',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: LIFF,
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'authorization',
+        },
       },
-    }, env({ LIFF_ORIGIN: LIFF }));
+      env({ LIFF_ORIGIN: LIFF }),
+    );
 
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
   });
 
+  test.each([
+    ['GET', '/api/liff/pharmacy/patients/patient-1/access'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/privacy-consent'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/notification-preference'],
+    ['DELETE', '/api/liff/pharmacy/patients/patient-1/proxy-grant'],
+  ])('lets the LIFF patient route perform its own identity verification: %s %s', async (method, path) => {
+    const response = await app().request(`${path}?liffId=test`, { method }, env());
+    expect(response.status).toBe(200);
+  });
+
+  test('does not broaden the LIFF patient control method allowlist', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/patients/patient-1/notification-preference?liffId=test',
+      { method: 'PUT' },
+      env(),
+    );
+    expect(response.status).toBe(401);
+  });
+
   test('allows Idempotency-Key in cross-origin preflight requests', async () => {
-    const res = await app().request('/api/liff/booking/requests?liffId=test', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: LIFF,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'authorization, content-type, idempotency-key',
+    const res = await app().request(
+      '/api/liff/booking/requests?liffId=test',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: LIFF,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'authorization, content-type, idempotency-key',
+        },
       },
-    }, env({ LIFF_ORIGIN: LIFF }));
+      env({ LIFF_ORIGIN: LIFF }),
+    );
 
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Headers')?.toLowerCase()).toContain('idempotency-key');
@@ -332,53 +435,86 @@ describe('protected API access', () => {
 
   test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
     const image = await app().request('/api/rich-menu-images/account/group/page/image.png', {}, crossSiteEnv());
-    const external = await app().request('/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1', {}, crossSiteEnv());
+    const external = await app().request(
+      '/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1',
+      {},
+      crossSiteEnv(),
+    );
     expect(image.status).toBe(401);
     expect(external.status).toBe(401);
   });
 
   test('rejects an API key smuggled through the browser session cookie', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: {
+          Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}`,
+        },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 
   test('rejects a valid session cookie without its tenant binding', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Cookie: 'lh_admin_session=staff-key' },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: { Cookie: 'lh_admin_session=staff-key' },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 
   test('still accepts Bearer tokens for SDK / MCP callers', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: { id: string } };
+    const body = (await res.json()) as { data: { id: string } };
     expect(body.data).toMatchObject({ id: 'staff-1', role: 'admin' });
   });
 
   test('does not let the global env key select arbitrary tenants by default', async () => {
-    const denied = await app().request('/api/protected', {
-      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
-    }, crossSiteEnv());
+    const denied = await app().request(
+      '/api/protected',
+      {
+        headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      crossSiteEnv(),
+    );
     expect(denied.status).toBe(401);
 
-    const legacy = await app().request('/api/protected', {
-      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
-    }, Object.assign(env({
-      ADMIN_ORIGIN: PAGES,
-      ADMIN_ALLOW_CROSS_SITE: 'true',
-    }), { LEGACY_ENV_OWNER_BYPASS: 'true' }));
+    const legacy = await app().request(
+      '/api/protected',
+      {
+        headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      Object.assign(
+        env({
+          ADMIN_ORIGIN: PAGES,
+          ADMIN_ALLOW_CROSS_SITE: 'true',
+        }),
+        { LEGACY_ENV_OWNER_BYPASS: 'true' },
+      ),
+    );
     expect(legacy.status).toBe(401);
   });
 
   test('rejects a Bearer token without an explicit tenant header', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Authorization: 'Bearer env-key' },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: { Authorization: 'Bearer env-key' },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -389,9 +525,13 @@ describe('protected API access', () => {
 
   test('a malformed cookie value yields 401, not a 500', async () => {
     // `%` is an invalid percent escape — decoding must not throw.
-    const res = await app().request('/api/protected', {
-      headers: { Cookie: 'lh_admin_session=%; other=%E0%A4%A' },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: { Cookie: 'lh_admin_session=%; other=%E0%A4%A' },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -399,13 +539,20 @@ describe('protected API access', () => {
 describe('retired LEGACY_ENV_OWNER_BYPASS', () => {
   test('cannot bypass tenant membership even when the stale flag remains configured', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const res = await app().request('/api/protected', {
-      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
-    }, Object.assign(env({
-      DB: tenantDb(0), // non-pharmacy-mode tenant: the only case the bypass fires for
-      ADMIN_ORIGIN: PAGES,
-      ADMIN_ALLOW_CROSS_SITE: 'true',
-    }), { LEGACY_ENV_OWNER_BYPASS: 'true' }));
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      Object.assign(
+        env({
+          DB: tenantDb(0), // non-pharmacy-mode tenant: the only case the bypass fires for
+          ADMIN_ORIGIN: PAGES,
+          ADMIN_ALLOW_CROSS_SITE: 'true',
+        }),
+        { LEGACY_ENV_OWNER_BYPASS: 'true' },
+      ),
+    );
     expect(res.status).toBe(401);
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining('LEGACY_ENV_OWNER_BYPASS'));
     log.mockRestore();
@@ -434,27 +581,18 @@ describe('constant-time secret comparison', () => {
   });
 
   test('LEGACY_API_KEY: accepts an exact match', async () => {
-    const staff = await authenticateApiToken(
-      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
-      'legacy-key',
-    );
+    const staff = await authenticateApiToken(fakeContext({ LEGACY_API_KEY: 'legacy-key' }), 'legacy-key');
     expect(staff).toMatchObject({ id: 'env-owner' });
   });
 
   test('LEGACY_API_KEY: rejects a same-length near-miss', async () => {
     // Same length as 'legacy-key' (10 chars), differs in the last character.
-    const staff = await authenticateApiToken(
-      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
-      'legacy-kex',
-    );
+    const staff = await authenticateApiToken(fakeContext({ LEGACY_API_KEY: 'legacy-key' }), 'legacy-kex');
     expect(staff).toBeNull();
   });
 
   test('LEGACY_API_KEY: rejects a different-length near-miss', async () => {
-    const staff = await authenticateApiToken(
-      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
-      'legacy-key-but-longer',
-    );
+    const staff = await authenticateApiToken(fakeContext({ LEGACY_API_KEY: 'legacy-key' }), 'legacy-key-but-longer');
     expect(staff).toBeNull();
   });
 });
@@ -463,15 +601,19 @@ describe('public form method boundaries', () => {
   test('allows unauthenticated GET of a form definition', async () => {
     const res = await app().request('/api/forms/form-1', {}, crossSiteEnv());
     expect(res.status).toBe(200);
-    expect((await res.json() as { staff: unknown }).staff).toBeNull();
+    expect(((await res.json()) as { staff: unknown }).staff).toBeNull();
   });
 
   test('authenticates an admin GET so the route can return private settings', async () => {
-    const res = await app().request('/api/forms/form-1', {
-      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/forms/form-1',
+      {
+        headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(200);
-    expect((await res.json() as { staff: { role: string } }).staff.role).toBe('admin');
+    expect(((await res.json()) as { staff: { role: string } }).staff.role).toBe('admin');
   });
 
   test.each(['PUT', 'DELETE'])('%s on the same form path requires admin auth', async (method) => {
@@ -482,17 +624,25 @@ describe('public form method boundaries', () => {
   test.each(['submit', 'partial', 'opened'])(
     'allows POST /%s through to route-level LIFF authentication',
     async (action) => {
-      const res = await app().request(`/api/forms/form-1/${action}`, {
-        method: 'POST',
-      }, crossSiteEnv());
+      const res = await app().request(
+        `/api/forms/form-1/${action}`,
+        {
+          method: 'POST',
+        },
+        crossSiteEnv(),
+      );
       expect(res.status).toBe(200);
     },
   );
 
   test('does not exempt the wrong method on a public action path', async () => {
-    const res = await app().request('/api/forms/form-1/submit', {
-      method: 'DELETE',
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/forms/form-1/submit',
+      {
+        method: 'DELETE',
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -507,24 +657,36 @@ describe('Google OAuth callback boundary', () => {
     expect(get.status).toBe(200);
     expect(await get.text()).toBe('oauth-callback');
 
-    const post = await app().request('/api/booking/google-calendar/oauth/callback', {
-      method: 'POST',
-    }, crossSiteEnv());
+    const post = await app().request(
+      '/api/booking/google-calendar/oauth/callback',
+      {
+        method: 'POST',
+      },
+      crossSiteEnv(),
+    );
     expect(post.status).toBe(401);
   });
 });
 
 describe('Meet callback boundary', () => {
   test('requires authenticated tenant authority', async () => {
-    const unauthenticated = await app().request('/api/meet-callback', {
-      method: 'POST',
-    }, crossSiteEnv());
+    const unauthenticated = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+      },
+      crossSiteEnv(),
+    );
     expect(unauthenticated.status).toBe(401);
 
-    const authenticated = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
-    }, crossSiteEnv());
+    const authenticated = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      crossSiteEnv(),
+    );
     expect(authenticated.status).toBe(200);
     await expect(authenticated.json()).resolves.toMatchObject({ tenantId: TENANT_ID });
   });
@@ -532,35 +694,62 @@ describe('Meet callback boundary', () => {
 
 describe('prescription LIFF auth boundary', () => {
   test('allows only the explicitly supported method through to LINE verification', async () => {
-    const post = await app().request('/api/liff/pharmacy/prescriptions', {
-      method: 'POST',
-    }, crossSiteEnv());
+    const post = await app().request(
+      '/api/liff/pharmacy/prescriptions',
+      {
+        method: 'POST',
+      },
+      crossSiteEnv(),
+    );
     expect(post.status).toBe(200);
 
-    const wrongMethod = await app().request('/api/liff/pharmacy/prescriptions', {
-      method: 'DELETE',
-    }, crossSiteEnv());
+    const wrongMethod = await app().request(
+      '/api/liff/pharmacy/prescriptions',
+      {
+        method: 'DELETE',
+      },
+      crossSiteEnv(),
+    );
     expect(wrongMethod.status).toBe(401);
+  });
+
+  test('keeps timeline and recovery exceptions GET-only', async () => {
+    for (const path of ['/api/liff/pharmacy/prescriptions/recovery', '/api/liff/pharmacy/timeline']) {
+      expect((await app().request(path, {}, crossSiteEnv())).status).toBe(200);
+      expect((await app().request(path, { method: 'DELETE' }, crossSiteEnv())).status).toBe(401);
+    }
   });
 });
 
 describe('Myna LIFF auth boundary', () => {
   test('allows only the supported patient actions through to LINE verification', async () => {
-    const post = await app().request('/api/liff/pharmacy/myna-handoffs', {
-      method: 'POST',
-    }, crossSiteEnv());
+    const post = await app().request(
+      '/api/liff/pharmacy/myna-handoffs',
+      {
+        method: 'POST',
+      },
+      crossSiteEnv(),
+    );
     expect(post.status).toBe(200);
 
-    const launch = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
-      method: 'POST',
-    }, crossSiteEnv());
+    const launch = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/handoff-1/launch',
+      {
+        method: 'POST',
+      },
+      crossSiteEnv(),
+    );
     expect(launch.status).toBe(200);
   });
 
   test('does not exempt the wrong method on a Myna patient action path', async () => {
-    const res = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
-      method: 'DELETE',
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/handoff-1/launch',
+      {
+        method: 'DELETE',
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -608,21 +797,259 @@ describe('pharmacy follow-up and emergency LIFF auth boundary', () => {
   });
 });
 
+describe('medication follow-up outlook through the Worker root', () => {
+  const path = '/api/liff/pharmacy/medication-followups/outlook';
+  const identity = {
+    lineUserId: 'U-outlook-patient',
+    loginChannelId: 'outlook-login',
+    tenantId: 'tenant-outlook',
+    lineAccountId: 'account-outlook',
+  };
+  const idToken = `synthetic.${btoa(JSON.stringify({ aud: identity.loginChannelId }))}.signature`;
+  const projection = {
+    serviceHoursText: '9:00-18:00',
+    responseEstimateMinutes: 30,
+    afterHoursMessageCode: 'contact_pharmacy_during_hours',
+    emergencyMessageCode: 'seek_urgent_care',
+  };
+
+  function patientDb(
+    options: { participant?: boolean; operations?: 'enabled' | 'disabled' | 'unavailable'; sla?: string } = {},
+  ) {
+    const queries: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            queries.push({ sql, values });
+            return {
+              async all() {
+                if (sql.includes('account.login_channel_id = ?')) {
+                  return {
+                    results:
+                      values[0] === identity.loginChannelId
+                        ? [
+                            {
+                              id: identity.lineAccountId,
+                              tenant_id: identity.tenantId,
+                              login_channel_id: identity.loginChannelId,
+                            },
+                          ]
+                        : [],
+                  };
+                }
+                throw new Error('Unexpected outlook query');
+              },
+              async first() {
+                if (sql.includes('f.provider_line_user_id = ?')) {
+                  return JSON.stringify(values) ===
+                    JSON.stringify([
+                      identity.lineUserId,
+                      'outlook-liff',
+                      identity.loginChannelId,
+                      identity.tenantId,
+                      identity.lineAccountId,
+                    ])
+                    ? { line_account_id: identity.lineAccountId, friend_id: 'outlook-friend' }
+                    : null;
+                }
+                if (sql.includes('SELECT beta_enabled')) {
+                  return values[0] === identity.lineAccountId ? { beta_enabled: 1 } : null;
+                }
+                if (sql.includes('FROM pharmacy_beta_memberships')) {
+                  return options.participant !== false &&
+                    values[0] === identity.lineAccountId &&
+                    values[1] === 'outlook-friend'
+                    ? { active: 1 }
+                    : null;
+                }
+                if (sql.includes('FROM pharmacy_medication_followup_operations')) {
+                  if (options.operations === 'unavailable') throw new Error('no such table');
+                  if (options.operations === 'disabled' || values[0] !== identity.lineAccountId) return null;
+                  return {
+                    service_hours_text: projection.serviceHoursText,
+                    response_sla_json:
+                      options.sla ??
+                      JSON.stringify({
+                        typical_minutes: 30,
+                        assigned_staff_id: 'internal-staff',
+                      }),
+                    after_hours_message_code: projection.afterHoursMessageCode,
+                    emergency_message_code: projection.emergencyMessageCode,
+                  };
+                }
+                throw new Error('Unexpected outlook query');
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    return {
+      db,
+      queries,
+      outlookQueries: () => queries.filter(({ sql }) => sql.includes('FROM pharmacy_medication_followup_operations')),
+    };
+  }
+
+  async function requestOutlook(
+    db: D1Database,
+    options: {
+      method?: string;
+      liffId?: string;
+      requestPath?: string;
+    } = {},
+  ) {
+    return worker.fetch(
+      new Request(`${WORKERS}${options.requestPath ?? path}?liffId=${options.liffId ?? 'outlook-liff'}`, {
+        method: options.method ?? 'GET',
+        headers: { Authorization: `Bearer ${idToken}` },
+      }),
+      env({ DB: db }),
+    );
+  }
+
+  beforeEach(() => {
+    // Only LINE's external verification response is synthetic. The Worker
+    // middleware, patient resolver, beta gate and public projection are real.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(input).toBe('https://api.line.me/oauth2/v2.1/verify');
+      expect(init?.method).toBe('POST');
+      const body = init?.body as URLSearchParams;
+      expect(body.get('id_token')).toBe(idToken);
+      expect(body.get('client_id')).toBe(identity.loginChannelId);
+      return new Response(
+        JSON.stringify({
+          sub: identity.lineUserId,
+          aud: identity.loginChannelId,
+        }),
+      );
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('serves only the four public fields to a LINE patient without staff credentials', async () => {
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ outlook: projection });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.outlookQueries()).toEqual([
+      {
+        sql: expect.stringContaining('WHERE line_account_id = ? AND enabled = 1'),
+        values: [identity.lineAccountId],
+      },
+    ]);
+  });
+
+  test.each(['disabled', 'unavailable'] as const)(
+    'preserves outlook:null when operations are %s',
+    async (operations) => {
+      const fixture = patientDb({ operations });
+      const response = await requestOutlook(fixture.db);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ outlook: null });
+      expect(fixture.outlookQueries()).toHaveLength(1);
+    },
+  );
+
+  test.each(['{"minutes":10081}', '{"assigned_staff_id":"internal-staff"}', 'null', 'not-json'])(
+    'keeps unapproved or invalid SLA data out of the public response: %s',
+    async (sla) => {
+      const response = await requestOutlook(patientDb({ sla }).db);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        outlook: { ...projection, responseEstimateMinutes: null },
+      });
+    },
+  );
+
+  test('rejects a token denied by LINE before resolving a patient or reading outlook', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.queries.some(({ sql }) => sql.includes('f.provider_line_user_id'))).toBe(false);
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test('rejects a patient without active beta participation before reading outlook', async () => {
+    const fixture = patientDb({ participant: false });
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Pharmacy beta participation required',
+    });
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test('does not let another LIFF account override the verified account', async () => {
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db, { liffId: 'unrelated-account-liff' });
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy account not found' });
+    expect(fixture.queries.find(({ sql }) => sql.includes('f.provider_line_user_id'))?.values).toEqual([
+      identity.lineUserId,
+      'unrelated-account-liff',
+      identity.loginChannelId,
+      identity.tenantId,
+      identity.lineAccountId,
+    ]);
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test.each(['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'])(
+    'does not bypass staff authentication for %s on the outlook path',
+    async (method) => {
+      const fixture = patientDb();
+      const response = await requestOutlook(fixture.db, { method });
+      expect(response.status).toBe(401);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fixture.outlookQueries()).toHaveLength(0);
+    },
+  );
+
+  test.each([`${path}/extra`, `${path}-extra`])('does not exempt an adjacent path: %s', async (requestPath) => {
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db, { requestPath });
+    expect(response.status).toBe(401);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+});
+
 describe('pharmacy public-profile LIFF auth boundary', () => {
   test('allows only GET through to route-level LINE verification', async () => {
     expect((await app().request('/api/liff/pharmacy/public-profile', {}, crossSiteEnv())).status).toBe(200);
-    expect((await app().request('/api/liff/pharmacy/public-profile', {
-      method: 'DELETE',
-    }, crossSiteEnv())).status).toBe(401);
+    expect(
+      (
+        await app().request(
+          '/api/liff/pharmacy/public-profile',
+          {
+            method: 'DELETE',
+          },
+          crossSiteEnv(),
+        )
+      ).status,
+    ).toBe(401);
   });
 });
 
 describe('CSRF protection', () => {
   test('Bearer POST is exempt from CSRF (not cookie-driven)', async () => {
-    const res = await app().request('/api/protected', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
+      },
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(200);
   });
 });
@@ -642,67 +1069,98 @@ describe('logout', () => {
 
 describe('CORS allowed / blocked origins', () => {
   test('allowlisted admin origin is echoed back', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Origin: PAGES, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: {
+          Origin: PAGES,
+          Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}`,
+        },
+      },
+      crossSiteEnv(),
+    );
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(PAGES);
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
   });
 
-  test('Cloudflare Pages preview origin for the admin project is echoed back', async () => {
+  test('Cloudflare Pages preview origin is not implicitly allowed', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
-    const res = await app().request('/api/protected', {
-      headers: { Origin: preview, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
-    }, crossSiteEnv());
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: {
+          Origin: preview,
+          Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}`,
+        },
+      },
+      crossSiteEnv(),
+    );
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('login preflight succeeds from a Cloudflare Pages preview origin', async () => {
+  test('login preflight does not allow a Cloudflare Pages preview origin', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
-    const res = await app().request('/api/auth/login', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: preview,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type',
+    const res = await app().request(
+      '/api/auth/login',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: preview,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type',
+        },
       },
-    }, crossSiteEnv());
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('direct Worker same-origin login preflight remains allowed', async () => {
-    const res = await app().request(`${WORKERS}/api/auth/login`, {
-      method: 'OPTIONS',
-      headers: {
-        Origin: WORKERS,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type',
+  test('direct Worker browser origin is not implicit when ADMIN_ORIGIN is configured', async () => {
+    const res = await app().request(
+      `${WORKERS}/api/auth/login`,
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: WORKERS,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type',
+        },
       },
-    }, crossSiteEnv());
+      crossSiteEnv(),
+    );
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(WORKERS);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('LIFF origin cannot preflight an admin login route', async () => {
-    const res = await app().request('/api/auth/login', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: LIFF,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type',
+    const res = await app().request(
+      '/api/auth/login',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: LIFF,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type',
+        },
       },
-    }, env({ LIFF_ORIGIN: LIFF }));
+      env({ LIFF_ORIGIN: LIFF }),
+    );
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('unknown origin gets no Access-Control-Allow-Origin header', async () => {
-    const res = await app().request('/api/protected', {
-      headers: { Origin: 'https://evil.example.com', Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
-    }, crossSiteEnv());
+    const res = await app().request(
+      '/api/protected',
+      {
+        headers: {
+          Origin: 'https://evil.example.com',
+          Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}`,
+        },
+      },
+      crossSiteEnv(),
+    );
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 });

@@ -31,9 +31,7 @@ export interface EventEmitter {
   subscribe(handler: (e: UpdateEvent) => void): () => void;
 }
 
-export function createEventEmitter(opts: {
-  persist: (e: UpdateEvent) => Promise<void>;
-}): EventEmitter {
+export function createEventEmitter(opts: { persist: (e: UpdateEvent) => Promise<void> }): EventEmitter {
   // Use a Set so handlers are unique and unsubscribe is O(1). Iteration
   // order is insertion order (per ECMAScript spec) which keeps subscriber
   // notification deterministic.

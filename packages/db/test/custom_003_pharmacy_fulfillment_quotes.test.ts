@@ -41,19 +41,32 @@ describe('custom_003_pharmacy_fulfillment_quotes.sql', () => {
         '["original_required"]', '[{"code":"original_required","status":"pending"}]',
         '2026-08-17T10:00:00Z', '2026-08-17T09:00:00Z', 'staff-a', '2026-08-17T08:00:00Z')`).run();
     expect(db.prepare('SELECT decision, revision FROM pharmacy_fulfillment_quotes').get()).toEqual({
-      decision: 'conditional', revision: 1,
+      decision: 'conditional',
+      revision: 1,
     });
-    expect(() => db.prepare(`INSERT INTO pharmacy_fulfillment_quotes
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_fulfillment_quotes
       (id, submission_id, line_account_id, revision, decision, reason_codes_json, requirements_json, created_by, created_at)
-      VALUES ('quote-b', 'submission-a', 'account-a', 1, 'fulfillable', '[]', '[]', 'staff-b', '2026-08-17T08:01:00Z')`).run()).toThrow(/UNIQUE constraint failed/);
+      VALUES ('quote-b', 'submission-a', 'account-a', 1, 'fulfillable', '[]', '[]', 'staff-b', '2026-08-17T08:01:00Z')`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/);
   });
 
   it('rejects unbounded or unsupported connector values', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_fulfillment_quotes
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_fulfillment_quotes
       (id, submission_id, line_account_id, revision, decision, reason_codes_json, requirements_json, created_by, created_at)
-      VALUES ('quote-a', 'submission-a', 'account-a', 1, 'unknown', '[]', '[]', 'staff-a', '2026-08-17T08:00:00Z')`).run()).toThrow(/CHECK constraint failed/);
-    expect(() => db.prepare(`INSERT INTO pharmacy_fulfillment_quotes
+      VALUES ('quote-a', 'submission-a', 'account-a', 1, 'unknown', '[]', '[]', 'staff-a', '2026-08-17T08:00:00Z')`)
+        .run(),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_fulfillment_quotes
       (id, submission_id, line_account_id, revision, decision, reason_codes_json, requirements_json, created_by, created_at)
-      VALUES ('quote-b', 'submission-a', 'account-a', 1, 'fulfillable', 'not-json', '[]', 'staff-a', '2026-08-17T08:00:00Z')`).run()).toThrow(/CHECK constraint failed/);
+      VALUES ('quote-b', 'submission-a', 'account-a', 1, 'fulfillable', 'not-json', '[]', 'staff-a', '2026-08-17T08:00:00Z')`)
+        .run(),
+    ).toThrow(/CHECK constraint failed/);
   });
 });

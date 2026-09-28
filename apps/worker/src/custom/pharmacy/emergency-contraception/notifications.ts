@@ -40,9 +40,10 @@ async function updateClaimed(
   sql: string,
   values: unknown[],
 ): Promise<boolean> {
-  const result = await db.prepare(sql).bind(
-    ...values, reminder.id, reminder.line_account_id, reminder.claim_token,
-  ).run();
+  const result = await db
+    .prepare(sql)
+    .bind(...values, reminder.id, reminder.line_account_id, reminder.claim_token)
+    .run();
   return (result.meta.changes ?? 0) === 1;
 }
 
@@ -63,11 +64,7 @@ async function suppress(
   );
 }
 
-async function releaseClaim(
-  db: D1Database,
-  reminder: EmergencyAppointmentReminder,
-  now: string,
-): Promise<boolean> {
+async function releaseClaim(db: D1Database, reminder: EmergencyAppointmentReminder, now: string): Promise<boolean> {
   return updateClaimed(
     db,
     reminder,
@@ -98,12 +95,10 @@ function suppressionReason(
   return null;
 }
 
-async function readContext(
-  db: D1Database,
-  reminder: EmergencyAppointmentReminder,
-): Promise<ReminderContext | null> {
-  return db.prepare(
-    `SELECT intake.tenant_id, intake.line_account_id, intake.owner_friend_id AS friend_id,
+async function readContext(db: D1Database, reminder: EmergencyAppointmentReminder): Promise<ReminderContext | null> {
+  return db
+    .prepare(
+      `SELECT intake.tenant_id, intake.line_account_id, intake.owner_friend_id AS friend_id,
             friend.provider_line_user_id AS line_user_id, friend.is_following,
             control.state AS control_state, COALESCE(settings.is_enabled, 0) AS feature_enabled,
             EXISTS (
@@ -133,9 +128,9 @@ async function readContext(
         AND reminder.intake_id = ? AND reminder.status = 'processing'
         AND reminder.claim_token = ?
       LIMIT 1`,
-  ).bind(
-    reminder.id, reminder.line_account_id, reminder.intake_id, reminder.claim_token,
-  ).first<ReminderContext>();
+    )
+    .bind(reminder.id, reminder.line_account_id, reminder.intake_id, reminder.claim_token)
+    .first<ReminderContext>();
 }
 
 export async function processEmergencyAppointmentReminders(
@@ -147,10 +142,17 @@ export async function processEmergencyAppointmentReminders(
     now?: Date;
     limit?: number;
   },
-): Promise<{ generated: number; sent: number; failed: number; skipped: number; suppressed: number }> {
+): Promise<{
+  generated: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  suppressed: number;
+}> {
   const now = options.now ?? new Date();
   const generated = await generateEmergencyAppointmentReminders(db, {
-    now, limit: options.limit,
+    now,
+    limit: options.limit,
   });
   const reminders = await claimDueEmergencyAppointmentReminders(db, now, options.limit);
   const result = {
@@ -180,10 +182,10 @@ export async function processEmergencyAppointmentReminders(
 
     const accessToken = options.lineCredentialKey
       ? await readLineCredential(db, options.lineCredentialKey, {
-        tenantId: context!.tenant_id,
-        lineAccountId: context!.line_account_id,
-        kind: 'channel_access_token',
-      }).catch(() => null)
+          tenantId: context!.tenant_id,
+          lineAccountId: context!.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
       : null;
     if (!accessToken) {
       await updateClaimed(
@@ -218,15 +220,18 @@ export async function processEmergencyAppointmentReminders(
         result.skipped += 1;
         continue;
       }
-      if (await updateClaimed(
-        db,
-        reminder,
-        `UPDATE pharmacy_emergency_reminders
+      if (
+        await updateClaimed(
+          db,
+          reminder,
+          `UPDATE pharmacy_emergency_reminders
             SET status = 'sent', sent_at = ?, reason_code = NULL,
                 claim_token = NULL, claimed_at = NULL, updated_at = ?
           WHERE id = ? AND line_account_id = ? AND status = 'processing' AND claim_token = ?`,
-        [timestamp, timestamp],
-      )) result.sent += 1;
+          [timestamp, timestamp],
+        )
+      )
+        result.sent += 1;
       else result.skipped += 1;
     } catch {
       await updateClaimed(

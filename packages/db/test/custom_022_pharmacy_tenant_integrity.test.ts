@@ -87,41 +87,56 @@ describe('custom_022_pharmacy_tenant_integrity.sql', () => {
   it('rejects account assignments that cross tenant staff membership', () => {
     const db = database();
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_staff_accounts
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_staff_accounts
       (line_account_id, staff_id, is_active, created_at, updated_at)
-      VALUES ('account-a', 'staff-b', 1, '2026-08-19', '2026-08-19')`).run())
-      .toThrow(/PHARMACY_STAFF_TENANT_MISMATCH/);
-    expect(() => db.prepare(`UPDATE pharmacy_staff_accounts
-      SET staff_id = 'staff-b' WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`).run())
-      .toThrow(/PHARMACY_STAFF_TENANT_MISMATCH/);
-    expect(db.prepare(`SELECT line_account_id, staff_id FROM pharmacy_staff_accounts`).all())
-      .toEqual([{ line_account_id: 'account-a', staff_id: 'staff-a' }]);
+      VALUES ('account-a', 'staff-b', 1, '2026-08-19', '2026-08-19')`)
+        .run(),
+    ).toThrow(/PHARMACY_STAFF_TENANT_MISMATCH/);
+    expect(() =>
+      db
+        .prepare(`UPDATE pharmacy_staff_accounts
+      SET staff_id = 'staff-b' WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`)
+        .run(),
+    ).toThrow(/PHARMACY_STAFF_TENANT_MISMATCH/);
+    expect(db.prepare(`SELECT line_account_id, staff_id FROM pharmacy_staff_accounts`).all()).toEqual([
+      { line_account_id: 'account-a', staff_id: 'staff-a' },
+    ]);
   });
 
   it('rejects cross-tenant legacy pharmacy references', () => {
     const db = database();
     seedPharmacyRows(db);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_intake_responses
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_intake_responses
       (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
        patient_snapshot_json, answers_json, base_response_id, idempotency_key,
        representative_consent_at, privacy_consent_at, created_at)
       VALUES ('response-b', 'account-b', 'friend-b', 'patient-b', 1, 1,
         '{"name":"Patient B"}', '{"allergiesStatus":"none"}', 'response-a',
-        'response-b-key', '2026-08-19', '2026-08-19', '2026-08-19')`).run())
-      .toThrow(/PHARMACY_INTAKE_BASE_SCOPE_MISMATCH/);
+        'response-b-key', '2026-08-19', '2026-08-19', '2026-08-19')`)
+        .run(),
+    ).toThrow(/PHARMACY_INTAKE_BASE_SCOPE_MISMATCH/);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_continuity_events
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_continuity_events
       (id, obligation_id, line_account_id, event_type, submission_id, actor_type, created_at)
-      VALUES ('event-a', 'obligation-a', 'account-a', 'linked', 'submission-b', 'system', '2026-08-19')`).run())
-      .toThrow(/PHARMACY_CONTINUITY_SUBMISSION_SCOPE_MISMATCH/);
+      VALUES ('event-a', 'obligation-a', 'account-a', 'linked', 'submission-b', 'system', '2026-08-19')`)
+        .run(),
+    ).toThrow(/PHARMACY_CONTINUITY_SUBMISSION_SCOPE_MISMATCH/);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_myna_handoffs
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_myna_handoffs
       (id, line_account_id, friend_id, patient_id, expectation_id, method, status, source,
        correlation_id, expires_at, created_at, updated_at)
       VALUES ('handoff-a', 'account-a', 'friend-a', 'patient-a', 'expectation-b', 'PAPER',
-        'CREATED', 'LIFF', 'correlation-a', '2026-09-01', '2026-08-19', '2026-08-19')`).run())
-      .toThrow(/PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH/);
+        'CREATED', 'LIFF', 'correlation-a', '2026-09-01', '2026-08-19', '2026-08-19')`)
+        .run(),
+    ).toThrow(/PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH/);
   });
-
 });

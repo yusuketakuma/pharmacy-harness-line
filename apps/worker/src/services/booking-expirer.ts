@@ -92,9 +92,7 @@ export async function runExpirer(
         friendId: row.friend_id,
         channelAccessToken: row.channel_access_token,
         toLineUserId: row.line_user_id,
-        retryKey: await createBroadcastRetryKey(
-          'booking-notification', row.id, 'expired',
-        ),
+        retryKey: await createBroadcastRetryKey('booking-notification', row.id, 'expired'),
         kind: 'expired',
         ctx: {
           menuName: row.menu_name,

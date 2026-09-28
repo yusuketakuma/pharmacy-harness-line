@@ -21,9 +21,7 @@ describe('v0.33 update_history schema', () => {
   });
 
   it('creates update_history table with all expected columns', () => {
-    const rows = db
-      .prepare("PRAGMA table_info('update_history')")
-      .all() as Array<{ name: string }>;
+    const rows = db.prepare("PRAGMA table_info('update_history')").all() as Array<{ name: string }>;
     const names = rows.map((r) => r.name).sort();
 
     const expected = [
@@ -52,15 +50,9 @@ describe('v0.33 update_history schema', () => {
       `INSERT INTO update_history (id, started_at, from_version, to_version, status)
        VALUES (?, ?, ?, ?, ?)`,
     );
-    expect(() =>
-      insert.run('u-bad', 1, '0.1.0', '0.2.0', 'bogus'),
-    ).toThrow(/CHECK constraint failed/);
-    expect(() =>
-      insert.run('u-bad-2', 1, '0.1.0', '0.2.0', 'pending'),
-    ).toThrow(/CHECK constraint failed/);
-    expect(() =>
-      insert.run('u-bad-3', 1, '0.1.0', '0.2.0', ''),
-    ).toThrow(/CHECK constraint failed/);
+    expect(() => insert.run('u-bad', 1, '0.1.0', '0.2.0', 'bogus')).toThrow(/CHECK constraint failed/);
+    expect(() => insert.run('u-bad-2', 1, '0.1.0', '0.2.0', 'pending')).toThrow(/CHECK constraint failed/);
+    expect(() => insert.run('u-bad-3', 1, '0.1.0', '0.2.0', '')).toThrow(/CHECK constraint failed/);
   });
 
   it('accepts all 4 valid status values', () => {
@@ -69,13 +61,9 @@ describe('v0.33 update_history schema', () => {
        VALUES (?, ?, ?, ?, ?)`,
     );
     for (const status of ['running', 'success', 'failed', 'rolled_back']) {
-      expect(() =>
-        insert.run(`u-${status}`, 1, '0.1.0', '0.2.0', status),
-      ).not.toThrow();
+      expect(() => insert.run(`u-${status}`, 1, '0.1.0', '0.2.0', status)).not.toThrow();
     }
-    const count = db
-      .prepare('SELECT COUNT(*) AS c FROM update_history')
-      .get() as { c: number };
+    const count = db.prepare('SELECT COUNT(*) AS c FROM update_history').get() as { c: number };
     expect(count.c).toBe(4);
   });
 

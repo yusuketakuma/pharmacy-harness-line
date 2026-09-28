@@ -1,5 +1,5 @@
-import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { requestId, required, safeText, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -7,7 +7,6 @@ type Environment = Record<string, string | undefined>;
 const VALUE_FLAGS = new Set([
   'worker-url',
   'tenant-name',
-  'admin-id',
   'admin-name',
   'admin-email',
   'line-channel-id',
@@ -21,7 +20,6 @@ const HELP = `Usage:
   pnpm tenant:setup -- \\
     --worker-url https://api.example.jp \\
     --tenant-name "Example Pharmacy" \\
-    --admin-id admin \\
     --admin-name "Owner" \\
     --line-channel-id 2000000000 \\
     --line-name "Example Pharmacy LINE"
@@ -45,7 +43,11 @@ Options:
   --dry-run
   --help`;
 
-function parseArgs(argv: string[]): { values: Record<string, string>; dryRun: boolean; help: boolean } {
+function parseArgs(argv: string[]): {
+  values: Record<string, string>;
+  dryRun: boolean;
+  help: boolean;
+} {
   const values: Record<string, string> = {};
   let dryRun = false;
   let help = false;
@@ -71,47 +73,14 @@ function parseArgs(argv: string[]): { values: Record<string, string>; dryRun: bo
   return { values, dryRun, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
 function secret(environment: Environment, key: string): string {
   const value = environment[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
   return value;
 }
 
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
-
-function requestId(values: Record<string, string>): string {
-  const supplied = values['idempotency-key']?.trim();
-  if (supplied && !IDEMPOTENCY_KEY_PATTERN.test(supplied)) {
-    throw new Error('--idempotency-key must be 8 to 128 ASCII characters');
-  }
-  return supplied || randomUUID();
-}
-
-// Random per run: never derivable from the platform key + printed idempotency key.
-// The server excludes the password from the idempotency request hash, so a retry
-// with a fresh password is still a replay that keeps the originally stored one.
-function temporaryPassword(): string {
-  return `Tmp-${randomBytes(24).toString('base64url')}`;
-}
-
 function workerEndpoint(raw: string): string {
-  const url = new URL(raw);
-  if ((url.protocol !== 'https:' && url.hostname !== 'localhost') ||
-      url.username || url.password || url.search || url.hash) {
-    throw new Error('--worker-url must be an HTTPS origin');
-  }
-  return new URL('/api/platform/pharmacy/tenants', url.origin).toString();
-}
-
-function safeText(value: unknown, fallback: string): string {
-  if (typeof value !== 'string' || !value) return fallback;
-  return value.replace(/[\u0000-\u001F\u007F]/gu, ' ').slice(0, 300);
+  return new URL('/api/platform/pharmacy/tenants', workerOrigin(raw)).toString();
 }
 
 export async function runTenantSetup(
@@ -146,14 +115,11 @@ export async function runTenantSetup(
     const endpoint = workerEndpoint(required(parsed.values, 'worker-url'));
     const channelId = required(parsed.values, 'line-channel-id');
     const idempotencyKey = requestId(parsed.values);
-    const generatedTemporaryPassword = temporaryPassword();
     const body = {
       tenantName: required(parsed.values, 'tenant-name'),
       admin: {
-        loginId: required(parsed.values, 'admin-id'),
         displayName: required(parsed.values, 'admin-name'),
         email: parsed.values['admin-email']?.trim() || null,
-        temporaryPassword: generatedTemporaryPassword,
       },
       line: {
         channelId,
@@ -199,12 +165,12 @@ export async function runTenantSetup(
       return 1;
     }
 
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: {
         tenantCode?: unknown;
-        adminLoginId?: unknown;
+        sharedLoginIssued?: unknown;
         replayed?: unknown;
         urls?: Record<string, unknown>;
         line?: Record<string, unknown>;
@@ -221,13 +187,8 @@ export async function runTenantSetup(
     write('初期テナント設定が完了しました。');
     write(`薬局コード: ${safeText(payload.data.tenantCode, '未取得')}`);
     write('薬局コードはサーバーが発行します。控え忘れた場合は同じ --idempotency-key で再実行してください。');
-    write(`管理者ID: ${safeText(payload.data.adminLoginId, body.admin.loginId)}`);
-    if (payload.data.replayed === true) {
-      // The server kept the original credential; this run's password was never stored.
-      write('再実行のため仮パスワードは新規発行されません。控えが無い場合は管理画面のパスワード再発行を使ってください。');
-    } else {
-      write(`仮パスワード（初回のみ表示）: ${generatedTemporaryPassword}`);
-    }
+    write('ログインは薬局コード＋パスワードです。初回パスワードは全体管理画面から発行してください。');
+    if (payload.data.replayed === true) write('再実行では既存の設定を返しました。');
     write(`管理画面: ${safeText(urls.admin, '未設定')}`);
     write(`Webhook URL: ${safeText(urls.webhook, '未設定')}`);
     write(`LIFF Endpoint URL: ${safeText(urls.liffEndpoint, '未設定')}`);
@@ -247,6 +208,7 @@ export async function runTenantSetup(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runTenantSetup(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runTenantSetup(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

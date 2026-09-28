@@ -2,10 +2,7 @@ import { Hono, type Context } from 'hono';
 import { getPharmacyAccountId } from '../account.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
-import {
-  acknowledgeActivityNotification,
-  listActivityNotifications,
-} from './repository.js';
+import { acknowledgeActivityNotification, listActivityNotifications } from './repository.js';
 
 type ActivityEnv = {
   Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string };
@@ -19,9 +16,8 @@ async function authorize(c: Context<ActivityEnv>): Promise<string | Response> {
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'pharmacy_dashboard'))) {
     return c.json({ error: 'Pharmacy dashboard is not enabled' }, 403);
   }
@@ -34,18 +30,14 @@ activityNotificationRoutes.get('/api/custom/pharmacy/activity-notifications', as
   const acknowledged = c.req.query('acknowledged') === '1';
   const limit = Number(c.req.query('limit') ?? 20);
   if (!Number.isInteger(limit) || limit < 1) return c.json({ error: 'Invalid limit' }, 400);
-  return c.json({ notifications: await listActivityNotifications(
-    c.env.DB, account, acknowledged, Math.min(limit, 100),
-  ) });
+  return c.json({
+    notifications: await listActivityNotifications(c.env.DB, account, acknowledged, Math.min(limit, 100)),
+  });
 });
 
 activityNotificationRoutes.post('/api/custom/pharmacy/activity-notifications/:id/ack', async (c) => {
   const account = await authorize(c);
   if (account instanceof Response) return account;
-  const notification = await acknowledgeActivityNotification(
-    c.env.DB, account, c.req.param('id'), c.get('staff').id,
-  );
-  return notification
-    ? c.json({ notification })
-    : c.json({ error: 'Notification not found' }, 404);
+  const notification = await acknowledgeActivityNotification(c.env.DB, account, c.req.param('id'), c.get('staff').id);
+  return notification ? c.json({ notification }) : c.json({ error: 'Notification not found' }, 404);
 });

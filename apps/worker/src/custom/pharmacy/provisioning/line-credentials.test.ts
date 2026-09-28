@@ -36,13 +36,15 @@ describe('LINE credential encryption', () => {
       expect(encrypted.lookupDigest).toBeNull();
     }
 
-    await expect(decryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind,
-      ...encrypted,
-    })).resolves.toBe(credential);
+    await expect(
+      decryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind,
+        ...encrypted,
+      }),
+    ).resolves.toBe(credential);
   });
 
   it('uses a fresh nonce for each encryption', async () => {
@@ -87,8 +89,9 @@ describe('LINE credential encryption', () => {
     ];
 
     for (const override of cases) {
-      await expect(decryptLineCredential({ ...base, ...override } as Parameters<typeof decryptLineCredential>[0]))
-        .rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+      await expect(
+        decryptLineCredential({ ...base, ...override } as Parameters<typeof decryptLineCredential>[0]),
+      ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
     }
   });
 
@@ -101,50 +104,62 @@ describe('LINE credential encryption', () => {
       credential: ACCESS_TOKEN,
     });
 
-    await expect(decryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_access_token',
-      ...encrypted,
-      nonce: `${encrypted.nonce}=`,
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
-    await expect(decryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_access_token',
-      ...encrypted,
-      ciphertext: 'A',
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
-    await expect(encryptLineCredential({
-      rootSecret: 'too-short',
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_access_token',
-      credential: ACCESS_TOKEN,
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
-    await expect(encryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: '',
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_access_token',
-      credential: ACCESS_TOKEN,
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
-    await expect(encryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_access_token',
-      credential: 'short',
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
-    await expect(encryptLineCredential({
-      rootSecret: ROOT_SECRET,
-      tenantId: TENANT_ID,
-      lineAccountId: ACCOUNT_ID,
-      kind: 'channel_secret',
-      credential: 'not-a-32-byte-secret',
-    })).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      decryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_access_token',
+        ...encrypted,
+        nonce: `${encrypted.nonce}=`,
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      decryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_access_token',
+        ...encrypted,
+        ciphertext: 'A',
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      encryptLineCredential({
+        rootSecret: 'too-short',
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN,
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      encryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: '',
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN,
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      encryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_access_token',
+        credential: 'short',
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
+    await expect(
+      encryptLineCredential({
+        rootSecret: ROOT_SECRET,
+        tenantId: TENANT_ID,
+        lineAccountId: ACCOUNT_ID,
+        kind: 'channel_secret',
+        credential: 'not-a-32-byte-secret',
+      }),
+    ).rejects.toThrow(INVALID_LINE_CREDENTIAL_ERROR);
   });
 
   it('computes a deterministic keyed digest for access-token lookup', async () => {

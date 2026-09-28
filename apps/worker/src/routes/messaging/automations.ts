@@ -24,15 +24,11 @@ function resolveAutomationTenant(c: Context<Env>): string | null {
 async function getOwnedAutomation(c: Context<Env>, id: string, tenantId: string) {
   const item = await getAutomationById(c.env.DB, id, tenantId);
   if (!item?.line_account_id) return null;
-  if (!await accountResourceOwnedByStaff(c, tenantId, item.line_account_id)) return null;
+  if (!(await accountResourceOwnedByStaff(c, tenantId, item.line_account_id))) return null;
   return item;
 }
 
-async function automationTemplatesExist(
-  db: D1Database,
-  actions: unknown[],
-  tenantId: string,
-): Promise<boolean> {
+async function automationTemplatesExist(db: D1Database, actions: unknown[], tenantId: string): Promise<boolean> {
   const templateIds = new Set<string>();
   for (const action of actions) {
     if (!action || typeof action !== 'object') continue;
@@ -44,7 +40,7 @@ async function automationTemplatesExist(
     if (typeof templateId === 'string' && templateId) templateIds.add(templateId);
   }
   for (const templateId of templateIds) {
-    if (!await getTemplateById(db, templateId, tenantId)) return false;
+    if (!(await getTemplateById(db, templateId, tenantId))) return false;
   }
   return true;
 }
@@ -74,7 +70,7 @@ automations.get('/api/automations', async (c) => {
     const tenantId = resolveAutomationTenant(c);
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const lineAccountId = c.req.query('lineAccountId')?.trim() || undefined;
-    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (lineAccountId && !(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
     const items = await getAutomations(c.env.DB, tenantId, lineAccountId);
@@ -152,10 +148,10 @@ automations.post('/api/automations', async (c) => {
     if (!body.name || !body.eventType || !Array.isArray(body.actions) || !lineAccountId) {
       return c.json({ success: false, error: 'name, eventType, actions are required' }, 400);
     }
-    if (!await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (!(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
-    if (!await automationTemplatesExist(c.env.DB, body.actions, tenantId)) {
+    if (!(await automationTemplatesExist(c.env.DB, body.actions, tenantId))) {
       return c.json({ success: false, error: 'templateId not found' }, 400);
     }
     const item = await createAutomation(c.env.DB, {
@@ -169,19 +165,22 @@ automations.post('/api/automations', async (c) => {
       tenantId,
     });
     if (!item) return c.json({ success: false, error: 'Automation not found' }, 404);
-    return c.json({
-      success: true,
-      data: {
-        id: item.id,
-        name: item.name,
-        eventType: item.event_type,
-        actions: JSON.parse(item.actions),
-        isActive: Boolean(item.is_active),
-        priority: item.priority,
-        lineAccountId: item.line_account_id ?? null,
-        createdAt: item.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: item.id,
+          name: item.name,
+          eventType: item.event_type,
+          actions: JSON.parse(item.actions),
+          isActive: Boolean(item.is_active),
+          priority: item.priority,
+          lineAccountId: item.line_account_id ?? null,
+          createdAt: item.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/automations error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -195,15 +194,18 @@ automations.put('/api/automations/:id', async (c) => {
     const id = c.req.param('id');
     const item = await getOwnedAutomation(c, id, tenantId);
     if (!item) return c.json({ success: false, error: 'Not found' }, 404);
-    const body = await c.req.json<Partial<{
-      name: string;
-      description: string | null;
-      eventType: string;
-      conditions: Record<string, unknown>;
-      actions: unknown[];
-      isActive: boolean;
-      priority: number;
-    }>>();
+    const body =
+      await c.req.json<
+        Partial<{
+          name: string;
+          description: string | null;
+          eventType: string;
+          conditions: Record<string, unknown>;
+          actions: unknown[];
+          isActive: boolean;
+          priority: number;
+        }>
+      >();
     const updates = {
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.description !== undefined ? { description: body.description } : {}),
@@ -213,10 +215,10 @@ automations.put('/api/automations/:id', async (c) => {
       ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       ...(body.priority !== undefined ? { priority: body.priority } : {}),
     };
-    if (body.actions && !await automationTemplatesExist(c.env.DB, body.actions, tenantId)) {
+    if (body.actions && !(await automationTemplatesExist(c.env.DB, body.actions, tenantId))) {
       return c.json({ success: false, error: 'templateId not found' }, 400);
     }
-    if (!await updateAutomation(c.env.DB, id, updates, tenantId)) {
+    if (!(await updateAutomation(c.env.DB, id, updates, tenantId))) {
       return c.json({ success: false, error: 'Not found' }, 404);
     }
     const updated = await getAutomationById(c.env.DB, id, tenantId);
@@ -246,7 +248,7 @@ automations.delete('/api/automations/:id', async (c) => {
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const id = c.req.param('id');
     const item = await getOwnedAutomation(c, id, tenantId);
-    if (!item || !await deleteAutomation(c.env.DB, id, tenantId)) {
+    if (!item || !(await deleteAutomation(c.env.DB, id, tenantId))) {
       return c.json({ success: false, error: 'Not found' }, 404);
     }
     return c.json({ success: true, data: null });
@@ -265,7 +267,7 @@ automations.get('/api/automations/:id/logs', async (c) => {
     const automationId = c.req.param('id');
     const page = clampLimitOffset(c.req.query('limit'), undefined, 100);
     if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
-    if (!await getOwnedAutomation(c, automationId, tenantId)) {
+    if (!(await getOwnedAutomation(c, automationId, tenantId))) {
       return c.json({ success: false, error: 'Automation not found' }, 404);
     }
     const logs = await getAutomationLogs(c.env.DB, automationId, tenantId, page.limit);

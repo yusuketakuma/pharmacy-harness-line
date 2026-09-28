@@ -13,7 +13,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "prepublishOnly": "node ./scripts/guard-source-publish.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "line",
@@ -37,9 +38,9 @@
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "engines": {

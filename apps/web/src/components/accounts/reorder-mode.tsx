@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
+import { useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -9,38 +9,40 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-} from '@dnd-kit/core'
+} from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { api } from '@/lib/api'
-import { countryFlag } from '@/lib/country-flag'
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { api } from '@/lib/api';
+import { countryFlag } from '@/lib/country-flag';
 
 interface AccountItem {
-  id: string
-  name: string
-  displayName?: string
-  country: string | null
+  id: string;
+  name: string;
+  displayName?: string;
+  country: string | null;
 }
 
 interface Props {
-  accounts: AccountItem[]
-  onClose: () => void
-  onSaved: () => void
+  accounts: AccountItem[];
+  onClose: () => void;
+  onSaved: () => void;
 }
 
 function SortableRow({ account }: { account: AccountItem }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: account.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: account.id,
+  });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  }
+  };
   return (
     <div
       ref={setNodeRef}
@@ -50,45 +52,43 @@ function SortableRow({ account }: { account: AccountItem }) {
       {...listeners}
     >
       <span className="text-gray-400 text-lg">⋮⋮</span>
-      {countryFlag(account.country) && (
-        <span className="text-lg">{countryFlag(account.country)}</span>
-      )}
+      {countryFlag(account.country) && <span className="text-lg">{countryFlag(account.country)}</span>}
       <span className="text-sm font-medium">{account.displayName || account.name}</span>
     </div>
-  )
+  );
 }
 
 export default function ReorderMode({ accounts, onClose, onSaved }: Props) {
-  const [items, setItems] = useState<AccountItem[]>(accounts)
-  const [saving, setSaving] = useState(false)
+  const [items, setItems] = useState<AccountItem[]>(accounts);
+  const [saving, setSaving] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
+  );
 
   const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
     setItems((current) => {
-      const oldIndex = current.findIndex((x) => x.id === active.id)
-      const newIndex = current.findIndex((x) => x.id === over.id)
-      return arrayMove(current, oldIndex, newIndex)
-    })
-  }
+      const oldIndex = current.findIndex((x) => x.id === active.id);
+      const newIndex = current.findIndex((x) => x.id === over.id);
+      return arrayMove(current, oldIndex, newIndex);
+    });
+  };
 
   const handleSave = async () => {
-    setSaving(true)
-    const ordered = items.map((a, idx) => ({ id: a.id, displayOrder: idx }))
-    const res = await api.lineAccounts.updateOrder(ordered)
-    setSaving(false)
+    setSaving(true);
+    const ordered = items.map((a, idx) => ({ id: a.id, displayOrder: idx }));
+    const res = await api.lineAccounts.updateOrder(ordered);
+    setSaving(false);
     if (res.success) {
-      onSaved()
-      onClose()
+      onSaved();
+      onClose();
     } else {
-      alert('保存失敗: ' + (res.error || 'unknown'))
+      alert('保存失敗: ' + (res.error || 'unknown'));
     }
-  }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
@@ -98,7 +98,9 @@ export default function ReorderMode({ accounts, onClose, onSaved }: Props) {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">
-              {items.map((a) => <SortableRow key={a.id} account={a} />)}
+              {items.map((a) => (
+                <SortableRow key={a.id} account={a} />
+              ))}
             </div>
           </SortableContext>
         </DndContext>
@@ -117,5 +119,5 @@ export default function ReorderMode({ accounts, onClose, onSaved }: Props) {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -4,10 +4,12 @@ import { fetchAndStoreIncomingImage } from './incoming-image.js';
 function makeR2Stub() {
   const store = new Map<string, ArrayBuffer>();
   return {
-    put: vi.fn(async (key: string, data: ArrayBuffer, opts: R2PutOptions): Promise<{ key: string; etag: string } | null> => {
-      store.set(key, data);
-      return { key, etag: 'stored-etag' };
-    }),
+    put: vi.fn(
+      async (key: string, data: ArrayBuffer, opts: R2PutOptions): Promise<{ key: string; etag: string } | null> => {
+        store.set(key, data);
+        return { key, etag: 'stored-etag' };
+      },
+    ),
     head: vi.fn(),
     _store: store,
   };
@@ -22,11 +24,12 @@ describe('fetchAndStoreIncomingImage', () => {
     const r2 = makeR2Stub();
     const signal = new AbortController().signal;
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
-    const fetchMock = vi.fn(async () =>
-      new Response(new ArrayBuffer(100), {
-        status: 200,
-        headers: { 'Content-Type': 'image/jpeg' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new ArrayBuffer(100), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
+        }),
     );
 
     const result = await fetchAndStoreIncomingImage({
@@ -80,11 +83,12 @@ describe('fetchAndStoreIncomingImage', () => {
   test('R2 PUT が throw したら null', async () => {
     const r2 = makeR2Stub();
     r2.put.mockRejectedValueOnce(new Error('R2 down'));
-    const fetchMock = vi.fn(async () =>
-      new Response(new ArrayBuffer(50), {
-        status: 200,
-        headers: { 'Content-Type': 'image/png' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new ArrayBuffer(50), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        }),
     );
 
     const result = await fetchAndStoreIncomingImage({
@@ -104,32 +108,36 @@ describe('fetchAndStoreIncomingImage', () => {
     const r2 = makeR2Stub();
     r2.put.mockResolvedValueOnce(null);
     r2.head.mockResolvedValueOnce({ checksums: { sha256: new Uint8Array(32).fill(1).buffer } });
-    const fetchMock = vi.fn(async () =>
-      new Response(new Uint8Array([1, 2, 3]), {
-        status: 200,
-        headers: { 'Content-Type': 'image/png' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        }),
     );
 
-    await expect(fetchAndStoreIncomingImage({
-      r2: r2 as unknown as R2Bucket,
-      fetch: fetchMock,
-      workerUrl: 'https://worker.example.com',
-      channelAccessToken: 'token-abc',
-      tenantId: 'tenant-a',
-      accountId: 'acc-1',
-      messageId: 'msg-existing',
-    })).resolves.toBeNull();
+    await expect(
+      fetchAndStoreIncomingImage({
+        r2: r2 as unknown as R2Bucket,
+        fetch: fetchMock,
+        workerUrl: 'https://worker.example.com',
+        channelAccessToken: 'token-abc',
+        tenantId: 'tenant-a',
+        accountId: 'acc-1',
+        messageId: 'msg-existing',
+      }),
+    ).resolves.toBeNull();
     expect(r2._store.size).toBe(0);
   });
 
   test('Content-Length がなくても 10 MiB を超える画像は保存しない', async () => {
     const r2 = makeR2Stub();
-    const fetchMock = vi.fn(async () =>
-      new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
-        status: 200,
-        headers: { 'Content-Type': 'image/jpeg' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
+        }),
     );
 
     const result = await fetchAndStoreIncomingImage({
@@ -169,11 +177,12 @@ describe('fetchAndStoreIncomingImage', () => {
 
   test('Content-Type から拡張子を判定 (png)', async () => {
     const r2 = makeR2Stub();
-    const fetchMock = vi.fn(async () =>
-      new Response(new ArrayBuffer(50), {
-        status: 200,
-        headers: { 'Content-Type': 'image/png' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new ArrayBuffer(50), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        }),
     );
 
     await fetchAndStoreIncomingImage({

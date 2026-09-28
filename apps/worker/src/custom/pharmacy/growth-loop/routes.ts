@@ -2,11 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env } from '../../../index.js';
 import { readJsonObject } from '../json.js';
-import {
-  PATIENT_PHARMACY_CAPABILITIES,
-  hasPharmacyCapability,
-  resolveAccessiblePharmacyTenant,
-} from './access.js';
+import { PATIENT_PHARMACY_CAPABILITIES, hasPharmacyCapability, resolveAccessiblePharmacyTenant } from './access.js';
 import {
   classifySubmissionSource,
   createMedicalSource,
@@ -20,6 +16,7 @@ import { getPharmacyReadiness } from '../readiness.js';
 import { getPharmacyConfigurationDoctor } from '../configuration-doctor.js';
 import { getActivePatientWorkCounts } from './active-work.js';
 import { getPharmacyOperationsSummary } from './operations-summary.js';
+import { getPharmacyActionQueue } from './action-queue.js';
 
 export const pharmacyGrowthLoopRoutes = new Hono<Env>();
 
@@ -28,35 +25,54 @@ const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3
 function canonicalIsoInstant(value: string): { iso: string; time: number } | null {
   const match = ISO_INSTANT.exec(value);
   if (!match) return null;
-  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] =
-    match.slice(1).map(Number);
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match.slice(1).map(Number);
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] ||
-      hour > 23 || minute > 59 || second > 59 ||
-      (offsetHour !== undefined && (offsetHour > 23 || offsetMinute > 59))) {
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth[month - 1] ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    (offsetHour !== undefined && (offsetHour > 23 || offsetMinute > 59))
+  ) {
     return null;
   }
   const time = Date.parse(value);
   return Number.isFinite(time) ? { iso: new Date(time).toISOString(), time } : null;
 }
 
+function validReviewVersion(value: unknown): boolean {
+  return (
+    value === undefined || value === null || (typeof value === 'string' && canonicalIsoInstant(value)?.iso === value)
+  );
+}
+
 async function accountScope(c: Context<Env>): Promise<
-  { accountId: string; tenantId: string; staff: { id: string; role: 'owner' | 'admin' | 'staff' } } | Response
+  | {
+      accountId: string;
+      tenantId: string;
+      staff: { id: string; role: 'owner' | 'admin' | 'staff' };
+    }
+  | Response
 > {
   const accountId = c.req.query('line_account_id') ?? c.req.query('accountId');
   const staff = c.get('staff');
   if (!accountId) return c.json({ success: false, error: 'line_account_id is required' }, 400);
-  const tenantId = staff
-    ? await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId)
-    : null;
+  const tenantId = staff ? await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId) : null;
   if (!tenantId || tenantId !== c.get('tenantId')) {
     return c.json({ success: false, error: 'pharmacy account access denied' }, 403);
   }
   return { accountId, tenantId, staff };
 }
 
-async function requireCapability(c: Context<Env>, accountId: string, capability: Parameters<typeof hasPharmacyCapability>[2]): Promise<Response | null> {
+async function requireCapability(
+  c: Context<Env>,
+  accountId: string,
+  capability: Parameters<typeof hasPharmacyCapability>[2],
+): Promise<Response | null> {
   if (!(await hasPharmacyCapability(c.env.DB, accountId, capability))) {
     return c.json({ success: false, error: 'pharmacy capability is not enabled' }, 403);
   }
@@ -89,29 +105,45 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/readiness', async (c) => {
 pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/active-work', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
-  return c.json({ success: true, data: await getActivePatientWorkCounts(c.env.DB, scope.accountId) });
+  return c.json({
+    success: true,
+    data: await getActivePatientWorkCounts(c.env.DB, scope.accountId),
+  });
 });
 
 pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/operations-summary', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
-  return c.json({ success: true, data: await getPharmacyOperationsSummary(c.env.DB, scope.accountId) });
+  return c.json({
+    success: true,
+    data: await getPharmacyOperationsSummary(c.env.DB, scope.accountId),
+  });
+});
+
+pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/action-queue', async (c) => {
+  const scope = await accountScope(c);
+  if (scope instanceof Response) return scope;
+  return c.json({ success: true, data: await getPharmacyActionQueue(c.env.DB, scope.accountId) });
 });
 
 pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
   if (scope.staff.role !== 'owner') return c.json({ success: false, error: 'owner role required' }, 403);
-  const body = await readJsonObject(c.req) ?? {};
+  const body = (await readJsonObject(c.req)) ?? {};
   if (!Array.isArray(body.capabilities) || body.capabilities.some((value) => typeof value !== 'string')) {
     return c.json({ success: false, error: 'capabilities must be an array' }, 400);
   }
-  if (body.capabilities.some((value) =>
-    !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value as string))) {
+  if (
+    body.capabilities.some((value) => !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value as string))
+  ) {
     return c.json({ success: false, error: 'unknown patient capability' }, 400);
   }
-  if (typeof body.expectedRevision !== 'number' ||
-      !Number.isInteger(body.expectedRevision) || body.expectedRevision < 1) {
+  if (
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isInteger(body.expectedRevision) ||
+    body.expectedRevision < 1
+  ) {
     return c.json({ success: false, error: 'expectedRevision is required' }, 400);
   }
   if (body.unfollowAlertState !== undefined && body.unfollowAlertState !== 'alert_only') {
@@ -120,7 +152,12 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   const limit = body.proactiveMonthlyLimit === undefined ? 1 : Number(body.proactiveMonthlyLimit);
   try {
     const config = await savePharmacyCapabilityConfig(
-      c.env.DB, scope.accountId, body.capabilities, limit, 'alert_only', scope.staff.id,
+      c.env.DB,
+      scope.accountId,
+      body.capabilities,
+      limit,
+      'alert_only',
+      scope.staff.id,
       body.expectedRevision,
     );
     return c.json({ success: true, data: config });
@@ -139,8 +176,7 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/growth/dashboard', async (c) 
     c.req.query('from') ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
   );
   const to = canonicalIsoInstant(c.req.query('to') ?? new Date().toISOString());
-  if (!from || !to || from.time >= to.time ||
-      to.time - from.time > 32 * 24 * 60 * 60 * 1000) {
+  if (!from || !to || from.time >= to.time || to.time - from.time > 32 * 24 * 60 * 60 * 1000) {
     return c.json({ success: false, error: 'invalid dashboard range' }, 400);
   }
   const data = await getGrowthDashboard(c.env.DB, scope.accountId, from.iso, to.iso);
@@ -155,7 +191,9 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/growth/sources', async (c) =>
   const rows = await c.env.DB.prepare(
     `SELECT id, display_name, classification, is_active, created_at, updated_at
        FROM pharmacy_medical_sources WHERE line_account_id = ? ORDER BY display_name, id`,
-  ).bind(scope.accountId).all();
+  )
+    .bind(scope.accountId)
+    .all();
   return c.json({ success: true, data: rows.results ?? [] });
 });
 
@@ -164,7 +202,7 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/sources', async (c) =
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'account_settings');
   if (denied) return denied;
-  const body = await readJsonObject(c.req) ?? {};
+  const body = (await readJsonObject(c.req)) ?? {};
   if (typeof body.displayName !== 'string' || (body.classification !== 'primary' && body.classification !== 'other')) {
     return c.json({ success: false, error: 'displayName and classification are required' }, 400);
   }
@@ -186,14 +224,12 @@ pharmacyGrowthLoopRoutes.patch('/api/custom/pharmacy/growth/sources/:sourceId', 
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'account_settings');
   if (denied) return denied;
-  const body = await readJsonObject(c.req) ?? {};
+  const body = (await readJsonObject(c.req)) ?? {};
   if (typeof body.isActive !== 'boolean') {
     return c.json({ success: false, error: 'isActive must be boolean' }, 400);
   }
   try {
-    await setMedicalSourceActive(
-      c.env.DB, scope.accountId, c.req.param('sourceId'), body.isActive, scope.staff.id,
-    );
+    await setMedicalSourceActive(c.env.DB, scope.accountId, c.req.param('sourceId'), body.isActive, scope.staff.id);
     return c.json({ success: true });
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'source update failed' }, 404);
@@ -205,9 +241,13 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/submissions/:submissi
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
-  const body = await readJsonObject(c.req) ?? {};
-  if ((body.sourceId !== null && typeof body.sourceId !== 'string') ||
-      !['primary', 'other', 'unknown'].includes(String(body.classification))) {
+  const body = (await readJsonObject(c.req)) ?? {};
+  if (!validReviewVersion(body.expectedUpdatedAt))
+    return c.json({ success: false, error: 'invalid review version' }, 400);
+  if (
+    (body.sourceId !== null && typeof body.sourceId !== 'string') ||
+    !['primary', 'other', 'unknown'].includes(String(body.classification))
+  ) {
     return c.json({ success: false, error: 'invalid source classification' }, 400);
   }
   try {
@@ -216,10 +256,14 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/submissions/:submissi
       submissionId: c.req.param('submissionId'),
       sourceId: body.sourceId as string | null,
       classification: body.classification as 'primary' | 'other' | 'unknown',
+      expectedUpdatedAt: body.expectedUpdatedAt as string | null | undefined,
       staffId: scope.staff.id,
     });
     return c.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === 'stale prescription review') {
+      return c.json({ success: false, error: 'Prescription review changed. Reload before saving.' }, 409);
+    }
     return c.json({ success: false, error: error instanceof Error ? error.message : 'source update failed' }, 400);
   }
 });
@@ -229,9 +273,15 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/submissions/:submissio
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
-  const body = await readJsonObject(c.req) ?? {};
-  if (!['default_4_days', 'prescriber_specified'].includes(String(body.validityBasis)) ||
-      !['unverified', 'verified', 'expired_review_required', 'expired_confirmed'].includes(String(body.verificationStatus))) {
+  const body = (await readJsonObject(c.req)) ?? {};
+  if (!validReviewVersion(body.expectedUpdatedAt))
+    return c.json({ success: false, error: 'invalid review version' }, 400);
+  if (
+    !['default_4_days', 'prescriber_specified'].includes(String(body.validityBasis)) ||
+    !['unverified', 'verified', 'expired_review_required', 'expired_confirmed'].includes(
+      String(body.verificationStatus),
+    )
+  ) {
     return c.json({ success: false, error: 'invalid validity input' }, 400);
   }
   try {
@@ -241,11 +291,25 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/submissions/:submissio
       issuedOn: typeof body.issuedOn === 'string' ? body.issuedOn : null,
       validUntil: typeof body.validUntil === 'string' ? body.validUntil : null,
       validityBasis: body.validityBasis as 'default_4_days' | 'prescriber_specified',
-      verificationStatus: body.verificationStatus as 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed',
+      verificationStatus: body.verificationStatus as
+        | 'unverified'
+        | 'verified'
+        | 'expired_review_required'
+        | 'expired_confirmed',
+      expectedUpdatedAt: body.expectedUpdatedAt as string | null | undefined,
       staffId: scope.staff.id,
     });
     return c.json({ success: true });
   } catch (error) {
-    return c.json({ success: false, error: error instanceof Error ? error.message : 'validity update failed' }, 400);
+    if (error instanceof Error && error.message === 'stale prescription review') {
+      return c.json({ success: false, error: 'Prescription review changed. Reload before saving.' }, 409);
+    }
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'validity update failed',
+      },
+      400,
+    );
   }
 });

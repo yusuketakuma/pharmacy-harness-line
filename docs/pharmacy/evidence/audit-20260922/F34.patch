@@ -1,0 +1,217 @@
+diff --git a/apps/worker/src/routes/crm/chats.ts b/apps/worker/src/routes/crm/chats.ts
+index 1eca166..44dee28 100644
+--- a/apps/worker/src/routes/crm/chats.ts
++++ b/apps/worker/src/routes/crm/chats.ts
+@@ -165,8 +165,8 @@ chats.get('/api/operators', async (c) => {
+         updatedAt: o.updated_at,
+       })),
+     });
+-  } catch (err) {
+-    console.error('GET /api/operators error:', err);
++  } catch {
++    log('operator_list_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -177,8 +177,8 @@ chats.post('/api/operators', async (c) => {
+     if (!body.name || !body.email) return c.json({ success: false, error: 'name and email are required' }, 400);
+     const item = await createOperator(c.env.DB, body);
+     return c.json({ success: true, data: { id: item.id, name: item.name, email: item.email, role: item.role } }, 201);
+-  } catch (err) {
+-    console.error('POST /api/operators error:', err);
++  } catch {
++    log('operator_create_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -191,8 +191,8 @@ chats.put('/api/operators/:id', async (c) => {
+     const updated = await getOperatorById(c.env.DB, id);
+     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
+     return c.json({ success: true, data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, isActive: Boolean(updated.is_active) } });
+-  } catch (err) {
+-    console.error('PUT /api/operators/:id error:', err);
++  } catch {
++    log('operator_update_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -201,8 +201,8 @@ chats.delete('/api/operators/:id', async (c) => {
+   try {
+     await deleteOperator(c.env.DB, c.req.param('id'));
+     return c.json({ success: true, data: null });
+-  } catch (err) {
+-    console.error('DELETE /api/operators/:id error:', err);
++  } catch {
++    log('operator_delete_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -445,8 +445,8 @@ chats.get('/api/chats', async (c) => {
+     }
+ 
+     return c.json({ success: true, data });
+-  } catch (err) {
+-    console.error('GET /api/chats error:', err);
++  } catch {
++    log('chat_list_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -528,8 +528,8 @@ chats.get('/api/chats/:id', async (c) => {
+         })),
+       },
+     });
+-  } catch (err) {
+-    console.error('GET /api/chats/:id error:', err);
++  } catch {
++    log('chat_detail_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -572,8 +572,8 @@ chats.post('/api/chats', async (c) => {
+         .bind(body.lineAccountId, item.id).run();
+     }
+     return c.json({ success: true, data: { id: item.id, friendId: item.friend_id, status: item.status } }, 201);
+-  } catch (err) {
+-    console.error('POST /api/chats error:', err);
++  } catch {
++    log('chat_create_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+@@ -594,8 +594,8 @@ chats.put('/api/chats/:id', async (c) => {
+       // 公開 ID は friend_id に統一
+       data: { id: updated.friend_id, friendId: updated.friend_id, operatorId: updated.operator_id, status: updated.status, notes: updated.notes },
+     });
+-  } catch (err) {
+-    console.error('PUT /api/chats/:id error:', err);
++  } catch {
++    log('chat_update_failed', {}, 'error');
+     return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+diff --git a/apps/worker/src/routes/crm/conversations.ts b/apps/worker/src/routes/crm/conversations.ts
+index 2be7f88..7f6acbe 100644
+--- a/apps/worker/src/routes/crm/conversations.ts
++++ b/apps/worker/src/routes/crm/conversations.ts
+@@ -1,5 +1,6 @@
+ import { Hono } from 'hono';
+ import type { Env } from '../../index.js';
++import { log } from '../../lib/log.js';
+ import { clampLimitOffset } from '../../lib/pagination.js';
+ import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
+ 
+@@ -205,9 +206,9 @@ conversations.get('/api/conversations', async (c) => {
+     });
+ 
+     return c.json({ success: true, data: { total: countRow?.total ?? 0, items } });
+-  } catch (err) {
+-    console.error('GET /api/conversations error:', err);
+-    return c.json({ success: false, error: String(err) }, 500);
++  } catch {
++    log('conversation_list_failed', {}, 'error');
++    return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+ 
+@@ -315,9 +316,9 @@ conversations.get('/api/conversations/:friendId', async (c) => {
+         messages,
+       },
+     });
+-  } catch (err) {
+-    console.error('GET /api/conversations/:friendId error:', err);
+-    return c.json({ success: false, error: String(err) }, 500);
++  } catch {
++    log('conversation_detail_failed', {}, 'error');
++    return c.json({ success: false, error: 'Internal server error' }, 500);
+   }
+ });
+ 
+diff --git a/apps/worker/src/routes/crm/chat-error-privacy.test.ts b/apps/worker/src/routes/crm/chat-error-privacy.test.ts
+new file mode 100644
+index 0000000..fd8b14d
+--- /dev/null
++++ b/apps/worker/src/routes/crm/chat-error-privacy.test.ts
+@@ -0,0 +1,82 @@
++import { readFileSync } from 'node:fs';
++import { join } from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { Hono } from 'hono';
++import type { Env } from '../../index.js';
++import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite, type TestSqliteDatabase } from '../../custom/pharmacy/test-sqlite.js';
++import { chats } from './chats.js';
++import { conversations } from './conversations.js';
++
++const PRIVATE_MARKER = 'PHI_MARK';
++let sqlite: TestSqliteDatabase;
++let db: D1Database;
++let app: Hono<Env>;
++
++beforeEach(() => {
++  sqlite = new Sqlite(':memory:');
++  sqlite.pragma('foreign_keys = ON');
++  sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
++  sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name) VALUES('tenant-a','tenant-a','Synthetic');
++    INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES('account-a','channel-a','Synthetic','synthetic-token','synthetic-secret');
++    INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES('tenant-a','account-a');
++    INSERT INTO staff_members(id,name,role,api_key,is_active) VALUES('staff-a','Synthetic','admin','synthetic-key',1);
++    INSERT INTO tenant_staff_memberships(tenant_id,staff_id,role,is_active) VALUES('tenant-a','staff-a','admin',1);
++    INSERT INTO pharmacy_staff_accounts(line_account_id,staff_id,is_active,created_at,updated_at) VALUES('account-a','staff-a',1,'2023-01-01T00:00:00Z','2023-01-01T00:00:00Z');
++    INSERT INTO friends(id,line_user_id,provider_line_user_id,display_name,line_account_id) VALUES('friend-a','synthetic-user','synthetic-user','Synthetic','account-a');
++    INSERT INTO chats(id,friend_id,notes) VALUES('chat-a','friend-a','original');`);
++  db = d1FromSqlite(sqlite);
++  app = new Hono<Env>();
++  // Synthetic authenticated identity: actual route/helper/SQL, not full auth.
++  app.use('*', async (c, next) => {
++    c.set('tenantId', 'tenant-a');
++    c.set('staff', { id: 'staff-a', name: 'Synthetic', role: 'admin' });
++    await next();
++  });
++  app.route('/', chats);
++  app.route('/', conversations);
++});
++afterEach(() => { sqlite.close(); vi.restoreAllMocks(); });
++
++async function expectPrivateFailure(method: string, path: string, event: string, database: D1Database, body?: string) {
++  const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
++  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
++  const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
++  const response = await app.request(path, {
++    method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body }),
++  }, { DB: database } as Env['Bindings']);
++  expect(response.status).toBe(500);
++  expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
++  const emitted = [...error.mock.calls, ...warn.mock.calls, ...log.mock.calls].flat().map(String).join(' ');
++  expect(emitted).not.toContain(PRIVATE_MARKER);
++  expect(error).toHaveBeenCalledTimes(1);
++  expect(JSON.parse(String(error.mock.calls[0][0]))).toEqual({ ts: expect.any(String), level: 'error', event });
++}
++
++describe('CRM exception privacy', () => {
++  it.each([
++    ['POST', '/api/operators', 'operator_create_failed'],
++    ['PUT', '/api/operators/operator-a', 'operator_update_failed'],
++    ['POST', '/api/chats', 'chat_create_failed'],
++    ['PUT', '/api/chats/chat-a', 'chat_update_failed'],
++  ])('keeps malformed %s %s bodies out of logs', async (method, path, event) => {
++    await expectPrivateFailure(method, path, event, db, PRIVATE_MARKER);
++    expect(sqlite.prepare("SELECT notes FROM chats WHERE id='chat-a'").get()).toEqual({ notes: 'original' });
++    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM operators').get()).toEqual({ n: 0 });
++  });
++
++  it.each([
++    ['GET', '/api/operators', 'operator_list_failed', undefined],
++    ['POST', '/api/operators', 'operator_create_failed', { name: 'Synthetic', email: 'synthetic@example.invalid' }],
++    ['PUT', '/api/operators/operator-a', 'operator_update_failed', { name: 'Synthetic' }],
++    ['DELETE', '/api/operators/operator-a', 'operator_delete_failed', undefined],
++    ['GET', '/api/chats', 'chat_list_failed', undefined],
++    ['GET', '/api/chats/chat-a', 'chat_detail_failed', undefined],
++    ['POST', '/api/chats', 'chat_create_failed', { friendId: 'friend-a' }],
++    ['PUT', '/api/chats/chat-a', 'chat_update_failed', { notes: 'Synthetic' }],
++    ['GET', '/api/conversations', 'conversation_list_failed', undefined],
++    ['GET', '/api/conversations/friend-a', 'conversation_detail_failed', undefined],
++  ] as const)('keeps dependency errors private for %s %s', async (method, path, event, body) => {
++    const failingDb = { prepare() { throw new Error(PRIVATE_MARKER); } } as unknown as D1Database;
++    await expectPrivateFailure(method, path, event, failingDb, body === undefined ? undefined : JSON.stringify(body));
++  });
++});

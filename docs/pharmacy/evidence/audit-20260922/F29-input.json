@@ -1,0 +1,20 @@
+{
+  "P": "797a7cbc56e857a63b104a68cb2bf343bdb8f93d",
+  "W": {
+    "packages/plugin-template/src/index.ts": "607a260301822a1bc3ac5581e89a0eeaa01c182ebd44064c82da40caf4de3c1e",
+    "packages/plugin-template/src/external-api.ts": "ba4a0bf9e1cdb8939a43daf00de4c52942e5fece0d506e85d35504fca4283708",
+    "scripts/plugin-template-privacy.test.ts": "e8760fdc213faf0e649dd7a06d4a384522ff6698932d153012074ea4045cad6b",
+    "packages/plugin-template/dist-mcp/index.js": "611a49b7c7cfc91ebbbfad3624e96be6ea5bd499f9d67e92052ef009c60b0a09",
+    "packages/plugin-template/mcp-server/tools/example-tool.ts": "779aa2d1ab3d32b7635d4dd627aef2d6d970df1eef2d06729885966b29376891"
+  },
+  "existing": {
+    "packages/plugin-template/src/index.ts": "bacaac3f1eb4d28d658f2a27ad9d245eee5f7e62604727f582d0718e4a691617",
+    "packages/plugin-template/src/external-api.ts": "fe93b3e0b0d4ddbfc0c4a52dde40ca486701c58b9b2dd26d6519e2da14059ba7",
+    "packages/plugin-template/dist-mcp/index.js": "1a437bc07a447a28413378c6de0e8d738b710565c2d2cac630ccc23b937a2cc2",
+    "packages/plugin-template/mcp-server/tools/example-tool.ts": "231fbe12d8297c93ef1966275909abbcbe87b4ddbb2630af6c6aad653925d633"
+  },
+  "new": [
+    "scripts/plugin-template-privacy.test.ts"
+  ],
+  "patchReplay": "PASS 5 paths, exact SHA256 and path set"
+}

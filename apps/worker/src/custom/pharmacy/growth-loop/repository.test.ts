@@ -1,5 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
 import {
   classifySubmissionSource,
   createMedicalSource,
@@ -12,21 +14,117 @@ import {
   summarizePromiseMetrics,
 } from './repository.js';
 
+describe('pharmacist review optimistic concurrency', () => {
+  it.each(['source', 'validity'] as const)(
+    'atomically rejects stale %s writes without audit, advances the version, and keeps old clients compatible',
+    async (kind) => {
+      const sqlite = new DatabaseSync(':memory:');
+      const schema = readFileSync(new URL('../../../../../../packages/db/schema.sql', import.meta.url), 'utf8');
+      const table = kind === 'source' ? 'pharmacy_submission_sources' : 'pharmacy_prescription_validities';
+      for (const name of [table, 'pharmacy_growth_events']) {
+        sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${name} \\([\\s\\S]*?\\n\\);`))![0]);
+      }
+      sqlite.exec(`CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
+      INSERT INTO line_accounts VALUES ('account-a'), ('account-b');
+      CREATE TABLE pharmacy_medical_sources (id TEXT, line_account_id TEXT, UNIQUE(id, line_account_id));
+      CREATE TABLE pharmacy_prescription_submissions (id TEXT PRIMARY KEY, line_account_id TEXT, UNIQUE(id, line_account_id));
+      CREATE TABLE pharmacy_account_capabilities (line_account_id TEXT, mode TEXT, capabilities_json TEXT);
+      INSERT INTO pharmacy_prescription_submissions VALUES ('submission-a', 'account-a');`);
+      const db = {
+        prepare: (sql: string) => ({
+          bind: (...values: SQLInputValue[]) => ({
+            run: () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
+          }),
+        }),
+        batch: async (statements: Array<{ run(): unknown }>) => {
+          sqlite.exec('BEGIN');
+          try {
+            const results = statements.map((statement) => statement.run());
+            sqlite.exec('COMMIT');
+            return results;
+          } catch (error) {
+            sqlite.exec('ROLLBACK');
+            throw error;
+          }
+        },
+      } as unknown as D1Database;
+      const read = () => sqlite.prepare(`SELECT * FROM ${table}`).get()!;
+      const auditCount = () => sqlite.prepare('SELECT count(*) AS count FROM pharmacy_growth_events').get()!.count;
+      const save = (expectedUpdatedAt: string | null | undefined, lineAccountId = 'account-a') => {
+        const input = {
+          lineAccountId,
+          submissionId: 'submission-a',
+          staffId: 'staff-a',
+          expectedUpdatedAt,
+        };
+        return kind === 'source'
+          ? classifySubmissionSource(db, { ...input, sourceId: null, classification: 'unknown' })
+          : savePrescriptionValidity(db, {
+              ...input,
+              issuedOn: '2026-09-05',
+              validUntil: null,
+              validityBasis: 'default_4_days',
+              verificationStatus: 'unverified',
+            });
+      };
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-05T01:00:00.000Z'));
+      try {
+        await save(null);
+        const original = read();
+        await expect(save(null)).rejects.toThrow('stale prescription review');
+        await expect(save('2026-09-04T00:00:00.000Z')).rejects.toThrow('stale prescription review');
+        expect(read()).toEqual(original);
+        expect(auditCount()).toBe(1);
+        await save(original.updated_at as string);
+        expect(read().updated_at).not.toBe(original.updated_at);
+        await expect(save(original.updated_at as string)).rejects.toThrow('stale prescription review');
+        await expect(save(read().updated_at as string, 'account-b')).rejects.toThrow();
+        expect(auditCount()).toBe(2);
+        await save(undefined); // Previous-version client: no new required field.
+        expect(auditCount()).toBe(3);
+        sqlite.exec(
+          `CREATE TRIGGER reject_review_audit BEFORE INSERT ON pharmacy_growth_events BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;`,
+        );
+        const beforeAuditFailure = read();
+        await expect(save(read().updated_at as string)).rejects.toThrow('audit unavailable');
+        expect(read()).toEqual(beforeAuditFailure);
+      } finally {
+        vi.useRealTimers();
+        sqlite.close();
+      }
+    },
+  );
+});
+
 describe('growth loop activation cohorts', () => {
   const events = [
-    { event_type: 'first_follow', subject_key: 'friend:friend-a', occurred_at: '2026-08-10T00:00:00.000Z' },
-    { event_type: 'first_friend_submission', subject_key: 'friend:friend-a', occurred_at: '2026-09-01T00:00:00.000Z' },
-    { event_type: 'first_submission', subject_key: 'patient:patient-a', occurred_at: '2026-08-11T00:00:00.000Z' },
-    { event_type: 'second_submission', subject_key: 'patient:patient-a', occurred_at: '2026-10-01T00:00:00.000Z' },
+    {
+      event_type: 'first_follow',
+      subject_key: 'friend:friend-a',
+      occurred_at: '2026-08-10T00:00:00.000Z',
+    },
+    {
+      event_type: 'first_friend_submission',
+      subject_key: 'friend:friend-a',
+      occurred_at: '2026-09-01T00:00:00.000Z',
+    },
+    {
+      event_type: 'first_submission',
+      subject_key: 'patient:patient-a',
+      occurred_at: '2026-08-11T00:00:00.000Z',
+    },
+    {
+      event_type: 'second_submission',
+      subject_key: 'patient:patient-a',
+      occurred_at: '2026-10-01T00:00:00.000Z',
+    },
   ];
 
   it('separates the selected cohort month from its later observation window', () => {
-    expect(summarizeCohorts(
-      events,
-      '2026-08-01T00:00:00.000Z',
-      '2026-09-01T00:00:00.000Z',
-      '2026-12-01T00:00:00.000Z',
-    )).toMatchObject({
+    expect(
+      summarizeCohorts(events, '2026-08-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', '2026-12-01T00:00:00.000Z'),
+    ).toMatchObject({
       measurableFollows: 1,
       firstSubmissionRate: { numerator: 1, denominator: 1, immatureCohort: 0 },
       secondSubmissionRate: { numerator: 1, denominator: 1, immatureCohort: 0 },
@@ -34,12 +132,9 @@ describe('growth loop activation cohorts', () => {
   });
 
   it('keeps cohorts immature until their observation windows have elapsed', () => {
-    expect(summarizeCohorts(
-      events,
-      '2026-08-01T00:00:00.000Z',
-      '2026-09-01T00:00:00.000Z',
-      '2026-08-20T00:00:00.000Z',
-    )).toMatchObject({
+    expect(
+      summarizeCohorts(events, '2026-08-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', '2026-08-20T00:00:00.000Z'),
+    ).toMatchObject({
       measurableFollows: 0,
       firstSubmissionRate: { denominator: 0, immatureCohort: 1 },
       secondSubmissionRate: { denominator: 0, immatureCohort: 1 },
@@ -49,18 +144,106 @@ describe('growth loop activation cohorts', () => {
 
 describe('growth loop promise metrics', () => {
   it('uses the latest quote revision created before ready and reports p50/p90 lateness', () => {
-    const result = summarizePromiseMetrics([
-      { submission_id: 's-1', revision: 1, estimated_ready_at: '2026-08-01T10:00:00.000Z', quote_created_at: '2026-08-01T09:00:00.000Z', ready_at: '2026-08-01T10:05:00.000Z' },
-      { submission_id: 's-1', revision: 2, estimated_ready_at: '2026-08-01T10:20:00.000Z', quote_created_at: '2026-08-01T10:10:00.000Z', ready_at: '2026-08-01T10:05:00.000Z' },
-      { submission_id: 's-2', revision: 1, estimated_ready_at: '2026-08-01T11:00:00.000Z', quote_created_at: '2026-08-01T10:30:00.000Z', ready_at: '2026-08-01T11:30:00.000Z' },
-      { submission_id: 's-2', revision: 2, estimated_ready_at: '2026-08-01T11:15:00.000Z', quote_created_at: '2026-08-01T10:45:00.000Z', ready_at: '2026-08-01T11:30:00.000Z' },
-      { submission_id: 's-3', revision: 1, estimated_ready_at: '2026-08-01T12:00:00.000Z', quote_created_at: '2026-08-01T11:00:00.000Z', ready_at: null },
-    ], 0);
-    expect(result).toMatchObject({ promised: 2, onTime: 0, late: 2, p50LatenessMinutes: 10, p90LatenessMinutes: 14, promiseRevisionCount: 4, promiseWithoutReady: 1 });
+    const result = summarizePromiseMetrics(
+      [
+        {
+          submission_id: 's-1',
+          revision: 1,
+          estimated_ready_at: '2026-08-01T10:00:00.000Z',
+          quote_created_at: '2026-08-01T09:00:00.000Z',
+          ready_at: '2026-08-01T10:05:00.000Z',
+        },
+        {
+          submission_id: 's-1',
+          revision: 2,
+          estimated_ready_at: '2026-08-01T10:20:00.000Z',
+          quote_created_at: '2026-08-01T10:10:00.000Z',
+          ready_at: '2026-08-01T10:05:00.000Z',
+        },
+        {
+          submission_id: 's-2',
+          revision: 1,
+          estimated_ready_at: '2026-08-01T11:00:00.000Z',
+          quote_created_at: '2026-08-01T10:30:00.000Z',
+          ready_at: '2026-08-01T11:30:00.000Z',
+        },
+        {
+          submission_id: 's-2',
+          revision: 2,
+          estimated_ready_at: '2026-08-01T11:15:00.000Z',
+          quote_created_at: '2026-08-01T10:45:00.000Z',
+          ready_at: '2026-08-01T11:30:00.000Z',
+        },
+        {
+          submission_id: 's-3',
+          revision: 1,
+          estimated_ready_at: '2026-08-01T12:00:00.000Z',
+          quote_created_at: '2026-08-01T11:00:00.000Z',
+          ready_at: null,
+        },
+      ],
+      0,
+    );
+    expect(result).toMatchObject({
+      promised: 2,
+      onTime: 0,
+      late: 2,
+      p50LatenessMinutes: 10,
+      p90LatenessMinutes: 14,
+      promiseRevisionCount: 4,
+      promiseWithoutReady: 1,
+    });
   });
 });
 
 describe('prescription validity', () => {
+  it('does not record another successful expiry when the same timestamp is retried', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    const schema = readFileSync(new URL('../../../../../../packages/db/schema.sql', import.meta.url), 'utf8');
+    sqlite.exec(`CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
+      INSERT INTO line_accounts VALUES ('account-a');
+      CREATE TABLE pharmacy_prescription_submissions (id TEXT, line_account_id TEXT, status TEXT);
+      INSERT INTO pharmacy_prescription_submissions VALUES ('submission-a', 'account-a', 'received');
+      CREATE TABLE pharmacy_prescription_validities (
+        submission_id TEXT, line_account_id TEXT, verification_status TEXT,
+        valid_until TEXT, reminder_claimed_at TEXT, updated_at TEXT);
+      INSERT INTO pharmacy_prescription_validities VALUES
+        ('submission-a', 'account-a', 'verified', '2026-08-16', NULL, '2026-08-16T00:00:00.000Z');`);
+    sqlite.exec(schema.match(/CREATE TABLE pharmacy_growth_events \([\s\S]*?\n\);/)![0]);
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: SQLInputValue[]) => ({
+          run: () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
+        }),
+      }),
+      batch: async (statements: Array<{ run(): unknown }>) => {
+        sqlite.exec('BEGIN');
+        try {
+          const results = statements.map((statement) => statement.run());
+          sqlite.exec('COMMIT');
+          return results;
+        } catch (error) {
+          sqlite.exec('ROLLBACK');
+          throw error;
+        }
+      },
+    } as unknown as D1Database;
+    const input = {
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      localDate: '2026-08-18',
+      actorId: 'system',
+      at: new Date('2026-08-18T00:00:00.000Z'),
+    };
+    try {
+      expect(await markPrescriptionValidityExpiredReview(db, input)).toBe(true);
+      expect(await markPrescriptionValidityExpiredReview(db, input)).toBe(false);
+      expect(sqlite.prepare('SELECT count(*) AS n FROM pharmacy_growth_events').get()!.n).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('moves one expired validity to staff review with an atomic audit event', async () => {
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
@@ -71,26 +254,33 @@ describe('prescription validity', () => {
       },
     } as unknown as D1Database;
 
-    await expect(markPrescriptionValidityExpiredReview(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', localDate: '2026-08-18',
-      actorId: 'system', at: new Date('2026-08-18T00:00:00.000Z'),
-    })).resolves.toBe(true);
+    await expect(
+      markPrescriptionValidityExpiredReview(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        localDate: '2026-08-18',
+        actorId: 'system',
+        at: new Date('2026-08-18T00:00:00.000Z'),
+      }),
+    ).resolves.toBe(true);
 
     expect(batches[0][0].sql).toContain("verification_status = 'expired_review_required'");
     expect(batches[0][0].sql).toContain('line_account_id = ?');
-    expect(batches[0][1].values).toEqual(expect.arrayContaining([
-      'account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"system"}',
-    ]));
+    expect(batches[0][1].values).toEqual(
+      expect.arrayContaining(['account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"system"}']),
+    );
   });
 
   it('commits the validity mutation and PHI-free audit event in one D1 batch', async () => {
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        sql,
-        values,
-        run: async () => ({ meta: { changes: 1 } }),
-      }) }),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          sql,
+          values,
+          run: async () => ({ meta: { changes: 1 } }),
+        }),
+      }),
       batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
         batches.push(statements);
         return statements.map(() => ({ meta: { changes: 1 } }));
@@ -98,16 +288,21 @@ describe('prescription validity', () => {
     } as unknown as D1Database;
 
     await savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
-      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      issuedOn: '2026-08-01',
+      validUntil: null,
+      validityBasis: 'default_4_days',
+      verificationStatus: 'verified',
+      staffId: 'staff-a',
     });
 
     expect(batches).toHaveLength(1);
     expect(batches[0]).toHaveLength(2);
     expect(batches[0][1].sql).toContain('INSERT INTO pharmacy_growth_events');
-    expect(batches[0][1].values).toEqual(expect.arrayContaining([
-      'account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"staff-a"}',
-    ]));
+    expect(batches[0][1].values).toEqual(
+      expect.arrayContaining(['account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"staff-a"}']),
+    );
   });
 
   it('derives the inclusive four-day default when the pharmacist has verified the issue date', async () => {
@@ -115,17 +310,24 @@ describe('prescription validity', () => {
     const db = {
       prepare: () => ({
         bind: (...values: unknown[]) => ({
-          run: async () => { calls.push({ values }); return { meta: { changes: 1 } }; },
+          run: async () => {
+            calls.push({ values });
+            return { meta: { changes: 1 } };
+          },
           first: async () => ({ line_account_id: 'account-a' }),
         }),
       }),
-      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
-        statements.map((statement) => statement.run()),
-      ),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
     } as unknown as D1Database;
     await savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
-      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      issuedOn: '2026-08-01',
+      validUntil: null,
+      validityBasis: 'default_4_days',
+      verificationStatus: 'verified',
+      staffId: 'staff-a',
     });
     expect(calls[0].values[3]).toBe('2026-08-04');
   });
@@ -133,18 +335,28 @@ describe('prescription validity', () => {
   it('creates a validity reminder only while prescription intake is enabled', async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        sql, values,
-        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
-      }) }),
-      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
-        statements.map((statement) => statement.run()),
-      ),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          sql,
+          values,
+          run: async () => {
+            calls.push({ sql, values });
+            return { meta: { changes: 1 } };
+          },
+        }),
+      }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
     } as unknown as D1Database;
 
     await savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
-      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      issuedOn: '2026-08-01',
+      validUntil: null,
+      validityBasis: 'default_4_days',
+      verificationStatus: 'verified',
+      staffId: 'staff-a',
     });
 
     expect(calls[0].sql).toContain("value = 'prescription_intake'");
@@ -152,38 +364,72 @@ describe('prescription validity', () => {
   });
 
   it('rejects a non-calendar date even when it matches the YYYY-MM-DD shape', async () => {
-    const db = { prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) }) } as unknown as D1Database;
-    await expect(savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-02-30',
-      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'unverified', staffId: null,
-    })).rejects.toThrow('invalid issued date');
+    const db = {
+      prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) }),
+    } as unknown as D1Database;
+    await expect(
+      savePrescriptionValidity(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        issuedOn: '2026-02-30',
+        validUntil: null,
+        validityBasis: 'default_4_days',
+        verificationStatus: 'unverified',
+        staffId: null,
+      }),
+    ).rejects.toThrow('invalid issued date');
   });
 
   it('requires verified dates and never accepts a conflicting default valid-until date', async () => {
-    const db = { prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) }) } as unknown as D1Database;
-    await expect(savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: null,
-      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
-    })).rejects.toThrow(/verified dates/);
-    await expect(savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
-      validUntil: '2026-08-05', validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
-    })).rejects.toThrow(/four-day/);
+    const db = {
+      prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) }),
+    } as unknown as D1Database;
+    await expect(
+      savePrescriptionValidity(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        issuedOn: null,
+        validUntil: null,
+        validityBasis: 'default_4_days',
+        verificationStatus: 'verified',
+        staffId: 'staff-a',
+      }),
+    ).rejects.toThrow(/verified dates/);
+    await expect(
+      savePrescriptionValidity(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        issuedOn: '2026-08-01',
+        validUntil: '2026-08-05',
+        validityBasis: 'default_4_days',
+        verificationStatus: 'verified',
+        staffId: 'staff-a',
+      }),
+    ).rejects.toThrow(/four-day/);
   });
 
   it('schedules the prior-day reminder for 09:00 Asia/Tokyo and resets delivery only when validity changes', async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
-      }) }),
-      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
-        statements.map((statement) => statement.run()),
-      ),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          run: async () => {
+            calls.push({ sql, values });
+            return { meta: { changes: 1 } };
+          },
+        }),
+      }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
     } as unknown as D1Database;
     await savePrescriptionValidity(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
-      validUntil: '2026-08-10', validityBasis: 'prescriber_specified', verificationStatus: 'verified', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      issuedOn: '2026-08-01',
+      validUntil: '2026-08-10',
+      validityBasis: 'prescriber_specified',
+      verificationStatus: 'verified',
+      staffId: 'staff-a',
     });
     expect(calls[0].values).toContain('2026-08-09T00:00:00.000Z');
     expect(calls[0].sql).toContain('reminder_sent_at = CASE');
@@ -196,56 +442,83 @@ describe('medical source classification', () => {
       prepare: () => ({ bind: () => ({}) }),
     } as unknown as D1Database;
 
-    await expect(savePharmacyCapabilityConfig(
-      db, 'account-a', ['pharmacy_dashboard', 'future_unknown'], 1, 'alert_only', 'staff-a',
-    )).rejects.toThrow('unknown pharmacy capability');
+    await expect(
+      savePharmacyCapabilityConfig(
+        db,
+        'account-a',
+        ['pharmacy_dashboard', 'future_unknown'],
+        1,
+        'alert_only',
+        'staff-a',
+      ),
+    ).rejects.toThrow('unknown pharmacy capability');
   });
 
-  it('commits capability and source mutations with account-scoped audit events', async () => {
-    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
-    const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        sql,
-        values,
-        run: async () => ({ meta: { changes: 1 } }),
-        first: async () => ({
-          line_account_id: 'account-a', mode: 'pharmacy',
-          capabilities_json: '["pharmacy_dashboard"]', proactive_monthly_limit: 1,
-          unfollow_alert_state: 'alert_only', created_at: '2026-08-18', updated_at: '2026-08-18', revision: 7,
+  it.each([1, 3])(
+    'commits capability and source mutations with account-scoped audit events when D1 reports %i capability changes',
+    async (capabilityChanges) => {
+      const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+      const db = {
+        prepare: (sql: string) => ({
+          bind: (...values: unknown[]) => ({
+            sql,
+            values,
+            run: async () => ({ meta: { changes: 1 } }),
+            first: async () => ({
+              line_account_id: 'account-a',
+              mode: 'pharmacy',
+              capabilities_json: '["pharmacy_dashboard"]',
+              proactive_monthly_limit: 1,
+              unfollow_alert_state: 'alert_only',
+              created_at: '2026-08-18',
+              updated_at: '2026-08-18',
+              revision: 7,
+            }),
+          }),
         }),
-      }) }),
-      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
-        batches.push(statements);
-        return statements.map(() => ({ meta: { changes: 1 } }));
-      },
-    } as unknown as D1Database;
+        batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+          batches.push(statements);
+          return statements.map((statement) => ({
+            meta: {
+              changes: statement.sql.includes('UPDATE pharmacy_account_capabilities') ? capabilityChanges : 1,
+            },
+          }));
+        },
+      } as unknown as D1Database;
 
-    await savePharmacyCapabilityConfig(
-      db, 'account-a', ['prescription_intake'], 1, 'alert_only', 'staff-a', 7,
-    );
-    await createMedicalSource(db, {
-      lineAccountId: 'account-a', displayName: 'Clinic A', classification: 'primary', staffId: 'staff-a',
-    });
-    await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
+      await savePharmacyCapabilityConfig(db, 'account-a', ['prescription_intake'], 1, 'alert_only', 'staff-a', 7);
+      await createMedicalSource(db, {
+        lineAccountId: 'account-a',
+        displayName: 'Clinic A',
+        classification: 'primary',
+        staffId: 'staff-a',
+      });
+      await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
 
-    expect(batches).toHaveLength(3);
-    expect(batches[0][0].sql).toContain('pharmacy_account_capability_revisions');
-    expect(batches[0][0].values).toContain(7);
-    expect(batches.map((batch) => batch[1].values[2])).toEqual([
-      'capability_config_updated', 'medical_source_created', 'medical_source_updated',
-    ]);
-    expect(batches.every((batch) => batch[1].values.includes('{"actor_id":"staff-a"}'))).toBe(true);
-  });
+      expect(batches).toHaveLength(3);
+      expect(batches.every((batch) => batch[1].sql.includes('changes() = 1 AND'))).toBe(true);
+      expect(batches[0][0].sql).toContain('pharmacy_account_capability_revisions');
+      expect(batches[0][0].values).toContain(7);
+      expect(batches.map((batch) => batch[1].values[2])).toEqual([
+        'capability_config_updated',
+        'medical_source_created',
+        'medical_source_updated',
+      ]);
+      expect(batches.every((batch) => batch[1].values.includes('{"actor_id":"staff-a"}'))).toBe(true);
+    },
+  );
 
   it('commits source classification and audit together', async () => {
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        sql,
-        values,
-        first: async () => ({ id: 'source-a', classification: 'primary' }),
-        run: async () => ({ meta: { changes: 1 } }),
-      }) }),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          sql,
+          values,
+          first: async () => ({ id: 'source-a', classification: 'primary' }),
+          run: async () => ({ meta: { changes: 1 } }),
+        }),
+      }),
       batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
         batches.push(statements);
         return statements.map(() => ({ meta: { changes: 1 } }));
@@ -253,25 +526,32 @@ describe('medical source classification', () => {
     } as unknown as D1Database;
 
     await classifySubmissionSource(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', sourceId: 'source-a',
-      classification: 'primary', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      submissionId: 'submission-a',
+      sourceId: 'source-a',
+      classification: 'primary',
+      staffId: 'staff-a',
     });
 
     expect(batches).toHaveLength(1);
-    expect(batches[0][1].values).toEqual(expect.arrayContaining([
-      'account-a', 'submission_source_classified', 'submission-a', '{"actor_id":"staff-a"}',
-    ]));
+    expect(batches[0][1].values).toEqual(
+      expect.arrayContaining(['account-a', 'submission_source_classified', 'submission-a', '{"actor_id":"staff-a"}']),
+    );
   });
 
   it('changes source availability only inside its account', async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
-      }) }),
-      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
-        statements.map((statement) => statement.run()),
-      ),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          run: async () => {
+            calls.push({ sql, values });
+            return { meta: { changes: 1 } };
+          },
+        }),
+      }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
     } as unknown as D1Database;
 
     await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
@@ -283,24 +563,43 @@ describe('medical source classification', () => {
   it('derives classification from the account-owned source and rejects mismatches', async () => {
     const writes: string[] = [];
     const db = {
-      prepare: (sql: string) => ({ bind: () => ({
-        first: async () => ({ id: 'source-a', classification: 'primary' }),
-        run: async () => { writes.push(sql); return { meta: { changes: 1 } }; },
-      }) }),
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => ({ id: 'source-a', classification: 'primary' }),
+          run: async () => {
+            writes.push(sql);
+            return { meta: { changes: 1 } };
+          },
+        }),
+      }),
     } as unknown as D1Database;
-    await expect(classifySubmissionSource(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', sourceId: 'source-a',
-      classification: 'other', staffId: 'staff-a',
-    })).rejects.toThrow(/classification mismatch/);
+    await expect(
+      classifySubmissionSource(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        sourceId: 'source-a',
+        classification: 'other',
+        staffId: 'staff-a',
+      }),
+    ).rejects.toThrow(/classification mismatch/);
     expect(writes).toHaveLength(0);
   });
 
   it('requires unknown to have no source id', async () => {
-    const db = { prepare: () => { throw new Error('D1 must not be reached'); } } as unknown as D1Database;
-    await expect(classifySubmissionSource(db, {
-      lineAccountId: 'account-a', submissionId: 'submission-a', sourceId: 'source-a',
-      classification: 'unknown', staffId: 'staff-a',
-    })).rejects.toThrow(/unknown source/);
+    const db = {
+      prepare: () => {
+        throw new Error('D1 must not be reached');
+      },
+    } as unknown as D1Database;
+    await expect(
+      classifySubmissionSource(db, {
+        lineAccountId: 'account-a',
+        submissionId: 'submission-a',
+        sourceId: 'source-a',
+        classification: 'unknown',
+        staffId: 'staff-a',
+      }),
+    ).rejects.toThrow(/unknown source/);
   });
 });
 
@@ -335,19 +634,15 @@ describe('growth dashboard', () => {
       prepare: (sql: string) => ({
         bind: (...values: SQLInputValue[]) => ({
           all: async () => ({ results: [] }),
-          first: async () => sql.includes('FROM messages_log') || sql.includes('FROM outbound_line_deliveries')
-            ? sqlite.prepare(sql).get(...values) ?? null
-            : null,
+          first: async () =>
+            sql.includes('FROM messages_log') || sql.includes('FROM outbound_line_deliveries')
+              ? (sqlite.prepare(sql).get(...values) ?? null)
+              : null,
         }),
       }),
     } as unknown as D1Database;
 
-    const dashboard = await getGrowthDashboard(
-      db,
-      'account-a',
-      '2026-07-31T15:00:00.000Z',
-      '2026-08-31T15:00:00.000Z',
-    );
+    const dashboard = await getGrowthDashboard(db, 'account-a', '2026-07-31T15:00:00.000Z', '2026-08-31T15:00:00.000Z');
 
     expect(dashboard.messaging).toMatchObject({
       sent: 3,
@@ -367,34 +662,86 @@ describe('growth dashboard', () => {
         bind: () => ({
           all: async () => {
             queries.push(sql);
-            if (sql.includes('FROM pharmacy_growth_events')) return { results: [
-              { event_type: 'first_follow', subject_key: 'friend:friend-a', occurred_at: '2026-08-01T00:00:00.000Z' },
-              { event_type: 'first_friend_submission', subject_key: 'friend:friend-a', occurred_at: '2026-08-02T00:00:00.000Z' },
-              { event_type: 'first_submission', subject_key: 'patient:patient-a', occurred_at: '2026-08-02T00:00:00.000Z' },
-            ] };
-            if (sql.includes('pharmacy_submission_sources')) return { results: [{ classification: 'unknown', count: 1 }] };
-            if (sql.includes('pharmacy_fulfillment_quotes')) return { results: [{ submission_id: 'submission-a', revision: 1, estimated_ready_at: '2026-08-01T10:00:00.000Z', quote_created_at: '2026-08-01T09:00:00.000Z', ready_at: '2026-08-01T10:05:00.000Z' }] };
-            if (sql.includes('pharmacy_notification_events') && sql.includes('GROUP BY')) return { results: [
-              { category: 'transactional_care', outcome: 'sent', count: 1 },
-              { category: 'proactive_noncare', outcome: 'sent', count: 2 },
-              { category: 'proactive_noncare', outcome: 'blocked', count: 1 },
-              { category: 'transactional_care', outcome: 'attempted', count: 2, stale_count: 1 },
-            ] };
+            if (sql.includes('FROM pharmacy_growth_events'))
+              return {
+                results: [
+                  {
+                    event_type: 'first_follow',
+                    subject_key: 'friend:friend-a',
+                    occurred_at: '2026-08-01T00:00:00.000Z',
+                  },
+                  {
+                    event_type: 'first_friend_submission',
+                    subject_key: 'friend:friend-a',
+                    occurred_at: '2026-08-02T00:00:00.000Z',
+                  },
+                  {
+                    event_type: 'first_submission',
+                    subject_key: 'patient:patient-a',
+                    occurred_at: '2026-08-02T00:00:00.000Z',
+                  },
+                ],
+              };
+            if (sql.includes('pharmacy_submission_sources'))
+              return { results: [{ classification: 'unknown', count: 1 }] };
+            if (sql.includes('pharmacy_fulfillment_quotes'))
+              return {
+                results: [
+                  {
+                    submission_id: 'submission-a',
+                    revision: 1,
+                    estimated_ready_at: '2026-08-01T10:00:00.000Z',
+                    quote_created_at: '2026-08-01T09:00:00.000Z',
+                    ready_at: '2026-08-01T10:05:00.000Z',
+                  },
+                ],
+              };
+            if (sql.includes('pharmacy_notification_events') && sql.includes('GROUP BY'))
+              return {
+                results: [
+                  { category: 'transactional_care', outcome: 'sent', count: 1 },
+                  { category: 'proactive_noncare', outcome: 'sent', count: 2 },
+                  { category: 'proactive_noncare', outcome: 'blocked', count: 1 },
+                  {
+                    category: 'transactional_care',
+                    outcome: 'attempted',
+                    count: 2,
+                    stale_count: 1,
+                  },
+                ],
+              };
             return { results: [] };
           },
           first: async () => {
             queries.push(sql);
             if (sql.includes('COUNT(DISTINCT e.submission_id)')) return { count: 1 };
-            if (sql.includes('pharmacy_prescription_validities')) return { verified_validity: 1, reminder_sent: 0, reminder_closed_in_time: 0, expired_review_required: 0, confirmed_expired: 1 };
+            if (sql.includes('pharmacy_prescription_validities'))
+              return {
+                verified_validity: 1,
+                reminder_sent: 0,
+                reminder_closed_in_time: 0,
+                expired_review_required: 0,
+                confirmed_expired: 1,
+              };
             if (sql.includes('exposed_friends')) return { exposed_friends: 1, unfollow_24h: 0, unfollow_72h: 0 };
             if (sql.includes('unfollow_alert_state')) return { unfollow_alert_state: 'alert_only' };
-            if (sql.includes('FROM messages_log')) return {
-              sent: 8, received: 5, manual: 3, automated: 5, source_unverified: 0,
-              push: 6, reply: 2, delivery_unverified: 0, unique_correspondents: 4,
-            };
-            if (sql.includes('FROM outbound_line_deliveries')) return {
-              attempted: 2, reconciliation_required: 1,
-            };
+            if (sql.includes('FROM messages_log'))
+              return {
+                sent: 8,
+                received: 5,
+                manual: 3,
+                automated: 5,
+                source_unverified: 0,
+                push: 6,
+                reply: 2,
+                delivery_unverified: 0,
+                unique_correspondents: 4,
+              };
+            if (sql.includes('FROM outbound_line_deliveries'))
+              return {
+                attempted: 2,
+                reconciliation_required: 1,
+              };
             return null;
           },
         }),
@@ -406,18 +753,31 @@ describe('growth dashboard', () => {
       promises: { promised: 1, late: 1, readyEvents: 1 },
       validity: { confirmedExpired: 1 },
       notifications: {
-        alertState: 'alert_only', attempted: 6, proactiveAttempts: 3,
-        proactiveCapBlocked: 1, reconciliationRequired: 1,
+        alertState: 'alert_only',
+        attempted: 6,
+        proactiveAttempts: 3,
+        proactiveCapBlocked: 1,
+        reconciliationRequired: 1,
       },
       messaging: {
-        sent: 8, received: 5, manual: 3, automated: 5, sourceUnverified: 0,
-        push: 6, reply: 2, deliveryUnverified: 0, uniqueCorrespondents: 4,
-        attempted: 2, reconciliationRequired: 1,
+        sent: 8,
+        received: 5,
+        manual: 3,
+        automated: 5,
+        sourceUnverified: 0,
+        push: 6,
+        reply: 2,
+        deliveryUnverified: 0,
+        uniqueCorrespondents: 4,
+        attempted: 2,
+        reconciliationRequired: 1,
         legacyUnscoped: { count: null, status: 'UNVERIFIED' },
       },
       unfollow: { exposedFriends: 1 },
     });
-    expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain("accepted.event_type = 'status_changed'");
+    expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain(
+      "accepted.event_type = 'status_changed'",
+    );
     const promiseQuery = queries.find((sql) => sql.includes('pharmacy_fulfillment_quotes')) ?? '';
     expect(promiseQuery).toContain("ready.event_type = 'status_changed'");
     expect(promiseQuery).toContain("q.status IN ('AVAILABLE','PARTIALLY_AVAILABLE')");
@@ -425,8 +785,9 @@ describe('growth dashboard', () => {
     expect(promiseQuery).toContain("q.decision IN ('fulfillable','conditional')");
     expect(queries.find((sql) => sql.includes('verified_validity'))).toContain('COALESCE(attr.is_synthetic, 0) = 0');
     expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain("n.outcome = 'sent'");
-    expect(queries.find((sql) => sql.includes('exposed_friends')))
-      .toContain("julianday(n.occurred_at, '+72 hours') <= julianday(?)");
+    expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain(
+      "julianday(n.occurred_at, '+72 hours') <= julianday(?)",
+    );
     const messagingQuery = queries.find((sql) => sql.includes('FROM messages_log')) ?? '';
     expect(messagingQuery).toContain('line_account_id = ?');
     expect(messagingQuery).toContain("delivery_type <> 'test'");

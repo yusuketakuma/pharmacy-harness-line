@@ -53,9 +53,9 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
   });
 
   it('creates the dedicated submission, file, and event tables', () => {
-    const bootstrapMeta = JSON.parse(
-      readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8'),
-    ) as { includedMigrations: string[] };
+    const bootstrapMeta = JSON.parse(readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8')) as {
+      includedMigrations: string[];
+    };
     expect(bootstrapMeta.includedMigrations).toEqual([
       '001_v033_baseline.sql',
       '002_custom_060_messages_log_account_date.sql',
@@ -65,13 +65,36 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
       '006_custom_063_auth_disable_revocation.sql',
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
+      '009_custom_066_auth_session_activity.sql',
+      '010_custom_067_admin_login_throttles.sql',
+      '011_custom_068_patient_proxy_controls.sql',
+      '012_custom_069_patient_control_audit.sql',
+      '013_custom_070_patient_proxy_lifecycle.sql',
+      '014_custom_071_shared_pharmacy_auth.sql',
+      '015_custom_072_pharmacy_beta_memberships.sql',
+      '016_custom_073_pharmacy_medication_followup_closure.sql',
+      '017_custom_074_pharmacy_followup_operations.sql',
+      '018_custom_075_pharmacy_medication_followup_assignments.sql',
+      '019_custom_076_pharmacy_followup_operations_scope.sql',
+      '020_custom_077_pharmacy_beta_notification_bindings.sql',
+      '021_calendar_bookings_overlap_index.sql',
+      '022_booking_idempotency_scoped.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
+      '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
+      '029_custom_081_pharmacy_validity_notification_queue.sql',
     ]);
-    const names = db.prepare(
-      `SELECT name FROM sqlite_master
+    const names = db
+      .prepare(
+        `SELECT name FROM sqlite_master
        WHERE type = 'table' AND name IN
          ('pharmacy_prescription_events','pharmacy_prescription_files','pharmacy_prescription_submissions')
        ORDER BY name`,
-    ).all() as Array<{ name: string }>;
+      )
+      .all() as Array<{ name: string }>;
     expect(names.map((row) => row.name)).toEqual([
       'pharmacy_prescription_events',
       'pharmacy_prescription_files',
@@ -81,21 +104,19 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
 
   it('enforces tenant-scoped idempotency while allowing the same key in another account', () => {
     insertSubmission(db, 'submission-a', 'account-a', 'friend-a', 'same-key');
-    expect(() =>
-      insertSubmission(db, 'submission-a2', 'account-a', 'friend-a', 'same-key'),
-    ).toThrow(/UNIQUE constraint failed/);
-    expect(() =>
-      insertSubmission(db, 'submission-b', 'account-b', 'friend-b', 'same-key'),
-    ).not.toThrow();
+    expect(() => insertSubmission(db, 'submission-a2', 'account-a', 'friend-a', 'same-key')).toThrow(
+      /UNIQUE constraint failed/,
+    );
+    expect(() => insertSubmission(db, 'submission-b', 'account-b', 'friend-b', 'same-key')).not.toThrow();
   });
 
   it('rejects a friend from a different LINE account and invalid states', () => {
-    expect(() =>
-      insertSubmission(db, 'cross-account', 'account-a', 'friend-b', 'key'),
-    ).toThrow(/FOREIGN KEY constraint failed/);
-    expect(() =>
-      insertSubmission(db, 'bad-status', 'account-a', 'friend-a', 'key', 'unknown'),
-    ).toThrow(/CHECK constraint failed/);
+    expect(() => insertSubmission(db, 'cross-account', 'account-a', 'friend-b', 'key')).toThrow(
+      /FOREIGN KEY constraint failed/,
+    );
+    expect(() => insertSubmission(db, 'bad-status', 'account-a', 'friend-a', 'key', 'unknown')).toThrow(
+      /CHECK constraint failed/,
+    );
   });
 
   it('keeps file positions and private R2 keys unique', () => {
@@ -108,12 +129,12 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
                '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`,
     );
     insert.run('file-a', 1, 'custom/pharmacy/prescriptions/a/1/a', 'a'.repeat(64));
-    expect(() =>
-      insert.run('file-b', 1, 'custom/pharmacy/prescriptions/a/1/b', 'b'.repeat(64)),
-    ).toThrow(/UNIQUE constraint failed/);
-    expect(() =>
-      insert.run('file-c', 2, 'custom/pharmacy/prescriptions/a/1/a', 'c'.repeat(64)),
-    ).toThrow(/UNIQUE constraint failed/);
+    expect(() => insert.run('file-b', 1, 'custom/pharmacy/prescriptions/a/1/b', 'b'.repeat(64))).toThrow(
+      /UNIQUE constraint failed/,
+    );
+    expect(() => insert.run('file-c', 2, 'custom/pharmacy/prescriptions/a/1/a', 'c'.repeat(64))).toThrow(
+      /UNIQUE constraint failed/,
+    );
   });
 
   it('rejects free-text audit categories and invalid reason codes', () => {
@@ -125,12 +146,8 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
        VALUES (?, 'submission-a', 'staff', 'staff-a', ?, 'received',
                'needs_resubmission', ?, '2026-08-17T00:00:00Z')`,
     );
-    expect(() => insert.run('event-a', 'free_text', 'blurred')).toThrow(
-      /CHECK constraint failed/,
-    );
-    expect(() => insert.run('event-b', 'status_changed', 'write-anything')).toThrow(
-      /CHECK constraint failed/,
-    );
+    expect(() => insert.run('event-a', 'free_text', 'blurred')).toThrow(/CHECK constraint failed/);
+    expect(() => insert.run('event-b', 'status_changed', 'write-anything')).toThrow(/CHECK constraint failed/);
   });
 
   it('supports immutable notification failure and delivery audit events', () => {

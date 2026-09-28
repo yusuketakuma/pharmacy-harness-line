@@ -59,7 +59,9 @@ describe('FulfillmentQuote admin routes', () => {
   it('rejects a staff member outside the requested account', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(
-      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-b', {}, env,
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-b',
+      {},
+      env,
     );
     expect(response.status).toBe(403);
     expect(mocks.latest).not.toHaveBeenCalled();
@@ -68,7 +70,9 @@ describe('FulfillmentQuote admin routes', () => {
   it('rejects an account without the fulfillment quote capability', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await app().request(
-      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1', {}, env,
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      {},
+      env,
     );
     expect(response.status).toBe(403);
     expect(mocks.latest).not.toHaveBeenCalled();
@@ -82,31 +86,75 @@ describe('FulfillmentQuote admin routes', () => {
 
   it('returns an account-scoped latest quote', async () => {
     const response = await app().request(
-      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1', {}, env,
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      {},
+      env,
     );
     expect(response.status).toBe(200);
     expect(mocks.latest).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1');
-    await expect(response.json()).resolves.toEqual({ quote: {
-      id: 'quote-1', revision: 1, decision: 'fulfillable',
-    } });
+    await expect(response.json()).resolves.toEqual({
+      quote: {
+        id: 'quote-1',
+        revision: 1,
+        decision: 'fulfillable',
+      },
+    });
   });
 
   it('creates a staff-authored revision with the account and staff scope', async () => {
     const response = await app().request(
       '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(quoteBody) },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(quoteBody),
+      },
       env,
     );
     expect(response.status).toBe(201);
-    expect(mocks.create).toHaveBeenCalledWith(
-      env.DB, 'account-1', 'submission-1', 'staff-1', quoteBody,
-    );
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1', 'staff-1', quoteBody);
   });
 
   it('rejects malformed connector input before the repository', async () => {
     const response = await app().request(
       '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'free text' }) },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'free text' }),
+      },
+      env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('passes the editing revision and preserves the existing conflict envelope', async () => {
+    mocks.create.mockRejectedValue(new Error('fulfillment quote conflict'));
+    const body = { ...quoteBody, expectedRevision: 0 };
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      env,
+    );
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1', 'staff-1', body);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Fulfillment quote changed; retry' });
+    expect(mocks.enqueueActivity).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 1.5, '1', null, 9007199254740992])('rejects invalid expectedRevision %s', async (expectedRevision) => {
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...quoteBody, expectedRevision }),
+      },
       env,
     );
     expect(response.status).toBe(400);

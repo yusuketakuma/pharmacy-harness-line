@@ -82,7 +82,7 @@ body.wb-active #app {
 /* テキスト系入力だけ UA 装飾 (ベベル・枠線) を除去。
  * radio / checkbox は native 描画を残して accent-color で揃える (form.ts と同じ)。
  * select は appearance を消すと矢印が消えるので残す。 */
-:where(body.wb-active) input:not([type='radio']):not([type='checkbox']),
+:where(body.wb-active) input:not([type="radio"]):not([type="checkbox"]),
 :where(body.wb-active) textarea {
   -webkit-appearance: none;
   appearance: none;
@@ -95,8 +95,8 @@ body.wb-active #app {
   border-radius: 0;
   background-color: transparent;
 }
-:where(body.wb-active) input[type='radio'],
-:where(body.wb-active) input[type='checkbox'] {
+:where(body.wb-active) input[type="radio"],
+:where(body.wb-active) input[type="checkbox"] {
   accent-color: #06c755;
   width: 18px;
   height: 18px;
@@ -120,7 +120,9 @@ body.wb-active #app {
 .wb-card {
   background: #fff;
   border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 /* CTA カードの登場モーメント: チャットに滑り込むフェード+リフト。
@@ -129,11 +131,19 @@ body.wb-active #app {
   animation: wb-cta-in 0.35s ease-out;
 }
 @keyframes wb-cta-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.97); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cta-card { animation: none; }
+  .cta-card {
+    animation: none;
+  }
 }
 
 /* ライブ視聴・待機ルーム中だけページの縦スクロールを禁止する (wb-lock は

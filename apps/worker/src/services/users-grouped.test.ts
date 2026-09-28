@@ -47,10 +47,8 @@ function stubDB(canned: { ident: IdentRow[]; forms: FormRow[] }, capturedBinds: 
 }
 
 describe('computeUsersGrouped', () => {
-  const computeForTenant = (
-    db: D1Database,
-    options: UsersGroupedOptions = {},
-  ) => computeUsersGrouped(db, 'tenant-a', options);
+  const computeForTenant = (db: D1Database, options: UsersGroupedOptions = {}) =>
+    computeUsersGrouped(db, 'tenant-a', options);
 
   beforeEach(() => {
     _resetCacheForTest();
@@ -70,8 +68,7 @@ describe('computeUsersGrouped', () => {
           metadata: null,
           created_at: '2026-01-01T00:00:00+09:00',
           updated_at: '2026-01-02T00:00:00+09:00',
-          ident_key:
-            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          ident_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           ident_kind: 'url_token',
         },
       ],
@@ -85,8 +82,7 @@ describe('computeUsersGrouped', () => {
     expect(result.pageSize).toBe(50);
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({
-      identityKey:
-        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      identityKey: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       identityKeyKind: 'url_token',
       displayName: '山田',
       isDuplicate: false,
@@ -412,11 +408,7 @@ describe('computeUsersGrouped', () => {
     expect(result.rows[0].phones).toEqual([]);
   });
 
-  function makeRow(
-    i: number,
-    identKey: string,
-    accounts: { id: string; name: string }[],
-  ): IdentRow[] {
+  function makeRow(i: number, identKey: string, accounts: { id: string; name: string }[]): IdentRow[] {
     return accounts.map((acc, j) => ({
       friend_id: `f${i}_${j}`,
       line_account_id: acc.id,
@@ -589,7 +581,10 @@ describe('computeUsersGrouped', () => {
     try {
       for (let i = 0; i < 9; i++) {
         await computeUsersGrouped(
-          stubDB({ ident: makeRow(i + 1, `key-${i}`, [{ id: `account-${i}`, name: `L${i}` }]), forms: [] }),
+          stubDB({
+            ident: makeRow(i + 1, `key-${i}`, [{ id: `account-${i}`, name: `L${i}` }]),
+            forms: [],
+          }),
           `tenant-${i}`,
         );
       }
@@ -597,7 +592,10 @@ describe('computeUsersGrouped', () => {
 
       now.mockReturnValue(5 * 60 * 1000 + 1_001);
       await computeUsersGrouped(
-        stubDB({ ident: makeRow(10, 'key-fresh', [{ id: 'account-fresh', name: 'fresh' }]), forms: [] }),
+        stubDB({
+          ident: makeRow(10, 'key-fresh', [{ id: 'account-fresh', name: 'fresh' }]),
+          forms: [],
+        }),
         'tenant-fresh',
       );
       expect(_cacheSizeForTest()).toBe(1);

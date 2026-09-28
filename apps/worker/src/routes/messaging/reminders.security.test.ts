@@ -46,23 +46,19 @@ function setup(options: { tenantId?: string; staffId?: string } = {}) {
   const app = new Hono<Env>();
   app.use('*', async (c, next) => {
     if (options.tenantId !== undefined) c.set('tenantId', options.tenantId);
-    if (options.staffId !== undefined) c.set('staff', {
-      id: options.staffId,
-      name: 'Staff',
-      role: 'staff',
-    });
+    if (options.staffId !== undefined)
+      c.set('staff', {
+        id: options.staffId,
+        name: 'Staff',
+        role: 'staff',
+      });
     await next();
   });
   app.route('/', reminders);
   return { app, env: { DB: {} as D1Database } as Env['Bindings'] };
 }
 
-async function request(
-  app: Hono<Env>,
-  env: Env['Bindings'],
-  path: string,
-  init?: RequestInit,
-) {
+async function request(app: Hono<Env>, env: Env['Bindings'], path: string, init?: RequestInit) {
   return app.request(path, init, env);
 }
 
@@ -97,8 +93,7 @@ describe('reminder CRUD account boundary', () => {
     const response = await request(app, env, '/api/reminders?lineAccountId=account-a');
 
     expect(response.status).toBe(200);
-    expect(boundaryMocks.accountResourceOwnedByStaff)
-      .toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-a');
+    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-a');
     expect(dbMocks.getReminders).toHaveBeenCalledWith(env.DB, 'tenant-a', 'account-a');
   });
 
@@ -208,7 +203,9 @@ describe('reminder CRUD account boundary', () => {
     dbMocks.getReminderById.mockResolvedValue(reminder('account-b'));
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
     const foreign = setup({ tenantId: 'tenant-a', staffId: 'staff-a' });
-    const foreignResponse = await request(foreign.app, foreign.env, '/api/reminders/reminder-a', { method: 'DELETE' });
+    const foreignResponse = await request(foreign.app, foreign.env, '/api/reminders/reminder-a', {
+      method: 'DELETE',
+    });
     expect(foreignResponse.status).toBe(404);
     expect(dbMocks.deleteReminder).not.toHaveBeenCalled();
 
@@ -216,7 +213,9 @@ describe('reminder CRUD account boundary', () => {
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
     dbMocks.deleteReminder.mockResolvedValue(true);
     const owned = setup({ tenantId: 'tenant-a', staffId: 'staff-a' });
-    const ownedResponse = await request(owned.app, owned.env, '/api/reminders/reminder-a', { method: 'DELETE' });
+    const ownedResponse = await request(owned.app, owned.env, '/api/reminders/reminder-a', {
+      method: 'DELETE',
+    });
     expect(ownedResponse.status).toBe(200);
     expect(dbMocks.deleteReminder).toHaveBeenCalledWith(owned.env.DB, 'reminder-a', {
       tenantId: 'tenant-a',
@@ -243,7 +242,9 @@ describe('reminder CRUD account boundary', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ offsetMinutes: -60, messageType: 'text', messageContent: 'Soon' }),
     });
-    const deleted = await request(app, env, '/api/reminders/reminder-a/steps/step-a', { method: 'DELETE' });
+    const deleted = await request(app, env, '/api/reminders/reminder-a/steps/step-a', {
+      method: 'DELETE',
+    });
 
     expect(created.status).toBe(201);
     expect(deleted.status).toBe(200);
@@ -339,18 +340,28 @@ describe('friend reminder account boundary', () => {
   });
 
   it('rejects and scopes friend-reminder cancellation by the mapped account', async () => {
-    dbMocks.getFriendReminderById.mockResolvedValue({ ...friend('account-b'), id: 'friend-reminder-a' });
+    dbMocks.getFriendReminderById.mockResolvedValue({
+      ...friend('account-b'),
+      id: 'friend-reminder-a',
+    });
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
     const foreign = setup({ tenantId: 'tenant-a', staffId: 'staff-a' });
-    const foreignResponse = await request(foreign.app, foreign.env, '/api/friend-reminders/friend-reminder-a', { method: 'DELETE' });
+    const foreignResponse = await request(foreign.app, foreign.env, '/api/friend-reminders/friend-reminder-a', {
+      method: 'DELETE',
+    });
     expect(foreignResponse.status).toBe(404);
     expect(dbMocks.cancelFriendReminder).not.toHaveBeenCalled();
 
-    dbMocks.getFriendReminderById.mockResolvedValue({ ...friend('account-a'), id: 'friend-reminder-a' });
+    dbMocks.getFriendReminderById.mockResolvedValue({
+      ...friend('account-a'),
+      id: 'friend-reminder-a',
+    });
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
     dbMocks.cancelFriendReminder.mockResolvedValue(true);
     const owned = setup({ tenantId: 'tenant-a', staffId: 'staff-a' });
-    const ownedResponse = await request(owned.app, owned.env, '/api/friend-reminders/friend-reminder-a', { method: 'DELETE' });
+    const ownedResponse = await request(owned.app, owned.env, '/api/friend-reminders/friend-reminder-a', {
+      method: 'DELETE',
+    });
     expect(ownedResponse.status).toBe(200);
     expect(dbMocks.cancelFriendReminder).toHaveBeenCalledWith(owned.env.DB, 'friend-reminder-a', {
       tenantId: 'tenant-a',

@@ -12,17 +12,17 @@ import { sendAdConversions } from '../../services/ad-conversion.js';
 import type { Env } from '../../index.js';
 import { clampLimitOffset } from '../../lib/pagination.js';
 
-const PUBLIC_CONFIG_KEYS = new Set([
-  'pixel_id', 'customer_id', 'conversion_action_id', 'pixel_code',
-]);
+const PUBLIC_CONFIG_KEYS = new Set(['pixel_id', 'customer_id', 'conversion_action_id', 'pixel_code']);
 const MASKED_CONFIG_VALUE = '********';
 
 function maskConfig(config: Record<string, unknown>): Record<string, unknown> {
   const masked: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    masked[key] = PUBLIC_CONFIG_KEYS.has(key) && (
-      typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-    ) ? value : MASKED_CONFIG_VALUE;
+    masked[key] =
+      PUBLIC_CONFIG_KEYS.has(key) &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+        ? value
+        : MASKED_CONFIG_VALUE;
   }
   return masked;
 }
@@ -75,18 +75,21 @@ adPlatforms.post('/api/ad-platforms', async (c) => {
       config: body.config,
     });
 
-    return c.json({
-      success: true,
-      data: {
-        id: platform.id,
-        name: platform.name,
-        displayName: platform.display_name,
-        config: maskConfig(JSON.parse(platform.config)),
-        isActive: !!platform.is_active,
-        createdAt: platform.created_at,
-        updatedAt: platform.updated_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: platform.id,
+          name: platform.name,
+          displayName: platform.display_name,
+          config: maskConfig(JSON.parse(platform.config)),
+          isActive: !!platform.is_active,
+          createdAt: platform.created_at,
+          updatedAt: platform.updated_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/ad-platforms error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -109,9 +112,11 @@ adPlatforms.put('/api/ad-platforms/:id', async (c) => {
       if (!current) return c.json({ success: false, error: 'Not found' }, 404);
       body.config = {
         ...JSON.parse(current.config),
-        ...Object.fromEntries(Object.entries(body.config).filter(
-          ([key, value]) => PUBLIC_CONFIG_KEYS.has(key) || value !== MASKED_CONFIG_VALUE,
-        )),
+        ...Object.fromEntries(
+          Object.entries(body.config).filter(
+            ([key, value]) => PUBLIC_CONFIG_KEYS.has(key) || value !== MASKED_CONFIG_VALUE,
+          ),
+        ),
       };
     }
 

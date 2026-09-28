@@ -1,22 +1,29 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-31T00:32:49Z",
+  "capturedAt": "2026-09-02T12:46:00Z",
   "reviewedAt": null,
   "environment": "local-synthetic",
   "scope": "v0.33.0-engineering-foundation",
   "status": "IN_PROGRESS",
   "releaseReadiness": "BLOCKED",
   "sourceCandidate": {
-    "branch": "release/v0.33.0",
+    "branch": "feat/pharmacy-v0.34-patient-critical-journey",
     "baseSourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
-    "exactCandidateSha": "NOT_AVAILABLE_UNCOMMITTED_WORKTREE",
-    "identity": "RELEASE_CANDIDATE_WORKTREE",
-    "packageVersion": "0.33.0",
-    "trackedDiffSha256": "f9ec1fa43dcbeb214ad0575605bbbbc0887e66fa52695997d118968cfb77aab8",
-    "preEvidenceStatusManifestSha256": "e7f38a36be3cc4c74718a519934f9ff9db8883c03830cfb676c98a72b61e1c63",
-    "preEvidenceUntrackedFilesSha256": "579ffd5a58c6a646ec6ff7feb71efa77972662c8ca2a32e6334ae00bd5e4d5f4",
-    "migrationSetSha256": "991841fbe649f4435b1c4674a68b6597f26d3483866894dc03619f869b3574fc",
-    "candidateRule": "No release PASS until one committed RC SHA reproduces all gates."
+    "exactCandidateSha": "8baf31835bd16e723f6132206637942316b5faba",
+    "identity": "LOCAL_SOURCE_COMMIT",
+    "packageVersion": "0.33.2",
+    "trackedDiffSha256": "4ed0dadb115d84cdb1dc84551eeb1c38f09a1f93ebfbd6389aee5306cf460e79",
+    "preEvidenceStatusManifestSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
+    "preEvidenceUntrackedFilesSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
+    "migrationSetSha256": "a052aee14d2e15fe458598d125ba9d8cb5a1e6aba672275638b2998a8c19add6",
+    "candidateRule": "No release PASS until one committed RC SHA reproduces all gates.",
+    "evidenceBoundary": "Repository aggregate, migration safety, representative local performance fixtures, LIFF build, and LIFF browser smoke were rerun for this exact candidate. Remote D1 and real-device LIFF measurements remain outside this evidence."
+  },
+  "approvedPolicy": {
+    "identitySecurity": "APPROVED_2026-09-01",
+    "minorProxy": "APPROVED_2026-09-02_SELF_ATTESTED_GUARDIAN_ONE_PATIENT_PATIENT_INTAKE_V1_90_DAY_MAX_NO_RENEWAL_IMMEDIATE_REVOKE_ADULT_DENIED_AGE_18_CAP",
+    "implementation": "PASS_LOCAL_SYNTHETIC_EXACT_CANDIDATE",
+    "claimBoundary": "Human policy approval and local tests do not prove deployment, production data state, or real-device operation."
   },
   "toolchain": {
     "node": "v26.6.0",
@@ -26,8 +33,10 @@
     "workerCompatibilityFlags": [
       "nodejs_compat"
     ],
-    "baselineClone": "/tmp/pharmacy-harness-v033-baseline.Xwr823",
-    "baselineCloneState": "CLEAN_HEAD_84290e0"
+    "baselineClone": "/tmp/pharmacy-v033-current-replay.0uRTgm/baseline",
+    "baselineCloneState": "DETACHED_HEAD_84290e03d09e9f895567583aaeb34eee68cf6d81_OFFLINE_FROZEN_INSTALL",
+    "candidateClone": "/tmp/pharmacy-v033-g7-final.N9xpGt/repo",
+    "candidateCloneState": "DETACHED_HEAD_8baf31835bd16e723f6132206637942316b5faba_OFFLINE_FROZEN_INSTALL"
   },
   "performance": {
     "protocol": {
@@ -35,71 +44,78 @@
       "productionDataUsed": false,
       "sameMachine": true,
       "sameNodeAndPnpm": true,
+      "measuredCandidateSha": "8baf31835bd16e723f6132206637942316b5faba",
+      "currentExactCandidateReplay": "PASS_LOCAL_SYNTHETIC_REPRESENTATIVE_FIXTURES_AND_LIFF_ARTIFACT",
       "feedbackRuns": 7,
       "execution": "sequential_alternating_baseline_candidate",
       "acceptance": "Do not adopt a change from relative percentages when the absolute delta is timer-scale or run variance overlaps."
     },
     "liffStartup": {
-      "status": "PASS_PERCEIVED_STARTUP_ONLY",
-      "fixture": "Chromium preview with every JavaScript request delayed 1000 ms",
+      "status": "PARTIAL_PASS_CURRENT_LOCAL_INITIAL_BUNDLE_REAL_DEVICE_NOT_RUN",
+      "fixture": "Historical Chromium preview with every JavaScript request delayed 1000 ms; baseline, pre-optimization candidate, and exact-candidate Vite artifact comparison",
       "runs": 5,
       "baselineMedianFirstVisibleMs": 1045,
       "candidateMedianFirstVisibleMs": 9.6,
       "deltaPercent": -99.1,
-      "accessibleStartupStatusE2E": "PASS_1_OF_1",
+      "accessibleStartupStatusE2E": "PASS_13_OF_13_ROUTES_INCLUDING_LAZY_DIRECT_ROUTE",
       "baselineWarmBuildMedianSeconds": 2.65,
       "candidateWarmBuildMedianSeconds": 2.88,
       "warmBuildDeltaPercent": 8.7,
-      "baselineMainBundleGzipKb": 150.28,
-      "candidateMainBundleGzipKb": 150.63,
-      "bundleDeltaGzipKb": 0.35,
-      "claimBoundary": "The static shell removes the blank screen; LIFF-ready time, build time, and bundle size did not improve."
+      "baselineMainBundleGzipBytes": 148745,
+      "preOptimizationCandidateMainBundleGzipBytes": 153100,
+      "exactCandidateMainBundleGzipBytes": 146332,
+      "initialBundleDeltaFromPreOptimizationBytes": -6768,
+      "initialBundleDeltaFromPreOptimizationPercent": -4.42,
+      "initialBundleDeltaFromBaselineBytes": -2413,
+      "initialBundleDeltaFromBaselinePercent": -1.62,
+      "deferredEmergencyContraceptionGzipBytes": 8574,
+      "baselineTotalJavaScriptGzipBytes": 325452,
+      "preOptimizationTotalJavaScriptGzipBytes": 329807,
+      "exactCandidateTotalJavaScriptGzipBytes": 331613,
+      "totalJavaScriptDeltaFromPreOptimizationBytes": 1806,
+      "totalJavaScriptDeltaFromPreOptimizationPercent": 0.55,
+      "claimBoundary": "The exact candidate moves the low-frequency emergency-contraception page out of the initial LIFF main bundle and exposes an accessible loading status. Common-route initial JavaScript is smaller; total JavaScript and the direct emergency-contraception route are slightly larger. LIFF-ready time and real-device startup remain unmeasured."
     },
     "sameNamedFixtureFeedback": {
       "staffDashboard": {
         "test": "keeps every Release 1 metric and its denominator caveat visible",
-        "baselineTotalMedianMs": 265,
-        "candidateTotalMedianMs": 237,
-        "totalDeltaPercent": -10.6,
-        "baselineTestBodyMedianMs": 2,
-        "candidateTestBodyMedianMs": 3,
-        "verdict": "NO_MEASURABLE_REGRESSION_1MS_ABSOLUTE_BODY_DELTA"
+        "baselineTotalMedianMs": 1218.906,
+        "candidateTotalMedianMs": 1240.351,
+        "totalDeltaPercent": 1.76,
+        "baselineTestBodyMedianMs": 0.915291,
+        "candidateTestBodyMedianMs": 1.506834,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_592MS_ABSOLUTE_BODY_DELTA"
       },
       "workerStatistics": {
         "test": "keeps unknown source counts and SLA denominators account-scoped",
-        "baselineTotalMedianMs": 187,
-        "candidateTotalMedianMs": 191,
-        "totalDeltaPercent": 2.1,
-        "baselineTestBodyMedianMs": 4,
-        "candidateTestBodyMedianMs": 4,
-        "verdict": "NO_MEASURABLE_REGRESSION"
+        "combinedWorkerRunnerBaselineTotalMedianMs": 1533.874,
+        "combinedWorkerRunnerCandidateTotalMedianMs": 1501.672,
+        "combinedWorkerRunnerDeltaPercent": -2.1,
+        "baselineTestBodyMedianMs": 4.020417,
+        "candidateTestBodyMedianMs": 3.504584,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_516MS_ABSOLUTE_BODY_IMPROVEMENT"
       },
       "webhookAuthorization": {
         "test": "uses destination to verify exactly one tenant secret",
-        "baselineTotalMedianMs": 448,
-        "candidateTotalMedianMs": 364,
-        "totalDeltaPercent": -18.8,
-        "baselineTestBodyMedianMs": 8,
-        "candidateTestBodyMedianMs": 6,
-        "verdict": "NO_MEASURABLE_REGRESSION"
+        "baselineTestBodyMedianMs": 4.481833,
+        "candidateTestBodyMedianMs": 4.797208,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_315MS_ABSOLUTE_BODY_DELTA"
       },
       "cronExternalSuccessRecovery": {
         "test": "does not resend after external success when D1 settlement is unknown",
-        "baselineTotalMedianMs": 558,
-        "candidateTotalMedianMs": 440,
-        "totalDeltaPercent": -21.1,
-        "baselineTestBodyMedianMs": 37,
-        "candidateTestBodyMedianMs": 56,
-        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_19MS_SYNTHETIC_BODY_DELTA_WITH_OVERLAPPING_RUN_VARIANCE"
+        "baselineTestBodyMedianMs": 18.821667,
+        "candidateTestBodyMedianMs": 36.3205,
+        "fixtureBoundary": "The timed body constructs different test databases: baseline uses a small schema plus custom_053 while candidate executes the full bootstrap.sql.",
+        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_17_499MS_TEST_FIXTURE_SETUP_DELTA"
       },
       "databaseBootstrapReplay": {
         "test": "matches the schema produced by replaying all migrations",
-        "baselineTotalMedianMs": 365,
-        "candidateTotalMedianMs": 284,
-        "totalDeltaPercent": -22.2,
-        "baselineTestBodyMedianMs": 180,
-        "candidateTestBodyMedianMs": 88,
-        "testBodyDeltaPercent": -51.1,
+        "baselineTotalMedianMs": 1135.054,
+        "candidateTotalMedianMs": 1139.216,
+        "totalDeltaPercent": 0.37,
+        "baselineTestBodyMedianMs": 122.201583,
+        "candidateTestBodyMedianMs": 69.18225,
+        "testBodyDeltaPercent": -43.39,
         "verdict": "PASS_LOCAL_SYNTHETIC_REPLAY_IMPROVEMENT"
       }
     },
@@ -123,19 +139,20 @@
       "baseline": {
         "sourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
         "routes": 67,
-        "chunks": 81,
-        "rawBytes": 1834281,
-        "gzipBytes": 552376
+        "jsFiles": 84,
+        "rawBytes": 1834629,
+        "gzipBytes": 551457
       },
       "candidate": {
-        "identity": "UNCOMMITTED_WORKTREE",
+        "identity": "EXACT_SOURCE_COMMIT_8baf31835bd16e723f6132206637942316b5faba",
         "routes": 68,
-        "chunks": 82,
-        "rawBytes": 1856251,
-        "gzipBytes": 558669
+        "jsFiles": 85,
+        "rawBytes": 1858968,
+        "gzipBytes": 558403
       },
-      "totalGzipDeltaBytes": 6293,
-      "totalGzipDeltaPercent": 1.14,
+      "totalRawDeltaBytes": 24339,
+      "totalGzipDeltaBytes": 6946,
+      "totalGzipDeltaPercent": 1.26,
       "genericRouteClientGzipDeltaBytes": {
         "/events": -294,
         "/pools": -294,
@@ -152,33 +169,34 @@
         "/rich-menus": 189,
         "/prescriptions": -297
       },
-      "claimBoundary": "Exact static build artifacts only. Removing pharmacy APIs from the shared client reduced representative generic route chunks by 263-294 gzip bytes, but the broader candidate added one route and 6293 gzip bytes overall, so no whole-app bundle improvement is claimed."
+      "claimBoundary": "Same-machine static JavaScript artifacts with gzip level 9. The exact candidate's Web input tree is unchanged from the measured pre-optimization candidate; the added features grow total Web JavaScript by 6946 gzip bytes, so no whole-app Web bundle improvement is claimed. Historical per-route deltas remain directional only."
     },
     "workerRemoteD1": "NOT_RUN_PRODUCTION_AND_REMOTE_MUTATION_GATE",
-    "verdict": "PARTIAL_PASS_LIFF_AND_LOCAL_SYNTHETIC_ONLY"
+    "verdict": "PARTIAL_PASS_CURRENT_LOCAL_SYNTHETIC_REMOTE_D1_AND_REAL_DEVICE_NOT_RUN"
   },
   "localValidation": {
-    "workerTestFiles": 236,
-    "workerTests": 2536,
+    "workerTestFiles": 243,
+    "workerTests": 2604,
     "workerTypecheck": "PASS",
-    "databaseTestFiles": 82,
-    "databaseTests": 394,
+    "databaseTestFiles": 87,
+    "databaseTests": 408,
     "databaseTypecheck": "PASS",
     "updateEngineTestFiles": 22,
     "updateEngineTests": 219,
     "webTestFiles": 52,
-    "webTests": 233,
+    "webTests": 236,
     "webTypecheck": "PASS",
-    "webBuild": "PASS_68_STATIC_ROUTES_WITH_NON_NETWORK_PLACEHOLDER_API_URL",
-    "liffTestFiles": 20,
-    "liffTests": 128,
+    "webBuild": "PASS_CURRENT_WEB_INPUT_EQUIVALENT_5_RUN_STATIC_ARTIFACT_COMPARISON",
+    "liffTestFiles": 23,
+    "liffTests": 147,
     "liffTypecheck": "PASS",
-    "liffBuild": "PASS",
-    "liffBrowserSmoke": "PASS_13_TESTS",
+    "liffBuild": "PASS_EXACT_CANDIDATE_INITIAL_MAIN_146332_GZIP_BYTES_DEFERRED_ROUTE_8574_GZIP_BYTES",
+    "liffBrowserSmoke": "PASS_EXACT_CANDIDATE_13_TESTS",
     "bootstrapGeneratorCheck": "PASS",
-    "postBaselineMigrationPolicy": "PASS_7_MIGRATIONS",
+    "postBaselineMigrationPolicy": "PASS_12_MIGRATIONS",
     "scriptTestFiles": 19,
-    "scriptTests": 225,
+    "scriptTests": 226,
+    "repositoryVerify": "PASS_OFFLINE_FRESH_CLONE_EXACT_SOURCE_CANDIDATE_SHARED_BUILDS_WORKSPACE_TYPES_TESTS_SCRIPTS_MIGRATIONS",
     "targetedDiffCheck": "PASS"
   },
   "refactor": {
@@ -204,24 +222,25 @@
     "genericWebApiPharmacyEndpoints": 0,
     "acceptedException": "packages/db tests may import Worker custom repositories only in paired custom migration integration tests, as required by packages/AGENTS.md.",
     "verdict": "Route, service, repository, pharmacy custom, shared package, UI, and custom migration authorities are locally consistent after the Web API responsibility split.",
-    "claimBoundary": "Local worktree evidence only; one committed RC SHA is still required for release evidence."
+    "claimBoundary": "Behavior-preserving refactor and placement checks are included in the committed local source candidate; production behavior remains unverified."
   },
   "isolationCoverage": {
-    "status": "PASS_LOCAL_CURRENT_WORKTREE",
+    "status": "PASS_LOCAL_EXACT_SOURCE_CANDIDATE",
     "authority": "scripts/deploy/v033-isolation-inventory.ts overlays the existing complete route/page inventory",
     "routeInventoryValidation": "PASS_1_FILE_10_TESTS",
+    "routeInventoryCounts": "PASS_38_PAGES_42_API_GROUPS_231_UNIQUE_ROUTES",
     "scheduledJobs": 33,
     "storageAndR2Entrypoints": 8,
     "patientDomains": 6,
     "overlayValidation": "PASS_1_FILE_3_TESTS",
     "focusedNegativeMatrix": "PASS_29_FILES_472_TESTS",
-    "fullWorkerValidation": "PASS_236_FILES_2536_TESTS_AND_TYPECHECK",
+    "fullWorkerValidation": "PASS_243_FILES_2604_TESTS_AND_TYPECHECK",
     "fixedDefects": [
       "BAN health volume aggregation now binds messages_log.line_account_id for each account.",
       "Broadcast insight fetching no longer falls back to another LINE client when an explicit line_account_id has no matching client."
     ],
     "providerMessageCallInventory": "PASS_1_FILE_4_TESTS; every in-process provider push/reply/broadcast call is paired with its durable delivery helper, while the one multicast and test-push replay retain frozen retry-key contracts.",
-    "claimBoundary": "Local synthetic/source evidence only. A committed single RC replay and any production readback remain separate gates."
+    "claimBoundary": "Exact committed local-source replay passed. Remote D1 and production readback remain separate."
   },
   "independentReviews": {
     "replyRecovery": "APPROVE_NO_MEDIUM_OR_HIGH",
@@ -229,27 +248,25 @@
     "broadcastProductionLegacyQueue": "BLOCKED_HUMAN_GATE"
   },
   "gateStatus": {
-    "V033-G1": "BLOCKED_POLICY_HUMAN_GATE",
-    "V033-G2": "BLOCKED_POLICY_HUMAN_GATE",
-    "V033-G3": "BLOCKED_POLICY_HUMAN_GATE",
-    "V033-G4": "PASS_LOCAL_CURRENT_INVENTORY_AND_NEGATIVE_MATRIX",
+    "V033-G1": "PASS_LOCAL_APPROVED_POLICY_EXACT_CANDIDATE",
+    "V033-G2": "PASS_LOCAL_APPROVED_POLICY_EXACT_CANDIDATE",
+    "V033-G3": "PASS_LOCAL_APPROVED_POLICY_EXACT_CANDIDATE",
+    "V033-G4": "PASS_LOCAL_EXACT_CANDIDATE_INVENTORY_AND_NEGATIVE_MATRIX",
     "V033-G5": "PASS_LOCAL_CODE_PRODUCTION_GATE_BLOCKED",
-    "V033-G6": "BLOCKED_POLICY_HUMAN_GATE",
-    "V033-G7": "PARTIAL_PASS",
+    "V033-G6": "PASS_LOCAL_APPROVED_POLICY_EXACT_CANDIDATE",
+    "V033-G7": "PARTIAL_PASS_CURRENT_LOCAL_SYNTHETIC_REMOTE_D1_AND_REAL_DEVICE_NOT_RUN",
     "V033-G8": "PASS_LOCAL_CHARACTERIZATION_REFACTOR",
     "V033-G9": "PASS_LOCAL_PLACEMENT_SEAMS",
     "V033-G10": "PARTIAL_PASS_LOCAL_PRODUCTION_LEGACY_UNVERIFIED"
   },
   "releaseBlockers": [
-    "G1/G2/G3/G6 require explicit product and security policy approval.",
-    "The working tree is uncommitted and cannot be an exact RC SHA.",
-    "G7 has local staff bundle evidence but no remote Worker/D1 benchmark or single-RC replay.",
-    "G10 production legacy NULL counts and the one-RC send/log path denominator remain unverified.",
+    "G7 exact-candidate local synthetic performance passed, but remote Worker/D1 and real-device LIFF performance were not run.",
+    "G10 production legacy NULL counts remain unverified.",
     "Production legacy status=sending queue drain or approved reset is not verified.",
-    "No exact-candidate repository verify, development deploy, production deploy, or activation exists."
+    "No development deploy, production deploy, or activation exists."
   ],
   "boundaries": {
-    "commit": "NOT_RUN",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_8baf31835bd16e723f6132206637942316b5faba",
     "pullRequest": "NOT_RUN",
     "devPush": "NOT_RUN",
     "devDeploy": "NOT_RUN",

@@ -89,10 +89,7 @@ function routeDb(
   return { db, calls };
 }
 
-function setupApp(
-  db: D1Database,
-  options: { tenantId?: string; staffId?: string } = {},
-) {
+function setupApp(db: D1Database, options: { tenantId?: string; staffId?: string } = {}) {
   const app = new Hono<Env>();
   app.use('*', async (c, next) => {
     if (options.tenantId !== undefined) c.set('tenantId', options.tenantId);
@@ -112,28 +109,39 @@ beforeEach(() => {
 
 describe('auto-reply tenant boundary', () => {
   it('lists only mapped account rows and scopes effective accounts and automation index', async () => {
-    const rows = [autoReply('reply-a', 'account-a'), autoReply('reply-b', 'account-b'), autoReply('reply-global', null)];
-    dbMocks.getAutoReplies.mockImplementation(
-      async (_db: D1Database, accountId?: string, tenantId?: string) => {
-        const scoped = tenantId === undefined
-          ? rows
-          : rows.filter((row) => row.line_account_id === 'account-a');
-        return accountId
-          ? scoped.filter((row) => row.line_account_id === accountId)
-          : scoped;
-      },
-    );
+    const rows = [
+      autoReply('reply-a', 'account-a'),
+      autoReply('reply-b', 'account-b'),
+      autoReply('reply-global', null),
+    ];
+    dbMocks.getAutoReplies.mockImplementation(async (_db: D1Database, accountId?: string, tenantId?: string) => {
+      const scoped = tenantId === undefined ? rows : rows.filter((row) => row.line_account_id === 'account-a');
+      return accountId ? scoped.filter((row) => row.line_account_id === accountId) : scoped;
+    });
     const { db, calls } = routeDb(
-      [{ id: 'account-a', name: 'Account A' }, { id: 'account-b', name: 'Account B' }],
       [
-        { line_account_id: 'account-a', conditions: JSON.stringify({ keyword: 'reply-a' }), actions: JSON.stringify([{ type: 'send_message' }]) },
-        { line_account_id: 'account-b', conditions: JSON.stringify({ keyword: 'reply-b' }), actions: JSON.stringify([{ type: 'send_message' }]) },
+        { id: 'account-a', name: 'Account A' },
+        { id: 'account-b', name: 'Account B' },
+      ],
+      [
+        {
+          line_account_id: 'account-a',
+          conditions: JSON.stringify({ keyword: 'reply-a' }),
+          actions: JSON.stringify([{ type: 'send_message' }]),
+        },
+        {
+          line_account_id: 'account-b',
+          conditions: JSON.stringify({ keyword: 'reply-b' }),
+          actions: JSON.stringify([{ type: 'send_message' }]),
+        },
       ],
     );
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
     const response = await app.request('/api/auto-replies', {}, env);
-    const body = await response.json() as { data: Array<{ id: string; effectiveAccounts?: Array<{ accountId: string }> }> };
+    const body = (await response.json()) as {
+      data: Array<{ id: string; effectiveAccounts?: Array<{ accountId: string }> }>;
+    };
 
     expect(response.status).toBe(200);
     expect(body.data.map((row) => row.id)).toEqual(['reply-a']);
@@ -163,8 +171,8 @@ describe('auto-reply tenant boundary', () => {
     ['foreign account', autoReply('reply-b', 'account-b')],
     ['legacy NULL row', autoReply('reply-global', null)],
   ])('does not expose a %s in tenant detail', async (_label, row) => {
-    dbMocks.getAutoReplyById.mockImplementation(
-      async (_db: D1Database, _id: string, tenantId?: string) => tenantId === undefined ? row : null,
+    dbMocks.getAutoReplyById.mockImplementation(async (_db: D1Database, _id: string, tenantId?: string) =>
+      tenantId === undefined ? row : null,
     );
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
@@ -176,19 +184,27 @@ describe('auto-reply tenant boundary', () => {
 
   it('rejects foreign update and delete before mutation', async () => {
     const foreign = autoReply('reply-b', 'account-b');
-    dbMocks.getAutoReplyById.mockImplementation(
-      async (_db: D1Database, _id: string, tenantId?: string) => tenantId === undefined ? foreign : null,
+    dbMocks.getAutoReplyById.mockImplementation(async (_db: D1Database, _id: string, tenantId?: string) =>
+      tenantId === undefined ? foreign : null,
     );
     dbMocks.updateAutoReply.mockResolvedValue(foreign);
     dbMocks.deleteAutoReply.mockResolvedValue(true);
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const update = await app.request(`/api/auto-replies/${foreign.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword: 'spoofed', tenantId: 'tenant-b', lineAccountId: 'account-b' }),
-    }, env);
+    const update = await app.request(
+      `/api/auto-replies/${foreign.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'spoofed',
+          tenantId: 'tenant-b',
+          lineAccountId: 'account-b',
+        }),
+      },
+      env,
+    );
     const remove = await app.request(`/api/auto-replies/${foreign.id}`, { method: 'DELETE' }, env);
 
     expect(update.status).toBe(404);
@@ -202,20 +218,38 @@ describe('auto-reply tenant boundary', () => {
     const { db } = routeDb([], []);
     const scoped = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const missing = await scoped.app.request('/api/auto-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword: 'missing', responseType: 'text', responseContent: 'reply' }),
-    }, scoped.env);
+    const missing = await scoped.app.request(
+      '/api/auto-replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'missing',
+          responseType: 'text',
+          responseContent: 'reply',
+        }),
+      },
+      scoped.env,
+    );
     expect(missing.status).toBe(400);
     expect(dbMocks.createAutoReply).not.toHaveBeenCalled();
 
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
-    const foreign = await scoped.app.request('/api/auto-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword: 'foreign', responseType: 'text', responseContent: 'reply', lineAccountId: 'account-b', tenantId: 'tenant-b' }),
-    }, scoped.env);
+    const foreign = await scoped.app.request(
+      '/api/auto-replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'foreign',
+          responseType: 'text',
+          responseContent: 'reply',
+          lineAccountId: 'account-b',
+          tenantId: 'tenant-b',
+        }),
+      },
+      scoped.env,
+    );
     expect(foreign.status).toBe(403);
     expect(dbMocks.createAutoReply).not.toHaveBeenCalled();
   });
@@ -226,24 +260,31 @@ describe('auto-reply tenant boundary', () => {
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const response = await app.request('/api/auto-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        keyword: 'owned',
-        responseType: 'text',
-        responseContent: 'reply',
-        lineAccountId: 'account-a',
-        tenantId: 'tenant-b',
-      }),
-    }, env);
+    const response = await app.request(
+      '/api/auto-replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'owned',
+          responseType: 'text',
+          responseContent: 'reply',
+          lineAccountId: 'account-a',
+          tenantId: 'tenant-b',
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(201);
-    expect(dbMocks.createAutoReply).toHaveBeenCalledWith(db, expect.objectContaining({
-      keyword: 'owned',
-      lineAccountId: 'account-a',
-      tenantId: 'tenant-a',
-    }));
+    expect(dbMocks.createAutoReply).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        keyword: 'owned',
+        lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+      }),
+    );
   });
 
   it('resolves a referenced template only inside the server tenant', async () => {
@@ -257,15 +298,19 @@ describe('auto-reply tenant boundary', () => {
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const response = await app.request('/api/auto-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        keyword: 'owned',
-        templateId: 'template-a',
-        lineAccountId: 'account-a',
-      }),
-    }, env);
+    const response = await app.request(
+      '/api/auto-replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'owned',
+          templateId: 'template-a',
+          lineAccountId: 'account-a',
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(201);
     expect(dbMocks.getTemplateById).toHaveBeenCalledWith(db, 'template-a', 'tenant-a');
@@ -279,20 +324,28 @@ describe('auto-reply tenant boundary', () => {
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const create = await app.request('/api/auto-replies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        keyword: 'foreign',
-        templateId: 'template-b',
-        lineAccountId: 'account-a',
-      }),
-    }, env);
-    const update = await app.request(`/api/auto-replies/${owned.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ templateId: 'template-b' }),
-    }, env);
+    const create = await app.request(
+      '/api/auto-replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'foreign',
+          templateId: 'template-b',
+          lineAccountId: 'account-a',
+        }),
+      },
+      env,
+    );
+    const update = await app.request(
+      `/api/auto-replies/${owned.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId: 'template-b' }),
+      },
+      env,
+    );
 
     expect([create.status, update.status]).toEqual([400, 400]);
     expect(dbMocks.createAutoReply).not.toHaveBeenCalled();
@@ -307,19 +360,22 @@ describe('auto-reply tenant boundary', () => {
     const { db } = routeDb([], []);
     const { app, env } = setupApp(db, { tenantId: 'tenant-a', staffId: 'staff-a' });
 
-    const response = await app.request(`/api/auto-replies/${owned.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword: 'updated', lineAccountId: 'account-b', tenantId: 'tenant-b' }),
-    }, env);
+    const response = await app.request(
+      `/api/auto-replies/${owned.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: 'updated',
+          lineAccountId: 'account-b',
+          tenantId: 'tenant-b',
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(200);
-    expect(dbMocks.updateAutoReply).toHaveBeenCalledWith(
-      db,
-      owned.id,
-      { keyword: 'updated' },
-      'tenant-a',
-    );
+    expect(dbMocks.updateAutoReply).toHaveBeenCalledWith(db, owned.id, { keyword: 'updated' }, 'tenant-a');
   });
 
   it('keeps legacy OSS behavior when no tenant context exists', async () => {
@@ -334,8 +390,10 @@ describe('auto-reply tenant boundary', () => {
     const detail = await app.request(`/api/auto-replies/${global.id}`, {}, env);
 
     expect(list.status).toBe(200);
-    expect((await list.clone().json() as { data: Array<{ id: string }> }).data.map((row) => row.id))
-      .toEqual(['reply-global', 'reply-a']);
+    expect(((await list.clone().json()) as { data: Array<{ id: string }> }).data.map((row) => row.id)).toEqual([
+      'reply-global',
+      'reply-a',
+    ]);
     expect(detail.status).toBe(200);
   });
 });

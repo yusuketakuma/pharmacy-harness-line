@@ -1,5 +1,652 @@
 # Changelog
 
+## Pharmacy v0.36.4 (2026-09-27)
+
+> パッケージ／ソースのバージョンを`0.36.4`として確定し、2026-09-22 監査のフォローアップ修復一式とリポジトリ基盤整備(Biome 導入・cron 頻度削減)を`dev`で管理します。ソースコードのタグ`v0.36.4`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+2026-09-22 のフォローアップ監査(証跡: `docs/pharmacy/evidence/audit-20260922/`)で検出した欠陥45件相当を閉じるとともに、リポジトリ全体の保守基盤を整える patch です。破壊的変更はなく、schema 追加は additive な通知キュー3本(`custom_079`〜`081`)のみです。
+
+### v0.36.3 との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| セキュリティ・プライバシ修復 | 例外・ログ・API応答からの機密情報漏出を全系統で遮断(LINEエラー本文の転載禁止・入力内容・画像操作の例外を固定ログ化)。webhook の署名検証前 body 読み取り制限、追跡リンク所有確認の更新前実施、tenant scope 強化 | 実装済み |
+| 薬局通知キュー | 服薬フォロー・継続案内・処方せん有効期限の通知キュー migration(`custom_079`〜`081`)を追加し、送信直前の最新状態再確認・終了済み案内の遮断・停止中通知が後続を塞がない処理順・結果不明時の受付保全を実装 | 実装済み |
+| 競合・整合性修復 | 保存判定の世代逆戻り防止、recovery 実行リース、チャットメモ編集の再取得保護、患者下書きの LINE 利用者ごと分離、並行再登録での配送済みリマインド保持 | 実装済み |
+| cron 頻度削減 | Cron Trigger を毎分→5分へ削減(1,440→288回/日)。instant welcome は follow/tag/click のイベント駆動へ移行済みで cron 非依存。日次 `processInsightFetch` は6時間tickへ移動し5分tickの SELECT を削減。installer テンプレート(`*/5`)との乖離を解消 | 実装済み |
+| Formatter 導入 | `@biomejs/biome` 2.5.14 を導入し全1,281ファイルを `lineWidth=120` で整形。`format`/`format:check`/`lint`/`check` scripts を追加し `verify:ci` 先頭に `format:check` を組み込み | 実装済み |
+| テスト基盤 | ソース走査テストを改行耐性のある正規表現へ移行。`openingTag` 簡易パーサの属性内ブレース誤認を修正。整形で顕在化した潜伏ログ違反(`fs.id`/`friend_id`)を除去 | 実装済み |
+
+### 差分で確認した安全性
+
+- **後方互換**: 公開 API・ルート・ペイロード契約は不変。migration は additive のみ。lockstep deploy 不要。
+- **検証**: `pnpm verify:ci` 全ゲート(format:check・共有パッケージ build・`pnpm -r typecheck`・`pnpm -r test`・`test:scripts`・migration 整合性)パス。worker 3,064件 / web 267件 / liff 205件 / scripts 263件。`wrangler deploy --dry-run` でトリガー設定の妥当性を確認。
+- **残 Human Gate**: 実機 LINE 動作確認・本番反映・cron 変更の本番 D1 メトリクス確認は未実施。
+
+## Pharmacy v0.36.3 (2026-09-19)
+
+> パッケージ／ソースのバージョンを`0.36.3`として確定し、v0.36.2 フォローアップ監査の修復一式を`dev`で管理します。ソースコードのタグ`v0.36.3`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.36.2 に対するフォローアップ監査(2026-09-18〜19)で確認した欠陥を閉じる patch です。新 API・migration・通知経路の追加はなく、変更は `custom/pharmacy` seam の LIFF 側とテストのみです。計画は PLANS.md の v0.36.2 節(フォローアップ監査)に記録済みです。
+
+### v0.36.2 との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 旧 LINE WebView 互換 | `compat.ts` を追加し、`crypto.randomUUID` / `structuredClone` 非対応環境向けフォールバック(`pharmacyUuid` / `cloneJsonValue`)を薬局シーム全箇所に適用 | 実装済み |
+| 入力中フォームの保護 | quiet(バックグラウンド)リフレッシュがマウント済み内容を破壊しない契約を全ページに統一。reconnect/auto-retry の callback を named idempotent read に限定し、last-started-wins の load epoch で古い応答が新しい変更結果を上書きしないことを保証 | 実装済み |
+| 下書きのテナント隔離 | intake/new-patient 下書きキーを `liffId` でスコープ化し、共有 Pages オリジン上のテナント跨り PHI 露出を解消。legacy キーは write→re-read 検証→削除の restore-once マイグレーション。`sweepIntakeDrafts` は自テナント prefix のみ | 実装済み |
+| 保存ロック・整合 | profile-save ミューテックスを `finally` で無条件解放し supersede 時のロック残留を解消。`reconcileAfterSendError` の history 直書きに epoch bump を要求。`PatientProfileForm` を `pendingProfileSave \|\| busy` で全凍結 | 実装済み |
+| 回帰ガード | request-gate の stale レスポンス隔離(Myna/ECAdmin/Today/DSR × unmount後・フィルタ変更後 × 200/503)を e2e でピン留め。LIFF 側は profile 凍結・mutex 解放・history epoch のソースピンを追加 | 実装済み |
+
+### 差分で確認した安全性
+
+- **後方互換**: 公開 API・CLI・ルート・ペイロード・マニフェスト契約は不変。localStorage キーの移行は write→検証→削除の restore-once で非破壊。lockstep deploy 不要。
+- **検証**: `pnpm --filter liff test` 202件、`tsc --noEmit`、`pnpm --filter liff build`、`playwright` e2e 21件、`v035-readiness`/`version-contract` テスト全てパス。
+- **残 Human Gate**: 実機 LINE 動作確認・VoiceOver・本番反映は未実施。
+
+## Pharmacy v0.36.2 (2026-09-18)
+
+> パッケージ／ソースのバージョンを`0.36.2`として確定し、患者向けLIFFの状態遷移の信頼性仕上げ一式を`dev`で管理します。ソースコードのタグ`v0.36.2`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.36.1で増えた状態遷移（自動再試行・下書き・ステータス通知）を、患者が信用できる状態まで閉じるpatchです。新API・migration・通知経路の追加はなく、変更は`custom/pharmacy` seamのLIFF側のみです。計画はPLANS.mdのv0.36.2節（V036-12〜17）に固定済みで、条件付き2件（画像ごとの状態表示・接続状態案内）は採用条件を満たしたため実装しています。
+
+### v0.36.1との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 自動再試行の堅牢化 | `usePharmacyAutoRetry`をload単位へ粒度変更（PrescriptionPage 4系統・PatientIntakePage 2系統が独立にretry）。attempt消費を`setTimeout`発火時へ移し、StrictModeのdev double-mountでretry budgetを二重消費しない。`mounted` guardでunmount後のsetStateを抑止 | 実装済み |
+| 下書きの信頼性 | `{savedAt, data}` envelope＋24時間TTL＋期限切れ削除。envelope無しのlegacy draftは一度だけ復帰（「保存時刻は不明」表示）し、次回保存で自動migrate。復帰時のみ「下書きを復元しました」通知＋保存時刻表示。切替・離脱ダイアログを「この端末には下書きが残ります」へ実挙動に整合 | 実装済み |
+| 読み上げの単一経路化 | live region（`role="status"`/`alert`）とfocusを分離：成功・情報ブロックはlive regionで読み上げ（scrollのみ、focus/tabIndex廃止）、エラーブロックはfocusで読み上げ（live role廃止）。二重読み上げを解消 | 実装済み |
+| `aria-busy`の限定 | 服薬フォローの選択肢で`aria-busy`を実際に送信中のボタンのみへ限定（他の選択肢はdisabledのままbusy非表示） | 実装済み |
+| 平易化 | `既往歴・通院中の病気`→`これまでにかかった病気・現在通院中の病気`、`説明と明示同意`→`説明と同意`（明示性は必須checkboxが担保）、`仮受付`へ初出説明`（確定前のお申し込み）`を付記 | 実装済み |
+| 画像ごとの送信状態 | 処方せんの各画像に`送信待ち/送信中…/送信済み/要再試行`の状態chip。`prescriptionApi.upload`逐次呼出を包む状態遷移のみで、upload transportは不変。失敗画像以降は一律`要再試行`で、結果不明を成功表示しない | 実装済み |
+| 接続状態案内 | `usePharmacyOnline`（offline/onlineイベント監視、online遷移時のみnamed read callback発火）＋Shell共通`PharmacyOfflineBanner`。全ページのidempotent readを復帰時に局所再取得。ページreload・dirty form/画像/mutationの自動送信なし | 実装済み |
+| 回帰ガード | `v036-ui-rules.test.ts`に追加：attemptのtimer内消費、retry/reconnect callbackのnamed read必須、focus target×live region併用禁止、`aria-busy`スコープ、平易化文言、画像4状態、`location.reload`禁止 | 実装済み |
+
+### 差分で確認した安全性
+
+- **下書きの期限と後方互換**: TTL 24hは工学的提案値（法令由来でない）。envelope無しlegacy draftは一度復帰して次回編集で新形式へ自動移行し、データを失わない。`data:null`/corrupt envelopeは復帰せず握りつぶす。患者A/Bのキー分離は`intakeDraftKey(patientId)`で維持。
+- **読み上げの重複排除**: `role="status"`（暗黙polite+atomic）ノードへのfocus移動はスクリーンリーダーで二重読み上げになるため、読み上げ経路を1本に統一。focusを受けるエラーブロックからは`role="alert"`を除去。
+- **接続復帰時の自動再取得**: `usePharmacyOnline`のcallbackはnamed idempotent readのみ（ガードで強制）。provider層へ`usePharmacyOnline(retry)`を配線すると`access.loading`が全childrenをskeletonへ差し替えdirty formを破壊するため、復帰再取得はpage層のreadのみに限定。
+- **画像状態の正直表示**: `done`は`upload()`のresolve後のみ。files配列が変わるとindex対応が崩れるため全量`queued`へreset（stale状態を引き継がない）。結果不明を`送信済み`表示しない。
+- **API契約**: 変更なし。upload transport・draft・intake answersの送出形式は不変。UI層のみの変更のため、旧LIFFとのlockstep deployは不要。
+
+### レビューで検出・修正した事項
+
+- provider層へ`usePharmacyOnline(retry)`を配線すると、復帰時のaccess再読込が`loading:true`で全childrenをskeletonへ差し替え、入力中フォームを破壊する問題を検出し取り止め（復帰再取得はpage層readへ限定）。
+- `loadDraft`のenvelope判定で`data:null`やnull本体のdraftが`data.answers`参照でTypeErrorになる経路を検出し、null/undefinedの早期returnで防御。
+- ガードテストが`feedback.tsx`内のhook定義行とコメント中の`role="alert"`記述を誤検出したため、定義site除外・コメント行skipで修正。
+- `isEnvelope`の`Boolean(value)`ナローイングがTS18047を出したため`value !== null`へ修正。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.2`へ統一 |
+| liff | 28 files / 189 tests PASS、`tsc --noEmit` PASS、Vite build成功 |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema変更、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+| LINE送信取消 | BLOCKED継続 — V036-6-U1として正本確定まで実装しない |
+
+## Pharmacy v0.36.1 (2026-09-18)
+
+> パッケージ／ソースのバージョンを`0.36.1`として確定し、患者向けLIFFのインタラクション・フォームUX改善一式を`dev`で管理します。ソースコードのタグ`v0.36.1`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+患者側LIFFに対して、高齢患者を前提とした「迷わない・消えない・待ちが分かる」インタラクション層を追加しました。画面遷移・ステップ移動・読み込み・送信・失復帰の5面を、`custom/pharmacy` seam と `index.css` の共通部品で統一しています。API契約・DBスキーマ・通知経路の変更はありません。LIFF側のみの変更です。
+
+調査はサブエージェント4系統（LIFF公式ドキュメント / WCAG 2.2・DADS / 高齢者UX / GOV.UKフォーム設計）で実施し、採用した提案だけを実装しています。本文18px一括化・全画面の情報密度削減は、情報量確保のユーザー方針と競合するため採用していません。
+
+### v0.36.0との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 画面遷移 | `PharmacyShell` で pathname 変化時に `pharmacy-page-enter` フェード（0.18s）＋ `scrollTo(0,0)`。query変化はscrollのみに分離し、タブ切替でフォーム入力を失わない。遷移ごとに `document.title` を「画面名｜薬局名」へ更新 | 実装済み |
+| ステップ遷移 | 問診3ステップ・EC（入力→確認）に方向スライド（次へ=左／戻る=右、0.2s）＋遷移後の見出しへ自動 focus。`role="progressbar"` 付き進捗バー | 実装済み |
+| ローディング | 全ローディング表示を `PharmacyLoading`（構造模倣スケルトン＋`role="status"`＋`sr-only`ラベル）へ統一。対象：shell/gate/menu/timeline/followup/continuity/info/処方せん×3/問診/EC | 実装済み |
+| 送信フィードバック | 全送信ボタンに `PharmacySpinner`（送信中…）＋ `aria-busy`。完了ブロックは `PharmacyStatusBlock`（mount時focus＋scrollIntoView）へ統一。継続フォローの受取登録はoptimistic update＋失敗時ロールバック | 実装済み |
+| 押下フィードバック | `.pharmacy-control:active` で scale(0.98)。`:disabled`/`[aria-disabled]` は除外 | 実装済み |
+| reduced-motion | `@media (prefers-reduced-motion: reduce)` で全アニメーション・transitionを停止 | 実装済み |
+| 下書き自動保存 | `draftStorage.ts` 新設。問診の回答＋ステップ・新規患者フォームを `localStorage` へ保存し、LIFF再起動・セッション切れで復帰。キーは患者ID単位で分離（`intakeDraftKey`/`NEW_PATIENT_DRAFT_KEY`）、送信成功時にクリア。storage不可環境は例外握りつぶしてフォーム自体は継続 | 実装済み |
+| 生年月日入力 | 患者登録の `type="date"` を廃止 → 年/月/日の3分割 `inputmode="numeric"` 入力。`birth_date`（YYYY-MM-DD）は派生値のためAPI契約不変 | 実装済み |
+| エラーサマリ | `PharmacyErrorSummary` 新設（上部一覧→該当fieldsetへジャンプ＋focus、mount時自動focus）。問診の未回答安全確認（ステップスコープ）とEC送信エラーに導入 | 実装済み |
+| 自動再試行 | `usePharmacyAutoRetry`（最大2回、3秒/6秒バックオフ、成功時リセット）を全idempotent loadへ配線：処方せん4系統・問診2系統・timeline・continuity・followup・info・shell初期アクセス。送信/mutationは対象外 | 実装済み |
+| iOS自動ズーム防止 | seam内の全 input/textarea/select を `text-base` へ（16px未満inputのフォーカス強制ズーム対策）。radio/checkbox/fileは対象外 | 実装済み |
+| コントラスト | `text-gray-500` → `text-gray-600`（空状態・履歴なし表示） | 実装済み |
+| 行間 | `.pharmacy-shell/.pharmacy-main` に `line-height: 1.6`（DADS 160%基準）を既定化 | 実装済み |
+| 数値入力 | ECの年齢・過去3か月利用回数を `type="number"` → `type="text" inputmode="numeric" pattern="[0-9]*"` ＋非数字除去（スピナー誤操作・スクロール値変化の排除） | 実装済み |
+| 回帰ガード | `v036-ui-rules.test.ts` に5規約追加：reduced-motion網羅性、`scrollTo`/`document.title` 存在、`type="number"/"date"`禁止（EC直近月経日は直近日付pickerとして例外許可）、テキスト入力の`text-base`必須、`text-gray-400/500`禁止、spinner使用時の`aria-busy`必須 | 実装済み |
+
+### 差分で確認した安全性
+
+- **PHIとlocalStorage**: 下書きは患者自身の端末内 `localStorage` にのみ保存され、サーバー送信は従来どおり送信操作時のみ。患者ID単位でキーを分離し、家族の別患者へ混入しない。送信成功・別患者選択時はリセットして混入を防止。storageが使えないWebView環境（プライベートモード等）はtry/catchで握りつぶし、フォーム自体は動作し続ける。
+- **下書き復帰のマージ順**: 保存済み回答の上に下書きを重ねる（`{...savedAnswers, ...draft.answers}`）。下書き保存後に追加された回答キーがあっても保存値を失わない。
+- **自動再試行の境界**: `usePharmacyAutoRetry` はidempotentなload専用。submit/mutationには配線しない設計をコメントで明記し、全呼出箇所がload経路であることを確認済み。失敗カウンタは成功時リセット、最大2回で停止（無限リトライなし）。
+- **タブ切替での入力保持**: `PharmacyShell` の再マウントキーはpathnameのみに限定し、query変化ではchildrenをunmountしない（処方せんタブ切替で選択中の患者・写真・同意を失わない）。
+- **エラーサマリのフォーカス競合**: 問診サマリは`showErrors`（「次へ」押下後）でのみ表示し、初回マウント時の未回答状態ではfocusを奪わない。ジャンプ先は当該ステップ内に限定（`SAFETY_KEYS_BY_STEP`）。ECの全ジャンプ先ID（10件）は実在を確認済み。
+- **遅延読み込みとの競合**: `usePharmacyAutoRetry` のretry callbackは`useCallback`で安定化し、timeoutはunmount/再実行時にclearTimeoutで解除。
+- **API契約**: 変更なし。`birth_date`文字列・EC draft・intake answersの送出形式は不変。UI層のみの変更のため、旧LIFFとのlockstep deployは不要。
+
+### レビューで検出・修正した事項
+
+- 下書き復帰のマージが `{...INITIAL, ...draft}` だったため、下書き保存後に追加された回答キーの保存値を失う可能性を `{...savedAnswers, ...draft}` へ修正。
+- 一括置換で radio/checkbox/sr-only input にも `text-base` が混入したものを全件除去（非テキスト入力は対象外）。
+- ガードテスト新規約が `emergency-last-period` の `type="date"` を誤検出したため、直近日付pickerとして明示例外化。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.1`へ統一 |
+| liff | 25 files / 164 tests PASS、`tsc --noEmit` PASS、Vite build成功 |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema変更、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+
+## Pharmacy v0.36.0 (2026-09-17)
+
+> パッケージ／ソースのバージョンを`0.36.0`として確定し、Closed-loop Follow-up & Communication の残件と患者向けUI改善・薬局管理画面の機能追加を`dev`で管理します。ソースコードのタグ`v0.36.0`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+薬局側は、服薬フォローの運用設定（営業時間・応答SLA・主/副担当・時間外/緊急案内）を`GET/PUT /api/custom/pharmacy/medication-followups/operations`と管理画面パネルで読み書きできるようにし、スタッフ対応待ち案件の`response_deadline_at`をアクションキューと日次サマリーの期限超過分類へ乗せました。チャットには承認制の定型文ピッカーを追加し、既存の手動送信composerと`X-Line-Harness-Source: manual`経路を変えずに定型文を挿入できます。患者側はLIFF全画面で本文`text-base`・タップ領域`min-h-11`へ揃え、服薬フォロー回答の送信完了後に対応の見通し（返信目安・時間外/緊急の固定文言）を併記するようにしました。
+
+この版の実装も既存のtenant/account/staff認可、capability、`expectedVersion` CAS、tenant audit、triggerによるstaff scope不変条件、承認済みPHI-freeメッセージ検証を再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.2との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| V036-4a 運用設定API | `GET/PUT` operations、`expectedVersion` CAS、同一batchでaudit、capability `medication_followup` 必須、trigger拒否の409/422変換 | 実装済み |
+| V036-4b 運用設定画面 | `MedicationFollowUpOperationsPanel`（営業時間・SLA・担当・時間外/緊急メッセージ・有効化トグル、409再取得、二重送信防止） | 実装済み |
+| V036-4c 患者表示 | 服薬フォロー回答完了ブロックに対応の見通し（安全な固定文言のみ、SLA内部JSON・staff識別子は非公開） | 実装済み |
+| V036-4d 期限超過可視化 | staff対応待ちstatusで`response_deadline_at`をdeadlineとして使用、旧schemaは列検出で`due_at`へfallback | 実装済み |
+| V036-7/8/9 LIFF UI | 全12画面監査、本文`text-base`/タップ`min-h-11`統一、送信失敗時の入力保持確認、回帰ガード`v036-ui-rules.test.ts` | 実装済み |
+| V036-10 チャット定型文 | additive migration `026_custom_078`、CRUD+承認API（owner/adminのみ・自己承認不可・version CAS・PHI-free強制）、定型文ピッカー（送信経路は不変） | 実装済み |
+| V036-11 KPI整合 | ダッシュボードへ「準備完了数」追加、分子/分母注記、`legacyUnscoped`実値バインド、`promiseWithoutReady`構造的ゼロの明示 | 実装済み |
+| V036-6 LINE lifecycle | 再follow冪等、重複/再配送(durable inbox)、画像取得失敗（null→`[画像]`fallback / throw→durable retry）、未対応形式、pharmacy postback単一処理、受付≠到達/既読、PHI/provider詳細をlogへ出さない合成テスト7件（follow/unfollowは既存webhookテストで担保） | ローカル完了・実LINE受入はHuman Gate |
+| V036-5 release gate | wrong-target/duplicate/PHI通知/PHI log/escalation未対応close/SLA超過放置の各0件を全テストスイートで照合 | ローカル照合済み |
+| version contract | runtime package 6件を`0.36.0`へ統一、LIFF version expectation追従 | 実装済み |
+
+### 差分で確認した安全性
+
+- 運用設定のPUTは`expectedVersion` CASとtrigger（staff/account scope・active human staff・enabled未完備拒否）で守り、cross-accountは403/404、stale versionは409、auditはmutationと同一D1 batchで原子的に書きます。
+- 定型文は`assertPharmacyAutomatedText`のPHI-free検証を再利用し、placeholder/補間らしい本文を拒否、承認はowner/adminのみで自己承認不可、identity列はtriggerで不変です。送信は既存のmanual composer経路のみで、自動送信経路は作っていません。
+- 患者向けoutlookはservice hours text・応答目安・承認済み時間外/緊急メッセージcodeのみを返し、raw SLA JSONや内部staff識別子を出しません。
+- LINE lifecycleはAPI受付成功と患者到達/既読を区別し、確認不能を確認済み表示にしません。画像取得失敗は返却`null`で`[画像]`fallback、throwはdurable inbox retryへ委譲し、provider error detailをlogへ残しません。
+
+### レビュー監査（サブエージェント5系統並列）と修正
+
+コミット前にWorker/DB/Web/LIFF/テスト・文書の5エージェントで差分監査を実施。critical/highなし。検出したmedium以下の指摘は全て修正済みです。
+
+- **PHIフェンスの穴を閉塞**: 運用設定の`service_hours_text`（自由テキスト→患者outlookへ表示）に`assertPharmacyAutomatedText`を適用。患者名・薬剤名らしい文言を含む保存を拒否します。
+- **サーバー側ロール整合**: `PUT /medication-followups/operations`へowner/adminチェックを追加。UIの「一般スタッフは閲覧のみ」表示とAPI契約を一致させ、一般staffは403を返すテストを追加。
+- **migration `026_custom_078` のtrigger/FK強化**: identity immutability triggerに`created_at`を追加。staff-scope triggerが`is_active`・`principal_kind='human'`を検証するよう強化。`created_by_staff_id`/`approved_by_staff_id`に`pharmacy_staff_accounts`へのFKを追加（作成者削除で更新不能になる孤立を防止）。bootstrap.sql/metaを再生成。
+- **LIFFガードテストの抜け道を修復**: 行末`<a`の検出漏れ、10行先読みの無関係マークアップ誤免責、`<input>`/inline label未対象、空ファイルのvacuous pass、`pharmacy-control` CSS値未ピンを修正。強化後のガードで実違反6件（`PrescriptionPage`のradio label 2件、EC/questionnaireのテキストリンク4件）を検出し`min-h-11`を適用済み。
+- **lifecycleテストハーネスの根本bug修正**: `database()`が呼出ごとにSQL記録をリセットしていた問題を`beforeEach`移動で解消。`fetchImage`呼出・未対応形式4件のmessages_log書込・`first_followed_at`/`created_at`区別をアサート強化。
+- **その他**: `?status=all`がarchivedを含むよう修正、`apps/web/tsconfig.tsbuildinfo`をuntrack、PLANSのstale識別子`custom_026`・route inventoryの"approve or reject"表記・CHANGELOG帰属を修正、患者向け表示のASCIIコロンを全角統一。
+
+監査で設計意図と確認し未変更としたもの: 定型文archiveは一般staff可（承認剥奪は職務分離として維持）、outlook判定は`enabled`のみ（staff active再確認は送信側gateの非対称責務）、inlineテキストリンクへの`min-h-11`適用に伴う行高44px化。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.0`へ統一 |
+| worker | 262 files / 2,857 tests PASS、typecheck PASS |
+| web | 55 files / 264 tests PASS、`tsc --noEmit` PASS |
+| liff | 26 files / 158 tests PASS、`tsc --noEmit` PASS |
+| packages/db | 99 files / 470 tests PASS |
+| scripts | 225 tests PASS（route inventoryへchat-templates登録済み） |
+| migration / schema | additive migration `026_custom_078`追加、bootstrap同期済み（`check-migrations.ts` OK） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+
+## Pharmacy v0.35.2 (2026-09-17)
+
+> パッケージ／ソースのバージョンを`0.35.2`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.2`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+監査キュー`AUDIT-V4-20260916`（40件+独立レビュー指摘）の成果を`dev`へ集約しました。患者向けには、Google Meet個別相談について、登録確定・前日・1時間前の3種類を承認済みの中立テンプレート（日時変数＋参加用Meetリンク）でLINE通知します。通知は新しい`meet_consultation` capabilityで制御し、薬局アカウントでは平文の`channel_access_token`列を使わず、暗号化credentialストア経由の承認済みsenderに一本化しました。処方せん画像の保持は、キャンセル・放置下書き・調剤完了を含む全画像を3年保持へ統一し、物理削除は復旧ゲート付きのretention purgeのみに限定しました。
+
+この版の実装も既存のtenant/account/patient認可、capability、notification ledger、retry key冪等、outbound pause、CASを再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.1との差分監査
+
+比較対象は、v0.35.1のタグ対象`91bf07c`（cutコミット`66832ab`）から、監査v4成果を集約した現在の`dev`（`c109b90`）までです。差分は5コミット、114ファイル、`6,171`行追加、`978`行削除でした。追加行の大半は監査v4のmigration・テスト・証跡文書で、機能コードの縮退ではありません。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| PR #119 / `91bf07c` | release/v0.35.1 マージ（version contract、LIFF version expectation の0.35.1追従） | 実装済み |
+| `54f399e` / PR #120 | Myna sweepのJST quiet-hours整合、rate-limit合成テスト、evidence/PLANS記録更新 | 実装済み |
+| `848ac39` | 監査v4堅牢化バッチ: booking冪等性・calendar overlap・meet reminder delivery_id・Stripe effects_completed_at・friend link scope trigger のadditive migration `021`〜`025`、bootstrap同期、I19-R2（全処方箋画像3年保持）、F20（通知sweep回帰の実SQLite化）、独立レビュー修復（chats stale wedge、bootstrap fallback、stripe tenant scope） | 実装済み |
+| `c109b90` | F24（Meet相談の承認済みsender接続）、F08（plugin-template自動通知のmanual API誤用修復）、I20-R2（冪等lookupの1query化） | 実装済み |
+
+### 差分監査で確認した安全性
+
+- 新しい通知`meet_consultation_v1`は`buildApprovedPharmacyMessage`の承認済みカタログへ追加され、`meetStatus`（scheduled/day_before/hour_before）・`genericDate`・`genericTime`・`meetUrl`の4変数だけを許可します。`meetUrl`は`https://meet.google.com/...`形式のみ受け付け、他messageIdでの`meetStatus`/`meetUrl`使用は拒否されます。描画結果の照合`isApprovedRenderedPharmacyMessage`も3 variantを検証します。
+- senderのcapability対応付けは`meet_consultation_v1`→`meet_consultation`を明示し、`emergency_contraception`等の既存capabilityでは代替できません。capability不在の薬局アカウントでは送信せずfail-closedでfailed記録します。
+- Meetリマインドの薬局経路は`isPharmacyModeAccount`判定→`readLineCredential`（暗号化credential、tenant/account/kindスコープ）→`sendPharmacyAutomatedPush`の順で、friend following・tenant active・outbound pause・notification events冪等claimを既存経路で再確認します。`retryKey`は`meet-reminder:{delivery_id}`で、再スケジュール時にdelivery_idを再採番するため前世代との衝突を防ぎます。非薬局アカウントは従来のgeneric経路を維持します。
+- 登録確定通知は`POST /api/meet-consultations`でbest-effort送信（`confirmationSent`フィールド追加）。通知失敗でも登録自体はコミット済みで201を返し、重複登録は`ON CONFLICT`で冪等です。
+- I19-R2の保持統一では、`cancelPrescription`のCAS・scope・戻り値、`markPrescriptionFileDeleted`のexport、cancel responseの`cleanupPending`フィールド形状をすべて維持し、workflow cleanupをfail-closed no-op化しました。retention-purgeの候補選択は`created_at`ベースでstatus非依存のため、保持された画像は3年後に正規purge対象へ到達します。
+- F08のplugin-template修復は、`POST /api/friends/:id/messages`（manual必須・手動返信専用）をやめ、`tag_added`scenario発火型へ変更しました。scenario文面は静的のためper-friend日時はLIFF誘導へ置き換え、triggerタグをdedupマーカーに利用します。
+- I20-R2の冪等lookup 1query化は、legacy優先順位とJS側期限判定（legacy expired→scopedフォールスルー）を維持したままdual-readを`UNION ALL`へ統合しました。
+
+### 差分監査の指摘（修正済み・保留）
+
+- **修正済み**: 監査v4キューのBLOCKED 2件（F24: Meet承認文面/capability不在、F08: plugin-template契約）をユーザー承認済み契約で解消。queueは42件中 INTEGRATED 41 / NOT_ADOPTED 1（F03撤回）でBLOCKED 0件になりました。
+- **修正済み**: 独立レビュー指摘のIR20-F20-01（回帰テストが実SQL未検証）とI19-R2（cancel画像即時削除 vs 全PHI保持）を解消。
+- **保留（既知事項）**: 監査coverageは全領域PARTIALのまま。installer benign-skipのtrigger差異（upstream-only経路）は個別対応見送り。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.35.2`へ統一 |
+| worker | 257 files / 2,815 tests PASS |
+| typecheck | 全パッケージ PASS |
+| plugin-template | typecheck PASS |
+| `git diff --check` | clean |
+| migration / schema | additive migration `021`〜`025`追加、bootstrap同期済み（`check-migrations.ts` OK） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+
+本エントリはローカル/CI/syntheticの証跡に基づき、release・deploy・activation・production operationの完了を意味しません。
+
+## Pharmacy v0.35.1 (2026-09-15)
+
+> パッケージ／ソースのバージョンを`0.35.1`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.1`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.35.0で導入した共有薬局アカウント・beta参加資格・服薬後follow-up運用の上に、マージ済み8 PRと保守監査キュー`MAINT-20260915`の修正を積み増しました。患者向けには、電子処方箋（Myna）手続きと緊急避妊薬の事前受付について、確認・取消・期限切れの状態遷移を中立な定型文でLINE通知し、服薬後follow-upの対応見通しをLIFFへ表示します。管理画面は各ページに説明文を追加し、ステータス表記を日本語化しました。認証まわりでは、ブラウザ保存領域やCSRFが使えない環境で安全に停止するようにし、webhookの生エラーログを固定event/reasonのPHI-free構造化ログへ置き換えました。
+
+この版の実装も既存のtenant/account/patient認可、capability、notification ledger、retry key冪等、outbound pauseを再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.0との差分監査
+
+比較対象は、v0.35.0のbeta範囲としてfreezeした候補`cc8019d`から、全マージを反映した`dev`（`80bb84e`）までです。差分は39コミット、165ファイル、`3,156`行追加、`14,501`行削除でした。削除行の大半は`docs/upstream/`と古いinventory/計画文書の整理で、コードの縮退ではありません。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| PR #110 / `87cd33d` | session/CSRFのsafe-stop、LIFF患者切替のstale state防止、support-mode名cacheの非致命化、pharmacy webhook 7分岐のPHI-free固定ログ化 | 実装済み |
+| `2e50139` | patient-intake FLE migration helperの原子batch化・account-wide事後条件・opaque cursor（mutating操作は依然gate下） | 実装済み |
+| `2b406a5`〜`dcc8bb8` | crypto primitive・ISO日付validator・テスト用sqlite/D1 adapterの共通化 | refactor |
+| `95399ed` | UI安定性・44pxタップ領域・`Intl.DateTimeFormat`共有化 | 実装済み |
+| PR #111 | `docs/upstream/`とwiki代替済みの設計文書を削除し、docs/README・AGENTSを新構成へ | 文書整理 |
+| PR #112 | 管理画面各ページの説明文追加と薬局UIの日本語化（`readiness-labels.ts`共有化） | 実装済み |
+| PR #113 | `.devin/blueprint.yaml`（Devin環境blueprint）を追加 | 環境定義 |
+| PR #114 | ready状態の処方せんカードへ受取方法の再明示 | 実装済み |
+| PR #115 | LIFF服薬後follow-upへ運用設定由来の対応見通し表示（whitelist項目のみ） | 実装済み |
+| PR #116 | 患者timelineへ患者アンケート・個別chatの状態を追加 | 実装済み |
+| PR #117 | Myna handoffの`SUPPORT_NEEDED`/`PAPER_FALLBACK`/`EXPIRED`へPHI-free定型通知 | 実装済み |
+| PR #118 | 緊急避妊薬intakeの`reviewed`/`cancelled`/`expired`へ中立定型通知（JST 21-08 quiet hours付き） | 実装済み |
+
+### 差分監査で確認した安全性
+
+- 新しい通知2系統（`myna_handoff_status_v1`、`emergency_intake_status_v1`）は`buildApprovedPharmacyMessage`の変数allowlistへ追加され、各messageIdは対応するstatus変数1つだけを許可します。描画結果の照合`isApprovedRenderedPharmacyMessage`も全status variantへ拡張され、`UNSAFE_RENDERED_TEXT`の検査は変更していません。送信側はmessageIdを`electronic_prescription`/`emergency_contraception` capabilityへ対応付け、friend following・患者通知設定・beta binding・outbound pauseを既存経路で再確認します。
+- retry keyは`myna-status:{handoffId}:{status}`と`emergency-intake-status:{eventId}`の決定的値で、notification eventsの冪等claimで重複送信を抑止します。cron sweepは`updated_at`/`occurred_at`の72時間lookbackと`LIMIT 50`でboundedです。
+- `GET /api/liff/pharmacy/medication-followups/outlook`は運用設定のwhitelist項目（営業時間テキスト・boundedな返信目安分数・時間外/緊急メッセージcode）だけを返し、staff IDやSLA生JSONは患者へ出しません。`/:id` GETルートとの衝突はありません。
+- 患者timelineの`patient_intake`は`authorityPredicate`と`archived_at IS NULL`を既存domainと同じ形で適用し、`manual_chat`はfriend自身のchat状態だけを中立な`detail_path`へ投影します。
+- 認証のsafe-stop化では、storage不可・CSRF欠落・session不正形のとき空token送信や自動POSTを行わず、明示エラーで停止します。e2eモックは厳格化したsession形へ追従済みです。
+
+### 差分監査の指摘（修正済み・保留）
+
+- **修正済み**: `.devin/blueprint.yaml`が`pnpm@9.15.4`をinstallする記述になっていたのを、root `packageManager`の`pnpm@11.25.0`へ揃えました（本リリースコミットで対応）。
+- **保留（フォローアップ候補）**: `processExpiredMynaHandoffNotifications`のcron sweepにはJST 21:00–08:00のquiet-hoursガードがなく、深夜に期限切れpushが送信されえます。EC系通知・予約リマインドと同じ深夜抑制の適用を検討してください（patient-report/verification経由の即時通知は利用者・職員操作起点のため対象外）。
+- **保留（文書）**: `PLANS.md`の未完了タスク`B41-A3`が削除済みの`docs/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md`を参照しています。タスクの基準文書を再指定する必要があります。歴史記録行中の`V032_ROUTE_API_ROLE_INVENTORY`/`GROWTH_LOOP_ROADMAP`参照は当時の記録としてそのまま保持します。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.35.1`へ統一 |
+| PR #110〜#118 `verify` (CI) | 全てSUCCESS（各headを最新devへ更新後に再実行） |
+| `apps/web` e2e `prescription-journey` | 11/11 PASS（ローカル再確認） |
+| migration / schema | 新規migrationなし（`custom_077`までの既存セットを維持） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+
+本エントリはローカル/CI/syntheticの証跡に基づき、release・deploy・activation・production operationの完了を意味しません。
+
+## Pharmacy v0.35.0 (2026-09-14)
+
+> パッケージ／ソースのバージョンを`0.35.0`として確定し、v0.35のrelease candidateとして`dev`で管理します。ソースコードのタグ`v0.35.0`と販売者向けリリース`pharmacy-v0.35.0`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+薬局の管理画面を薬局コード＋パスワードの1つの共有薬局アカウントへ簡素化し、患者本人・正式な代理権がある家族の参加資格を薬局単位でサーバー側管理できるようにしました。薬局職員が確認すべき業務を既存の処方せん・Myna・問診・継続・服薬後follow-upへ安全に戻れる読み取り専用queueへまとめ、服薬後follow-upは対応記録・担当者・期限・送信直前認可を含む閉ループへ拡張しました。
+
+この版の実装は、既存のtenant/account/patient認可、CAS、監査、idempotency、outbound ledger、webhook fencingを再利用しています。新しい患者・処方せん・follow-upの重複domain model、AI/OCR、marketplace routing、オンライン服薬指導、決済、配送、SMS/emailは追加していません。
+
+### v0.34.2との差分監査
+
+比較対象は、タグ`v0.34.2`（`99dd8b2`）から、全ブランチ・ワークツリーを`dev`へ集約した現在の`dev`（`8c0456b`）までです。差分は14コミット、151ファイル、`9,667`行追加、`2,073`行削除でした。main系の取り込み、薬局メニュー／公開プロフィール系の取り込み、release evidenceの追加もこの差分に含まれるため、薬局機能だけの行数とは扱いません。
+
+その後の残存事項監査で行った`019`／`020`、通知再試行・世代束縛の補修、対応テストは、上記統合基準に対する現在の作業treeへ追加しています。コミット済み履歴の統計と、未コミットの追加補修を混同しないように分けて記録します。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| `d1fbc31` | 公開薬局情報へFAX番号を追加し、DB bootstrap、Worker、Web、LIFF、テストを同期 | 実装済み |
+| `af995a4` | 共有薬局認証、beta membership、follow-up closure、follow-up operations、担当者のadditive migration（`014`〜`018`）とDBテストを追加 | 実装済み |
+| `d031d54` | 薬局コード＋パスワードの共有ログイン、credential再発行、共有主体、認証監査、Platform Admin連携へ移行 | 実装済み。旧個人ログイン発行は意図的に後方互換なし |
+| `8011c63` | 本人／正式な未成年代理家族のbeta参加制御、患者アクセス・通知直前再検証、服薬後follow-upのCAS・idempotency・対応記録・自動送信を追加 | 実装済み。成人家族の代理権は対象外 |
+| `49aa9cf` | 薬局業務action queue、処方せん業務画面、遅延・競合・結果不明を扱うsynthetic E2Eを追加 | 実装済み |
+| `865868a`〜`6928904` | beta readiness、release evidence、検証記録、`0.35.0`版情報を追加 | 証跡・文書 |
+| `0e738bf`、`ac66415`、`e65bbcb`、`8c0456b` | main／関連作業ブランチの履歴を`dev`へ統合 | 統合済み。production反映ではない |
+
+特に変更量が大きい箇所は、readiness evidence（`+1,249`）、follow-up repository（`+631/-52`）、DB bootstrap（`+417/-7`）、beta membership repository（`+385`）、Web処方せんE2E（`+368`）、共有認証migration（`+336`）でした。これらは機能追加・移行証跡・テストデータを含むため、行数だけで品質改善や速度改善を主張しません。
+
+### 差分監査に基づくリファクタリング・バグ修正
+
+- 共有薬局主体の認可判定を`resolveAccessiblePharmacyTenant`へ集約し、tenant/account mapping、active tenant、staff membership、共有主体のtenant bindingを1クエリで確認するよう整理しました。`tenant-boundary`が共有ログインを個人の`pharmacy_staff_accounts` assignmentだけで拒否しないよう、同じ認可経路を再利用しています。
+- `staff_members.principal_kind`／`shared_tenant_id`がまだ存在しない旧Worker・旧DBでは、SQLが存在しない列を参照しないlegacy predicateへ縮退するようにしました。現在スキーマの検出結果はDBオブジェクト単位で正の結果だけを短時間再利用し、旧スキーマを誤って共有主体として許可しません。
+- 上記の非同期predicate変更に合わせて、chat、conversation、friend、activity digest、unanswered inbox、服薬後follow-upの呼出元を整理しました。旧スキーマ読み取りと、closure列がない状態の既存follow-up遷移を実DB互換テストで確認しています。
+- follow-up遷移の担当者省略値を`undefined`とDBの`NULL`で同一視し、同じidempotency keyの再送が不要な競合にならないようにしました。明示した担当者は人間staff・tenant membership・account assignmentまでSQL内で再確認し、担当者が未認可なら対応記録だけが先に残らないようにしました。
+- 対応記録の日時は入力を正規化してから、既存idempotency keyの一致確認を先に行うようにしました。新規記録だけ未来日時を要求し、期限経過後の同一payload再送は安全に同じ記録を返します。scheduleの保存後照合には`due_at`だけでなく`response_deadline_at`も含めました。
+- 服薬後follow-upの対応履歴GETにPHI view監査（`phi.medication_followup_contacts_viewed`）と`Cache-Control: private, no-store`を追加しました。既存の患者・アカウント境界を通過した後だけ監査と返却を行います。
+- beta membershipの通知判定を`active`／`suspended`／`blocked`へ分離しました。停止中は送信せず、外部送信前のledgerは`attempted`のまま保持して同じretry keyで再試行します。期限切れ・取消・不正日時・認可DB読取失敗はfail closedとし、bindingの一時読取障害だけは恒久blockedにしません。
+- Webのfollow-up画面で、既存の意味ある対応記録がある`responded`行を、画面上の新しい入力がないことだけで送信不能にしないよう条件を修正しました。
+- action queueの東京日付判定で毎回`Intl.DateTimeFormat`を生成せず、formatterを1つ再利用するようにしました。Node 26.6.0／SQLite 3.53.4、同一synthetic rows、warmup 3回・測定25回の比較では、7行の中央値`1.012ms→0.065ms`、70行`23.414ms→1.074ms`、357行`164.289ms→7.187ms`となり、返却内容は一致しました。
+- 認可拒否ログのroute値をHonoのroute templateへ変更し、患者ID・friend IDなどclient-controlledなpath identifierを一般のauthzログへ複写しないようにしました。
+
+### 残存事項レビューと追加補修（2026-09-14）
+
+差分監査後に、Astraへ旧schema互換、認可・競合、通知・beta、Web・性能の4観点を分離して読取り専用レビューさせました。主担当が各指摘を現行の呼出元・依存先・合成データで再確認し、実装可能な不具合だけを最小差分で補修しました。Astraはコードを変更・commit・pushしていません。
+
+- `019_custom_076_pharmacy_followup_operations_scope.sql`を追加し、`pharmacy_medication_followup_operations`のinsert/update時に、主担当・代行担当が対象tenantのstaff membershipと対象薬局accountのstaff assignmentへ属することをSQLite triggerで強制しました。`enabled=1`へ切り替える場合は、tenant/accountのmembership・assignmentがactiveで、staffの`principal_kind`が`human`であることもDB側で確認します。無効状態の事前設定とnullableな代行担当は許可し、既存行の削除・backfillは行いません。
+- `packages/db/test/custom_076_pharmacy_followup_operations_scope.test.ts`で、cross-tenant主担当のinsert、cross-tenant代行担当とaccount変更のupdate、無効staffの事前設定、active human staffへの切替、nullable backup、4 triggerの存在を合成SQLiteで確認しました。update-engineの固定migration manifest、bootstrap SQL/meta、既存DBテストのmigration期待値も同期しました。
+- `020_custom_077_pharmacy_beta_notification_bindings.sql`を追加し、処方せん状態、服薬後follow-up、継続期待、処方せん期限通知の既存retry keyへ、作成時点の`membership_id`・participant・subjectを不変に束縛しました。beta有効時の各source INSERT／患者リンク／validity更新でactiveまたはsuspended世代だけを記録し、取消→再付与後も古いqueueを新しいmembershipへ自動backfillしません。送信側は束縛IDを受け取れない場合、または同一IDが期限切れ・取消・対象不一致の場合にfail closedします。
+- `packages/db/test/custom_077_pharmacy_beta_notification_bindings.test.ts`で、4通知sourceの作成時束縛、患者リンク後のstatus event束縛、beta無効時の非backfill、取消→再付与後の旧ID保持、bindingのupdate/delete拒否を合成SQLiteで確認しました。既存retry key、`sent`／`attempted`／結果不明のledger意味は変更していません。
+- 送信直前のWorker再検証は残し、DBへ直接書き込まれた古い不正行や、担当者の失効・停止を送信時に再度fail closedできる二重防御としました。業務設定の書込みAPIは現行コードから確認できなかったため、新しい運用APIは追加していません。
+- `pnpm-workspace.yaml`の狭いparent overrideで、開発audit経路の`undici`を`7.29.0`、Wrangler/miniflare経路の`sharp`を`0.35.4`へ固定し、lockfileを更新しました。無関係な一括upgradeは行わず、`pnpm audit`（全依存・production依存）はともに既知の脆弱性`0`件になりました。
+- 重複配信previewの全呼出元をdynamic importへ揃え、Worker buildの`INEFFECTIVE_DYNAMIC_IMPORT`警告を除去しました。HLS chunkは既に遅延ロードされており、実測なしの分割は行わず、現在のbuild警告はWorker/LIFFのHLS `574.61 kB`だけです。
+- 追加した`019`／`020` migrationと合成testをgitleaksで個別走査し、検出0件でした。参考としてWorker/DBソース全体では既存test fixtureの固定値19件がgeneric-api-keyとして検出されましたが、いずれもsynthetic dataで実credentialではないため、値を外部へ出さず、今回の差分へ混入させていません。
+- Astraが再確認したmembership世代の未束縛は、`020_custom_077_pharmacy_beta_notification_bindings.sql`と共通senderのexact-ID再検証で補修しました。停止中に作成されたqueueは同じmembership IDへ束縛してretryableにし、取消後に再付与された新IDへ旧queueを付け替えません。成人家族の正式代理権は、本人確認方法、証跡の保持、許可する操作、期限・取消・複数代理人の扱いが未定のため、家族関係文字列だけで権限を拡張していません。
+- 追加実装レビューで確定した5件も補修しました。患者リンク後のstatus eventは同一submissionかつevent作成時点のmembershipだけを束縛し、期限通知triggerはbeta有効時だけ動作します。停止中の初回status通知はmembership再開後に再発見し、外部送信前に停止・運用未設定となったattempted行は結果不明の意味を保ちます。bindingの一時読取障害は`blocked`へ固定せず上位の再試行へ返します。
+- 今回の追加ファイルは、ユーザーが明示承認したOracle送信allowlist（`014` migrationとそのtest）の対象外です。新規ファイルをOracleへ送信せず、Oracleの追加実装レビュー結果を成功扱いにしていません。
+
+### 多角的レビューで確認した未変更項目
+
+4本のread-only Astraレビュー（旧スキーマ、認可・競合、通知・beta、Web・性能）を別々の観点で実施し、指摘は上記の確定修正または以下の保留へ分類しました。Astraはコードを変更・commit・pushしていません。
+
+- `patientId`を省略する既存処方せん受付と、患者IDを持たない既存通知は、既存利用者の処理を維持する現行計画と衝突するため変更していません。患者subject単位のbeta必須化へ変更する場合は、別途API契約と旧クライアント受入を定義します。
+- `pharmacy_followup_operations`のstaff foreign keyは単一列ですが、追加migration `019_custom_076_pharmacy_followup_operations_scope.sql`のscope triggerで、tenant membershipとaccount assignmentのcross-tenant不整合をDB insert/update時に拒否するよう補修しました。Workerの送信直前再検証も維持しています。
+- notification expectation／retry jobの世代束縛は`020_custom_077_pharmacy_beta_notification_bindings.sql`で追加しました。既存retry keyを変えずに、source生成時の不変bindingを参照し、beta有効時にbindingなしの旧queueを送信しません。古いWorkerがこの追加bindingを解釈できない混在状態ではbeta通知を有効化しない運用ゲートが必要です。
+- 成人家族の正式代理権は、本人確認・代理権証跡・許可操作・期限／取消の運用契約が未確定のため、既存の未成年proxy以外へ拡張していません。
+- 依存関係は狭いoverrideでaudit対象経路を更新し、全依存・production依存とも既知の脆弱性0件を確認しました。今後も無関係な一括upgradeは行いません。
+
+### 薬局職員・Platform Admin向けの変更
+
+- 患者向け公開薬局情報へFAX番号を追加し、Worker、Web、LIFF、bootstrap、保存・表示バリデーションを同じfield契約へ揃えました。電話番号と同様に許可文字を限定し、公開情報欄へ患者情報や内部メモを入力しない注意を維持します。
+- 薬局画面のログイン入力を薬局コード＋パスワードだけに統一し、ログイン後は薬局の共有主体`pharmacy_shared`として有効な薬局accountへ入るようにしました。
+- 旧来の個人tenant-admin credentialを新規発行する経路、tenant admin bootstrap、tenant owner向けCLI session発行を`410`で終了しました。既存の個人ログインを隠し補完したり、先頭のownerを自動選択したりしません。
+- 初回発行と忘失時の再発行はPlatform Adminの専用操作へ分離し、共有credentialのtenant、薬局コード、admin membership、account assignment、sessionをサーバー側で束縛しました。
+- 認証成功・失敗、パスワード変更、credential発行・再発行を、パスワード・token・患者情報を含まない認証監査へ記録します。credentialの無効化・version変更では未失効sessionを残しません。
+- 共有主体を任意のstaffへ再割当できないよう、staff、credential、membership、account assignment、sessionの再利用・identity変更をDB制約とtriggerで防ぎます。
+- 管理画面のstaff・tenant・認証ログ表示を、新しい共有ログインと監査の契約に合わせました。パスワードやsecretの画面・CLI出力は行いません。
+
+### 患者本人・家族代理・beta参加資格
+
+- `015_custom_072_pharmacy_beta_memberships.sql`で、薬局account×参加者×対象患者単位の期限付きmembershipを追加しました。betaは既定OFFで、無断の招待・自動登録・自動再開・自動更新は行いません。
+- owner/adminだけが同一tenant・accountのmembershipを一覧、登録、停止、再開、取消できます。状態変更は`expectedVersion` CAS、期限、理由、tenant監査、同一batchの原子性を確認します。
+- betaが有効な場合、患者向けintake、処方せん、継続、服薬後follow-up、Myna、患者timeline、LIFF feature access、通知送信直前で現在のmembershipを再検証します。古いsession・job・webhookや失効済みproxyからの再開を許可しません。
+- 本人利用と、既存の正式な未成年proxyに紐づく家族利用を実装対象にしました。成人家族は、本人確認・正式な代理権証跡・薬局の運用担当が未確定のため、`403`で閉鎖しています。家族を含むbeta要件を、家族関係の文字列だけで満たしたことにはしません。
+- privacy撤回、proxy取消、通知停止、binding隔離などのcontrol pathと、薬局職員のaccount-scoped readはbeta参加資格の単純な一括拒否で隠さず、既存の安全な継続経路を維持します。
+
+### 薬局業務画面
+
+- `GET /api/custom/pharmacy/action-queue`を追加し、処方せん、Myna、問診、継続、服薬後follow-up、緊急避妊薬、未対応chatから対応候補をbounded unionで取得します。各domainと全体に上限を設け、部分失敗を他domainの成功と分けて表示します。
+- action queueの返却値はdomain、PHI-free status、deadline区分、既存detailへの導線だけに限定し、患者名、LINE ID、record ID、自由記述、問診本文、復号値、assign/status mutationを含めません。
+- 処方せんdetailへ、画像・期限・問診更新時刻・受取希望・過去event・受付回答を既存のauthorization/CAS/auditで確認できる導線を追加しました。
+- account切替や遅いdetail応答で前の患者を表示し続けないようにし、stale response、409競合、503結果不明、未保存入力、印刷・再撮影の復旧を明示します。
+- Webのsynthetic Playwright E2Eで、遅延detail、薬局account切替、競合保存、結果不明、既存recordへ戻る導線を確認できるようにしました。
+
+### 服薬後follow-upと通信安全
+
+- `016_custom_073_pharmacy_medication_followup_closure.sql`で質問票version、一次返信期限、電話／LINE対応記録を、`017_custom_074_pharmacy_followup_operations.sql`で営業時間・SLA・主担当・代行担当などの運用設定を、`018_custom_075_pharmacy_medication_followup_assignments.sql`で明示的な人間担当者を追加しました。
+- 既存follow-upのstate、event、CAS、idempotency、notification ledgerを再利用します。`concern`、`pharmacist_requested`、`escalated`から、対応記録なしに`closed`へ進めません。電話対応をLINE対応として記録しません。
+- `responded`／`closed`に必要な対応記録が存在しない旧schemaでは、既存の読み取り・既存状態遷移を維持し、追加の期限・対応記録を必要とする経路だけを`503`で停止します。新列・新tableの欠落を「beta無効」と誤認して認可を緩めません。
+- 自動通知はapproved PHI-free template、固定retry key、既存ledgerを使います。account、tenant、friend/following、capability、患者認可、対象state、運用設定、outbound pauseをenqueue後・claim後・送信直前に再確認します。
+- 営業時間・一次返信期限・主担当・代行担当は未定のため、運用設定を有効化せず、自動follow-up送信は`operations_blocked`でfail closedにします。電話・店頭などの代替対応は、LINE送信成功とは別の記録です。
+- 手動の1対1返信だけに`X-Line-Harness-Source: manual`を付け、自動送信へ付与しません。実LINEの到達・既読、LINE側自動応答との重複、結果不明の照合は外部受入で別途確認します。
+
+### データベース移行
+
+| migration | 内容 |
+| --- | --- |
+| `014_custom_071_shared_pharmacy_auth.sql` | `pharmacy_shared`主体、共有credential、auth audit、session・assignment・identity再利用防止、無効credentialのsession失効を追加 |
+| `015_custom_072_pharmacy_beta_memberships.sql` | 薬局account単位のbeta flag、participant×subject membership、期限・状態・CAS・監査を追加 |
+| `016_custom_073_pharmacy_medication_followup_closure.sql` | follow-up質問票version、一次返信期限、電話／LINE対応記録を追加 |
+| `017_custom_074_pharmacy_followup_operations.sql` | 営業時間、response SLA、primary/backup、営業時間外・緊急時のfail-closed運用設定を追加 |
+| `018_custom_075_pharmacy_medication_followup_assignments.sql` | follow-up eventと対応経路へ明示的な人間担当者を追加 |
+| `019_custom_076_pharmacy_followup_operations_scope.sql` | follow-up運用の主担当・代行担当をtenant membership、account assignment、active human staffへDB側で束縛 |
+| `020_custom_077_pharmacy_beta_notification_bindings.sql` | beta対象の通知sourceと既存retry keyを作成時membershipへ不変束縛し、取消後の新世代への旧queue再生を防止 |
+
+全migrationはadditiveです。bootstrap SQLを再生成し、既存table・route・API fieldのrename/dropや、本番データのbackfill・削除は行いません。ログイン契約だけは、ユーザー確定要件に従い旧個人ログイン発行との後方互換を持たせず、旧発行経路を`410`で閉じています。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件、CHANGELOG、LIFF version contractの`0.35.0`統一／2 tests PASS |
+| `pnpm verify:ci` | 10 test suite／合計4,058 tests PASS、全workspace typecheck PASS |
+| frozen lockfile install | `pnpm install --frozen-lockfile --ignore-scripts` PASS |
+| `packages/db` unit／integration test | `92 files / 436 tests PASS` |
+| `packages/line-sdk` test | `2 files / 5 tests PASS` |
+| `packages/sdk` test | `13 files / 56 tests PASS` |
+| `packages/mcp-server` test | `5 files / 19 tests PASS` |
+| `packages/update-engine` test | `22 files / 219 tests PASS` |
+| `packages/create-line-harness` test | `8 files / 61 tests PASS` |
+| `apps/worker` test | `247 files / 2,654 tests PASS` |
+| `apps/web` test | `52 files / 242 tests PASS` |
+| `apps/liff` test | `24 files / 148 tests PASS` |
+| scripts test | `21 files / 218 tests PASS` |
+| workspace typecheck | `PASS`（全workspace） |
+| workspace build | `PASS`（`pnpm build`、Webはsynthetic `NEXT_PUBLIC_API_URL`） |
+| migration checker | `19 post-baseline migrations PASS`（baselineを含む全20 migration） |
+| bootstrap generator／`git diff --check` | `PASS` |
+| production dependency audit | 既知の脆弱性`0`件 |
+| production license baseline | `unknown/unlicensed` group `0` |
+| CycloneDX SBOM | spec `1.6`／`208 components`、構造確認 PASS |
+| release変更対象のsecret scan | `gitleaks git --log-opts=v0.34.2..HEAD`で10 commitsを走査、検出`0`件 |
+| 追加ファイルのsecret scan | `019`／`020` migration／testは検出`0`件。Worker／DB全体の19件は既存synthetic test fixtureのgeneric-api-key誤検出 |
+| 全依存を含むaudit | 既知の脆弱性`0`件（`undici`／`sharp`は狭いoverrideで修正） |
+| LIFF Chromium E2E | synthetic `13 tests PASS` |
+| Web Chromium E2E | synthetic `11 tests PASS` |
+| build warning | build自体はPASS。Worker／LIFFでHLS `574.61 kB` chunkのみ。`INEFFECTIVE_DYNAMIC_IMPORT`は解消 |
+| 実LINE、実スタッフ・実端末、iOS／Android WebView、VoiceOver／TalkBack、Meet、SMS/email | `NOT_RUN` |
+
+### リリース境界と未完了ゲート
+
+- `dev`の直接pushはGitHub保護ブランチにより許可されず、PRと必須check `verify`を必要とします。今回の版確定はローカル候補のversion/changelogであり、remoteへの直接反映とは別です。
+- Oracle実装レビューは、ユーザーが送信を承認した`packages/db/migrations/014_custom_071_shared_pharmacy_auth.sql`と`packages/db/test/custom_071_shared_pharmacy_auth.test.ts`の2ファイルだけを対象に試行しましたが、別セッションのprofile lockで`NOT_RUN`です。今回の追加リファクタリング対象は許可済みallowlist外のためOracleへ送信していません。添付外のコードは送信していません。
+- beta activation、production migration、production deploy、seller release、main merge、実患者データ、実LINE送信はこの版の作業に含めません。
+- 成人家族の代理権証跡、営業時間・一次返信期限・主担当・代行担当、実スタッフ／実端末受入、LINE到達／既読と結果不明の受入は未完了です。未完了のため、`0.35.0`を外部beta開始可能とは判定しません。
+- seller releaseはソースpackage versionと分離した`pharmacy-v0.35.0`として、V035の全Human Gateとrelease checkがPASSした後に扱います。外部限定beta開始版はロードマップどおり`v0.40.0`です。
+
+## Pharmacy v0.34.2 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.2`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.2`と販売者向けリリース`pharmacy-v0.34.2`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### 依存関係と開発基盤
+
+- 全workspaceの直接依存40種をnpm registryの`latest`へ更新し、pnpmを`9.15.4`から`11.25.0`、TypeScriptを`5.9.3`から`7.0.2`へ更新
+- Next.js `16.3.4`、Vite `8.2.2`、Wrangler `4.128.0`、Hono `4.13.5`、LINE LIFF SDK `2.31.0`、hls.js `1.7.2`へ更新
+- Zod `4.5.4`、`@noble/hashes` `2.4.0`、`tar-stream` `3.2.1`などのruntime依存と、React／Node型定義・Cloudflare toolingを更新
+- GitHub Actionsを最新リリースと照合し、CodeQL、GitHub Pages、checkoutを含む全参照をcommit SHAへ固定
+- pnpm 11のworkspace設定へsecurity overrideとnative build許可を移し、追跡対象のnpm lockfileも現在のmanifestへ同期
+
+### TypeScript 7互換
+
+- `tsup`のTypeScript 7非互換な型宣言bundleを使わず、既存の`tsc`で宣言ファイルを生成
+- update engineのNode型依存を明示し、`tar-stream`のdata chunk型をruntime契約に合わせて保持
+- SDK、update engine、plugin templateの公開entryに必要なJavaScriptと型宣言が生成されることを確認
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| registry latest照合 | 直接依存40種、差分0件 |
+| production dependency audit | 既知の脆弱性0件 |
+| 全workspace | `verify:ci`、3,986 tests PASS |
+| 全workspace build | Worker、Admin、LIFF、packages PASS |
+| LIFF browser smoke | Chromium 13 tests PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件
+
+- API、DB schema、migration、患者データ、LINE送信処理の契約は変更しない
+- dependency更新とdev source releaseを、未完了の実端末・支援技術・低速通信・参加者試験の代替証拠にしない
+- dev source releaseとdevelopment deployが成功しても、`pharmacy-v0.34.2` seller releaseやproduction readinessの証拠にはしない
+
+## Pharmacy v0.34.1 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.1`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.1`と販売者向けリリース`pharmacy-v0.34.1`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### セキュリティ修正
+
+- MCP serverが`@modelcontextprotocol/sdk`とExpressを通じて利用する`qs`を`6.15.3`から`6.16.0`へ更新
+- bracket形式のquery parameterで配列上限を回避できるDoS脆弱性（CVE-2026-82562 / GHSA-x5fp-wj9c-mxmx）を解消
+- 攻撃者が制御する`constructor.isBuffer`によって例外を発生させられるDoS脆弱性（CVE-2026-82417 / GHSA-4mjr-xmp4-gh2g）を解消
+- 既存のpnpm override方式を再利用し、MCP server、plugin template、SBOM生成を含む全経路で修正版を固定
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| production dependency audit | 既知の脆弱性0件 |
+| MCP server | 5 files / 19 tests PASS |
+| 全workspace | `verify:ci` PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件
+
+- API、DB schema、migration、患者データ、LINE送信処理は変更しない
+- v0.34.0で未完了のEC開示方針、実端末・支援技術・低速通信・参加者試験のHuman Gateを完了扱いにしない
+- dev source releaseとdevelopment deployが成功しても、`pharmacy-v0.34.1` seller releaseやproduction readinessの証拠にはしない
+
+## Pharmacy v0.34.0 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.0`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.0`と販売者向けリリース`pharmacy-v0.34.0`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### このバージョンで目指したこと
+
+患者がLINE内で「これまでの状況」と「次にすること」を安全に確認でき、通信が途切れた場合も処方せんを重複送信しにくい導線を追加しました。同時に、薬局管理者のログイン、患者本人と家族代理の権限、同意・通知設定、誤ったLINE紐付けの復旧を、テナントとLINEアカウントの境界を越えない形で強化しました。
+
+### 利用者ごとの変更とメリット
+
+| 利用する人 | v0.34.0で変わること | メリット |
+| --- | --- | --- |
+| 患者 | 薬局LIFFに「利用状況」を追加し、処方せん、電子処方せん、継続支援、服薬後フォローを新しい順に表示 | 薬剤名や問診内容を一覧へ出さず、現在の状態と次に開く画面を確認できる |
+| 処方せんを送る患者・家族 | 本人／家族の選択、画像ごとの再試行、送信準備・薬局確認待ち・受付済みを区別 | 通信切断や画面再読込後に、結果不明の送信を盲目的に繰り返しにくくなる |
+| 未成年患者の保護者 | 未成年の家族登録時に、対象・利用目的・期限を確認して代理権限を発行し、本人側から取り消し可能 | 家族関係だけで恒久的な閲覧・入力権限が付くことを防げる |
+| 患者本人 | 個人情報同意の撤回・再同意、患者単位の通知停止・再開、現在のアクセス状態をLIFFで確認 | 過去記録を破壊せず、新規入力や将来通知を本人の操作で止められる |
+| 薬局職員 | 誤ったLINEアカウントへ患者を紐付けた場合、対象を隔離して正しい利用者に再登録を案内 | 古い患者所有者を書き換えたり臨床記録をコピーしたりせず復旧できる |
+| owner/admin・Platform admin | セッション期限、アイドル失効、ログイン試行制限、ブラウザorigin、共通パスワード拒否を強化 | 盗用セッション、総当たり、別サイトからのログイン、推測しやすい初期資格情報のリスクを減らせる |
+| 運用・開発担当 | development／productionのCloudflare設定を明示的に分離し、既存bindingを保持する検証を追加 | 誤ったD1・R2・Pagesへ配備する事故や、配備時の既存設定消失を防ぎやすくなる |
+
+### 患者向け「利用状況」
+
+- 既存の処方せん、電子処方せん、継続支援、服薬後フォローを、最大50件のread-only projectionとして新しい順に表示
+- APIはLIFFの認証済みLINE identityから患者本人と`line_account_id`をサーバー側で解決し、query parameterを権限として使用しない
+- 一覧へ出す情報をdomain、許可済みstatus、サーバー定義の次の操作、発生日時、既存detail routeに限定
+- patient/friend ID、患者名、薬剤名、処方内容、問診回答、staff note、暗号化payloadを返さず、一覧表示のための復号や更新を行わない
+- 別の所有者のrecordは表示せず、未知の内部statusは詳細確認へ安全に縮退
+- 緊急避妊薬の利用有無は機微性が高く、中立な遷移先と開示方針が承認されるまでタイムラインへ表示しない
+
+### 処方せん送信と通信切断からの回復
+
+- 本人／家族の選択、患者アンケート完了、画像、同意、通信状態、結果不明の送信を確認してから送信可能にする
+- 画像単位と受付単位のidempotency keyを使い、二重tap、timeout、再読込後の重複登録を抑止
+- 「送信準備中」「受付内容の確認待ち」「受付済み」を分け、患者端末から届いたことと薬局が受け付けたことを混同しない
+- upload結果が不明な場合は自動で成功・失敗を決めず、受付状況の再確認または不足画像の再選択へ案内
+- 処方せん画像や問診回答などのPHIを`localStorage`、`sessionStorage`、`IndexedDB`へ保存しない
+
+### 患者本人・家族代理・同意の権限管理
+
+- 家族関係や同意表示だけをアクセス権限にせず、現在有効な`patient_intake_v1`代理grantを患者・LINEアカウント・操作主体へ固定
+- 未成年の子どもに限り、固定された同意文面の版とSHA-256を確認して代理grantを発行
+- 代理権限の期限は「発行から90日」と「18歳到達」の早い方とし、アクセスのたびに失効・取消・年齢を再確認
+- 代理利用者による患者本人の氏名・生年月日変更、患者archive、個人情報同意変更、通知設定変更を禁止
+- 患者本人による代理権限の即時取消と、同じ依頼の安全な再実行に対応
+- 個人情報同意を撤回した場合は既存の認可済み履歴を保持しつつ、新しい問診revisionを停止。現在の薬局文面へ再同意した後だけ再開
+
+### 通知停止と誤紐付け復旧
+
+- 患者本人が患者単位で将来の自動通知を停止・再開できるCASとLIFF操作を追加
+- 処方せん状態、期限、継続支援、服薬後フォローは、送信claim時とLINE dispatch直前に現在の通知権限を再確認
+- 停止中の通知は再開後に古い内容を再送せず、送信しなかった結果を台帳へ確定
+- 通知設定は個人情報同意、代理権限、患者紐付け状態を暗黙に変更しない
+- 誤ったLINE紐付けは担当アカウント権限を持つstaffだけが`wrong_line_binding`理由で隔離可能
+- 復旧では旧所有者や臨床記録を変更せず、正しいLINE利用者が既存の本人／未成年登録フローから新規登録
+
+### 管理者ログインと資格情報
+
+- 通常セッションを最長8時間・アイドル15分、初期設定セッションを最長30分・アイドル10分に制限
+- tenant adminとPlatform adminのログイン失敗をD1へ保存し、1秒、2秒、4秒の待機後、15分間のlockへ移行
+- ログインIDをUnicode NFKC・trim・小文字化して試行制限を共有し、Worker再起動後も制限を維持
+- 設定済みAdmin originと同じoriginからのログインだけを許可し、未知のbrowser originやLIFF originからの管理者ログインを拒否
+- Unicode code point単位のパスワード長検証と、固定した100,000件のcommon-password blocklistをWorkerとAdmin UIで共通適用
+- 初回Platform／tenant admin CLIの必須値、HTTPS origin、再実行キー、ランダム仮パスワード、安全なエラー表示を共通化
+
+### 配備、更新、後方互換
+
+- production Worker buildでproduction用D1・R2を選び、`--keep-vars`で既存のprovision済み変数を保持
+- production LIFFは固定したPages projectと`main` branchだけを対象にし、dev projectの暗黙利用を防止
+- production dry-runを引数不要の専用scriptに分け、引数転送ミスによる実deployを防止
+- migrationは`custom_066`〜`custom_070`を加算し、既存table・column・route・API fieldを削除・renameしない
+- 旧Workerが追加columnを無視でき、旧形式の患者・問診insertが継続するexpand/default/fallback契約をテスト
+- fresh cloneの検証前に必要なshared packageをbuildし、過去のローカル`dist`へ依存しないCIへ変更
+
+### 動作速度とコード整理
+
+- 低頻度の緊急避妊薬画面をReact標準のlazy loadingへ分離し、LIFF初期main JavaScriptを153,100 bytesから146,332 gzip bytesへ4.42%削減
+- DB bootstrapのローカル反復中央値を122.202msから69.182msへ短縮。remote D1や実端末の速度改善とは扱わない
+- 薬局CLIの入力検証・再実行キー・仮パスワード・URL検証・安全な表示を共通化
+- LIFFの東京日時表示、Webイベント枠のJST→UTC変換、Worker予約のactive LIFFアカウント解決を既存経路間で共通化
+- tenant/account authorization、通知、API、schemaの意味を変えず、全体refactorで157行追加・192行削除
+
+### データベース移行
+
+| migration | 内容 |
+| --- | --- |
+| `custom_066` | admin sessionの種別、activity、失効判定を加算 |
+| `custom_067` | tenant／Platform adminの永続login throttleを加算 |
+| `custom_068` | 患者代理grantと患者owner controlを加算 |
+| `custom_069` | PHIを含まない患者control auditを加算 |
+| `custom_070` | 未成年代理登録・取消の整合性と重複防止を加算 |
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| 全workspace unit test | 9 projects / 3,759 tests PASS |
+| 配備・運用script test | 20 files / 227 tests PASS |
+| TypeScript | 全workspace typecheck、Web／LIFF直接typecheck PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| LIFF browser smoke | Chromium 13 tests PASS |
+| ローカル表示監査 | 390px、200% text、keyboard focus、44px操作領域、axe-core A/AA PASS |
+| iOS／Android LINE WebView、VoiceOver／TalkBack、低速通信、参加者試験 | `NOT_RUN` |
+| developmentへのpush・配備・runtime read-back | リリース処理で実施・確認 |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件と既知の未完了項目
+
+- タイムラインの緊急避妊薬表示はHuman Gate完了まで非表示を維持
+- 実端末・支援技術・低速通信・参加者試験が未実施のため、v0.34患者critical journey全体のproduction readinessは`BLOCKED`
+- 自動通知はPHIを含まない承認済みtemplateだけを使用し、薬剤師の判断を自動化しない
+- 本番DB migration、既存データ補完、production deploy、薬局アカウント有効化、実患者データ、実LINE送信は別途Human Gateを必要とする
+- dev source release、development deploy、`v0.34.0` GitHub Releaseが成功しても、`pharmacy-v0.34.0` seller releaseやproduction運用の証拠にはしない
+
 ## Pharmacy v0.33.2 (2026-08-31)
 
 > 公開範囲: パッケージ／ソースのバージョン`0.33.2`を`dev`向けに公開します。ソースコードのタグ`v0.33.2`と販売者向けリリース`pharmacy-v0.33.2`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの適用、DB操作、実患者データの操作、実際のLINE送信は含みません。

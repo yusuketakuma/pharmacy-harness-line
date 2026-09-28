@@ -3,9 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const builtins = builtinModules
-  .filter((name) => !name.startsWith('node:'))
-  .sort((a, b) => b.length - a.length);
+const builtins = builtinModules.filter((name) => !name.startsWith('node:')).sort((a, b) => b.length - a.length);
 
 const builtinPattern = builtins.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 

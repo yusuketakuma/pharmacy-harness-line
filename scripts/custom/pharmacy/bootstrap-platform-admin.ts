@@ -1,5 +1,5 @@
-import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { requestId, required, safeText, temporaryPassword, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -31,8 +31,14 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
-    if (argument === '--dry-run') { dryRun = true; continue; }
-    if (argument === '--help' || argument === '-h') { help = true; continue; }
+    if (argument === '--dry-run') {
+      dryRun = true;
+      continue;
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true;
+      continue;
+    }
     if (!names.has(argument)) throw new Error(`Unknown option: ${argument}`);
     const value = argv[++index];
     if (!value || value.startsWith('--')) throw new Error(`Missing value: ${argument}`);
@@ -41,49 +47,8 @@ function parseArgs(argv: string[]) {
   return { values, dryRun, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
-
-function requestId(values: Record<string, string>): string {
-  const supplied = values['idempotency-key']?.trim();
-  if (supplied && !IDEMPOTENCY_KEY_PATTERN.test(supplied)) {
-    throw new Error('--idempotency-key must be 8 to 128 ASCII characters');
-  }
-  return supplied || randomUUID();
-}
-
-/**
- * Random, never derived. A password computed from PHARMACY_PLATFORM_ADMIN_KEY
- * plus the (printed) login id and idempotency key can be recomputed offline by
- * anyone who later obtains that key, and it still works until the operator's
- * first login clears must_change_password — a platform-superuser takeover from
- * a leaked CI secret with no online guessing.
- *
- * Account-creation idempotency does not depend on the password: the server
- * recognizes a replay from the login id (see the platform-admins route).
- */
-function temporaryPassword(): string {
-  return `Tmp-${randomBytes(24).toString('base64url')}`;
-}
-
 function endpoint(values: Record<string, string>): string {
-  const worker = new URL(required(values, 'worker-url'));
-  if ((worker.protocol !== 'https:' && worker.hostname !== 'localhost') ||
-      worker.username || worker.password || worker.search || worker.hash) {
-    throw new Error('--worker-url must be an HTTPS origin');
-  }
-  return new URL('/api/platform/pharmacy/platform-admins', worker.origin).toString();
-}
-
-function safeText(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value
-    ? value.replace(/[\u0000-\u001F\u007F]/gu, ' ').slice(0, 300)
-    : fallback;
+  return new URL('/api/platform/pharmacy/platform-admins', workerOrigin(required(values, 'worker-url'))).toString();
 }
 
 export async function runPlatformAdminBootstrap(
@@ -94,7 +59,10 @@ export async function runPlatformAdminBootstrap(
 ): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    if (parsed.help) { write(HELP); return 0; }
+    if (parsed.help) {
+      write(HELP);
+      return 0;
+    }
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
@@ -141,13 +109,15 @@ export async function runPlatformAdminBootstrap(
       write('Platform admin bootstrap failed: network request failed. No credentials were printed.');
       return 1;
     }
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: { adminLoginId?: unknown; replayed?: unknown };
     } | null;
     if (!response.ok || !payload?.success || !payload.data) {
-      write(`Platform admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`);
+      write(
+        `Platform admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`,
+      );
       return 1;
     }
 
@@ -158,9 +128,11 @@ export async function runPlatformAdminBootstrap(
       // what created the account.
       write('プラットフォーム管理者は既に作成済みです（再実行のため新規発行なし）。');
       write(`管理者ID: ${adminId}`);
-      write(resent
-        ? `仮パスワード（この実行で発行した値）: ${body.temporaryPassword}`
-        : '仮パスワードは作成時の1回だけ表示されます。控えが無い場合は資格情報の再発行手順が必要です。');
+      write(
+        resent
+          ? `仮パスワード（この実行で発行した値）: ${body.temporaryPassword}`
+          : '仮パスワードは作成時の1回だけ表示されます。控えが無い場合は資格情報の再発行手順が必要です。',
+      );
       return 0;
     }
 
@@ -176,6 +148,7 @@ export async function runPlatformAdminBootstrap(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runPlatformAdminBootstrap(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runPlatformAdminBootstrap(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

@@ -130,9 +130,7 @@ function makeEventDb(state: {
           // SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1
           if (sql.startsWith('SELECT id FROM line_accounts')) {
             const [liff_id] = bound as [string];
-            const acc = (state.accounts ?? []).find(
-              (a) => a.liff_id === liff_id && a.is_active === 1,
-            );
+            const acc = (state.accounts ?? []).find((a) => a.liff_id === liff_id && a.is_active === 1);
             return (acc ? { id: acc.id } : null) as T | null;
           }
           // SELECT channel_access_token FROM line_accounts WHERE id = ?
@@ -142,17 +140,22 @@ function makeEventDb(state: {
             return (acc ? { channel_access_token: acc.channel_access_token ?? '' } : null) as T | null;
           }
           // immediate booking notification: active account + tenant mapping + event membership.
-          if (sql.includes('FROM line_accounts la') &&
-              sql.includes('confirmation_message_extra') &&
-              !sql.includes('FROM event_bookings b')) {
+          if (
+            sql.includes('FROM line_accounts la') &&
+            sql.includes('confirmation_message_extra') &&
+            !sql.includes('FROM event_bookings b')
+          ) {
             const [event_id, account_id] = bound as [string, string];
             const acc = (state.accounts ?? []).find((a) => a.id === account_id && a.is_active === 1);
             const ev = state.events.find((x) => x.id === event_id);
             if (!acc || !ev) return null as T | null;
-            const eventAccounts = ev.account_ids ? JSON.parse(ev.account_ids) as string[] : [];
-            if (ev.target_type === 'multi-account-dedup'
-              ? !eventAccounts.includes(account_id)
-              : ev.line_account_id !== account_id) return null as T | null;
+            const eventAccounts = ev.account_ids ? (JSON.parse(ev.account_ids) as string[]) : [];
+            if (
+              ev.target_type === 'multi-account-dedup'
+                ? !eventAccounts.includes(account_id)
+                : ev.line_account_id !== account_id
+            )
+              return null as T | null;
             return {
               tenant_id: `tenant-${account_id}`,
               channel_access_token: acc.channel_access_token ?? '',
@@ -162,9 +165,7 @@ function makeEventDb(state: {
           // SELECT id [, user_id] FROM friends WHERE line_user_id = ? AND line_account_id = ?
           if (sql.includes('FROM friends')) {
             const [lineUserId, account] = bound as [string, string];
-            const f = (state.friends ?? []).find(
-              (x) => x.line_user_id === lineUserId && x.line_account_id === account,
-            );
+            const f = (state.friends ?? []).find((x) => x.line_user_id === lineUserId && x.line_account_id === account);
             if (!f) return null as T | null;
             // POST 予約用は is_following = 1 の filter があるが、テスト friend は
             // 既存テストで is_following を持たないため pass。SELECT が user_id を
@@ -195,9 +196,7 @@ function makeEventDb(state: {
           // SELECT id, event_id, starts_at, is_active, deleted_at FROM event_slots WHERE id = ? AND event_id = ?
           if (sql.startsWith('SELECT id, event_id, starts_at, is_active, deleted_at')) {
             const [id, event_id] = bound as [string, string];
-            const s = (state.slots ?? []).find(
-              (x) => x.id === id && x.event_id === event_id && x.deleted_at == null,
-            );
+            const s = (state.slots ?? []).find((x) => x.id === id && x.event_id === event_id && x.deleted_at == null);
             return (s ?? null) as T | null;
           }
           // notification JOIN: SELECT e.name AS event_name, e.venue_name, ... line_accounts la
@@ -213,10 +212,13 @@ function makeEventDb(state: {
               (x) => x.id === (b as Record<string, unknown>).friend_id && x.line_account_id === accountId,
             );
             if (!e || !s || !la || !f) return null as T | null;
-            const eventAccounts = e.account_ids ? JSON.parse(e.account_ids) as string[] : [];
-            if (e.target_type === 'multi-account-dedup'
-              ? !eventAccounts.includes(accountId)
-              : e.line_account_id !== accountId) return null as T | null;
+            const eventAccounts = e.account_ids ? (JSON.parse(e.account_ids) as string[]) : [];
+            if (
+              e.target_type === 'multi-account-dedup'
+                ? !eventAccounts.includes(accountId)
+                : e.line_account_id !== accountId
+            )
+              return null as T | null;
             return {
               tenant_id: `tenant-${accountId}`,
               line_account_id: accountId,
@@ -235,9 +237,7 @@ function makeEventDb(state: {
           if (sql.includes('FROM event_bookings\n        WHERE id = ? AND event_id = ?')) {
             const [id, event_id] = bound as [string, string];
             const b = (state.bookings ?? []).find(
-              (x) =>
-                x.id === id &&
-                (x as Record<string, unknown>).event_id === event_id,
+              (x) => x.id === id && (x as Record<string, unknown>).event_id === event_id,
             );
             if (!b) return null as T | null;
             return {
@@ -266,31 +266,32 @@ function makeEventDb(state: {
           if (sql.startsWith('SELECT reminder_day_before_enabled')) {
             const [id] = bound as [string];
             const e = state.events.find((x) => x.id === id);
-            return (e ? {
-              reminder_day_before_enabled: e.reminder_day_before_enabled,
-              reminder_hours_before: e.reminder_hours_before,
-            } : null) as T | null;
+            return (
+              e
+                ? {
+                    reminder_day_before_enabled: e.reminder_day_before_enabled,
+                    reminder_hours_before: e.reminder_hours_before,
+                  }
+                : null
+            ) as T | null;
           }
           // notifications/pending count: SELECT COUNT(*) AS c FROM event_bookings WHERE line_account_id = ? AND status = 'requested'
           if (sql.includes('FROM event_bookings') && sql.includes("status = 'requested'")) {
             const [account_id] = bound as [string];
             const c = (state.bookings ?? []).filter(
-              (b) =>
-                (b as Record<string, unknown>).line_account_id === account_id &&
-                b.status === 'requested',
+              (b) => (b as Record<string, unknown>).line_account_id === account_id && b.status === 'requested',
             ).length;
             return { c } as T;
           }
           // POST の sameIdentityActive 検出 (window 関数 COUNT(*) OVER () で total を返す)
           if (sql.includes('FROM event_bookings b') && sql.includes('identity_key') && sql.includes('COUNT(*) OVER')) {
             const [event_id, idKey] = bound as [string, string];
-            const matches = (state.bookings ?? [])
-              .filter(
-                (x) =>
-                  x.event_id === event_id &&
-                  (x as Record<string, unknown>).identity_key === idKey &&
-                  (x.status === 'requested' || x.status === 'confirmed'),
-              );
+            const matches = (state.bookings ?? []).filter(
+              (x) =>
+                x.event_id === event_id &&
+                (x as Record<string, unknown>).identity_key === idKey &&
+                (x.status === 'requested' || x.status === 'confirmed'),
+            );
             if (matches.length === 0) return null as T | null;
             const b = matches[0];
             const s = (state.slots ?? []).find((x) => x.id === (b as Record<string, unknown>).slot_id);
@@ -335,10 +336,17 @@ function makeEventDb(state: {
           }
           // booking detail: SELECT b.id, ... e.description AS event_description, CASE WHEN ... END AS confirmation_message_extra
           //   FROM event_bookings b JOIN events e JOIN event_slots s WHERE b.id = ? AND b.friend_id = ? AND b.line_account_id = ?
-          if (sql.includes('FROM event_bookings b') && sql.includes('event_description') && sql.includes('cancel_deadline_hours_before')) {
+          if (
+            sql.includes('FROM event_bookings b') &&
+            sql.includes('event_description') &&
+            sql.includes('cancel_deadline_hours_before')
+          ) {
             const [bookingId, friend_id, account_id] = bound as [string, string, string];
             const b = (state.bookings ?? []).find(
-              (x) => x.id === bookingId && (x as Record<string, unknown>).friend_id === friend_id && (x as Record<string, unknown>).line_account_id === account_id,
+              (x) =>
+                x.id === bookingId &&
+                (x as Record<string, unknown>).friend_id === friend_id &&
+                (x as Record<string, unknown>).line_account_id === account_id,
             );
             if (!b) return null as T | null;
             const e = state.events.find((x) => x.id === b.event_id);
@@ -358,7 +366,8 @@ function makeEventDb(state: {
               venue_url: e.venue_url,
               cancel_deadline_hours_before: e.cancel_deadline_hours_before,
               event_description: (e as Record<string, unknown>).description ?? null,
-              confirmation_message_extra: b.status === 'confirmed' ? ((e as Record<string, unknown>).confirmation_message_extra ?? null) : null,
+              confirmation_message_extra:
+                b.status === 'confirmed' ? ((e as Record<string, unknown>).confirmation_message_extra ?? null) : null,
               slot_starts_at: s.starts_at,
               slot_ends_at: s.ends_at,
             } as T;
@@ -367,7 +376,10 @@ function makeEventDb(state: {
           if (sql.includes('FROM event_bookings b') && sql.includes('cancel_deadline_hours_before')) {
             const [bookingId, friend_id, account_id] = bound as [string, string, string];
             const b = (state.bookings ?? []).find(
-              (x) => x.id === bookingId && (x as Record<string, unknown>).friend_id === friend_id && (x as Record<string, unknown>).line_account_id === account_id,
+              (x) =>
+                x.id === bookingId &&
+                (x as Record<string, unknown>).friend_id === friend_id &&
+                (x as Record<string, unknown>).line_account_id === account_id,
             );
             if (!b) return null as T | null;
             const e = state.events.find((x) => x.id === b.event_id);
@@ -383,17 +395,13 @@ function makeEventDb(state: {
           // SELECT id FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL
           if (sql.startsWith('SELECT id FROM event_slots')) {
             const [id, event_id] = bound as [string, string];
-            const s = (state.slots ?? []).find(
-              (x) => x.id === id && x.event_id === event_id && x.deleted_at == null,
-            );
+            const s = (state.slots ?? []).find((x) => x.id === id && x.event_id === event_id && x.deleted_at == null);
             return (s ? { id: s.id } : null) as T | null;
           }
           // SELECT * FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL
           if (sql.startsWith('SELECT * FROM event_slots') && sql.includes('event_id')) {
             const [id, event_id] = bound as [string, string];
-            const s = (state.slots ?? []).find(
-              (x) => x.id === id && x.event_id === event_id && x.deleted_at == null,
-            );
+            const s = (state.slots ?? []).find((x) => x.id === id && x.event_id === event_id && x.deleted_at == null);
             return (s ?? null) as T | null;
           }
           // SELECT * FROM event_slots WHERE id = ?
@@ -406,7 +414,9 @@ function makeEventDb(state: {
           if (sql.includes('FROM event_bookings') && sql.includes('COUNT(*) AS c')) {
             const [slot_id] = bound as [string];
             const c = (state.bookings ?? []).filter(
-              (b) => (b as BookingRow & { slot_id?: string }).slot_id === slot_id && (b.status === 'requested' || b.status === 'confirmed'),
+              (b) =>
+                (b as BookingRow & { slot_id?: string }).slot_id === slot_id &&
+                (b.status === 'requested' || b.status === 'confirmed'),
             ).length;
             return { c } as T;
           }
@@ -416,7 +426,13 @@ function makeEventDb(state: {
           const eventMatchesAccount = (e: EventRow, account: string): boolean => {
             if (e.target_type === 'multi-account-dedup') {
               const ids = e.account_ids
-                ? (() => { try { return JSON.parse(e.account_ids as string) as string[]; } catch { return [] } })()
+                ? (() => {
+                    try {
+                      return JSON.parse(e.account_ids as string) as string[];
+                    } catch {
+                      return [];
+                    }
+                  })()
                 : [];
               return ids.includes(account);
             }
@@ -435,9 +451,7 @@ function makeEventDb(state: {
           if (sql.includes('SELECT id FROM events')) {
             const [id, account, account2] = bound as [string, string, string?];
             const acct = account2 ?? account;
-            const e = state.events.find(
-              (x) => x.id === id && x.deleted_at == null && eventMatchesAccount(x, acct),
-            );
+            const e = state.events.find((x) => x.id === id && x.deleted_at == null && eventMatchesAccount(x, acct));
             return (e ? { id: e.id } : null) as T | null;
           }
           // LIFF SELECT * FROM events ... AND is_published = 1
@@ -450,12 +464,13 @@ function makeEventDb(state: {
             return (e ?? null) as T | null;
           }
           // admin SELECT * FROM events ... 単独 / multi 両対応
-          if (sql.includes('SELECT * FROM events') && (sql.includes('line_account_id') || sql.includes('target_type'))) {
+          if (
+            sql.includes('SELECT * FROM events') &&
+            (sql.includes('line_account_id') || sql.includes('target_type'))
+          ) {
             const [id, account, account2] = bound as [string, string, string?];
             const acct = account2 ?? account;
-            const e = state.events.find(
-              (x) => x.id === id && x.deleted_at == null && eventMatchesAccount(x, acct),
-            );
+            const e = state.events.find((x) => x.id === id && x.deleted_at == null && eventMatchesAccount(x, acct));
             return (e ?? null) as T | null;
           }
           // SELECT * FROM events WHERE id = ?
@@ -469,14 +484,23 @@ function makeEventDb(state: {
         async all<T>() {
           // admin events list (must come before event_slots branch since
           // its sub-queries also reference event_slots s)
-          if (sql.startsWith('SELECT\n         e.*') || (sql.includes('FROM events e') && (sql.includes('e.line_account_id') || sql.includes('e.target_type')))) {
+          if (
+            sql.startsWith('SELECT\n         e.*') ||
+            (sql.includes('FROM events e') && (sql.includes('e.line_account_id') || sql.includes('e.target_type')))
+          ) {
             const [account] = bound as [string];
             const items = state.events
               .filter((e) => {
                 if (e.deleted_at != null) return false;
                 if (e.target_type === 'multi-account-dedup') {
                   const ids = e.account_ids
-                    ? (() => { try { return JSON.parse(e.account_ids as string) as string[]; } catch { return [] } })()
+                    ? (() => {
+                        try {
+                          return JSON.parse(e.account_ids as string) as string[];
+                        } catch {
+                          return [];
+                        }
+                      })()
                     : [];
                   return ids.includes(account);
                 }
@@ -486,15 +510,9 @@ function makeEventDb(state: {
                 const slots = (state.slots ?? []).filter(
                   (s) => s.event_id === e.id && s.deleted_at == null && s.is_active === 1,
                 );
-                const futureSlots = slots.filter(
-                  (s) => s.starts_at > new Date().toISOString(),
-                );
+                const futureSlots = slots.filter((s) => s.starts_at > new Date().toISOString());
                 const next_slot_starts_at =
-                  futureSlots.length > 0
-                    ? futureSlots
-                        .map((s) => s.starts_at)
-                        .sort()[0]
-                    : null;
+                  futureSlots.length > 0 ? futureSlots.map((s) => s.starts_at).sort()[0] : null;
                 const cap = slots.reduce<number | null>((acc, s) => {
                   if (s.capacity == null) return acc;
                   return (acc ?? 0) + s.capacity;
@@ -514,9 +532,7 @@ function makeEventDb(state: {
                 };
               })
               .sort((a, b) =>
-                a.sort_order !== b.sort_order
-                  ? a.sort_order - b.sort_order
-                  : b.created_at.localeCompare(a.created_at),
+                a.sort_order !== b.sort_order ? a.sort_order - b.sort_order : b.created_at.localeCompare(a.created_at),
               );
             return { results: items as unknown as T[] };
           }
@@ -524,9 +540,7 @@ function makeEventDb(state: {
           if (sql.includes('FROM event_bookings b') && sql.includes('friend_display_name')) {
             const event_id = bound[0] as string;
             const filterStatus = sql.includes('b.status = ?') ? (bound[1] as string) : null;
-            const filterSlot = sql.includes('b.slot_id = ?')
-              ? (bound[filterStatus ? 2 : 1] as string)
-              : null;
+            const filterSlot = sql.includes('b.slot_id = ?') ? (bound[filterStatus ? 2 : 1] as string) : null;
             const items = (state.bookings ?? [])
               .filter((b) => b.event_id === event_id)
               .filter((b) => (filterStatus ? b.status === filterStatus : true))
@@ -593,14 +607,14 @@ function makeEventDb(state: {
               .filter((s) => s.event_id === event_id && s.deleted_at == null)
               .map((s) => {
                 const active_count = (state.bookings ?? []).filter(
-                  (b) => (b as BookingRow & { slot_id?: string }).slot_id === s.id && (b.status === 'requested' || b.status === 'confirmed'),
+                  (b) =>
+                    (b as BookingRow & { slot_id?: string }).slot_id === s.id &&
+                    (b.status === 'requested' || b.status === 'confirmed'),
                 ).length;
                 return { ...s, active_count };
               })
               .sort((a, b) =>
-                a.sort_order !== b.sort_order
-                  ? a.sort_order - b.sort_order
-                  : a.starts_at.localeCompare(b.starts_at),
+                a.sort_order !== b.sort_order ? a.sort_order - b.sort_order : a.starts_at.localeCompare(b.starts_at),
               );
             return { results: items as unknown as T[] };
           }
@@ -618,7 +632,13 @@ function makeEventDb(state: {
           }
           if (sql.startsWith('UPDATE event_bookings') && sql.includes('decided_at = ?, decided_by_staff_id')) {
             // decide
-            const [next, decided_at, decided_by, _updated_at, id] = bound as [string, string, string | null, string, string];
+            const [next, decided_at, decided_by, _updated_at, id] = bound as [
+              string,
+              string,
+              string | null,
+              string,
+              string,
+            ];
             const b = (state.bookings ?? []).find((x) => x.id === id);
             if (!b) return { success: true, meta: { changes: 0 } };
             b.status = next;
@@ -662,11 +682,22 @@ function makeEventDb(state: {
           }
           if (sql.startsWith('INSERT INTO event_bookings')) {
             const [
-              id, line_account_id, event_id, slot_id, friend_id, status, customer_note, _requested_at, identity_key,
+              id,
+              line_account_id,
+              event_id,
+              slot_id,
+              friend_id,
+              status,
+              customer_note,
+              _requested_at,
+              identity_key,
             ] = bound as [string, string, string, string, string, string, string | null, string, string | undefined];
             (state.bookings ?? []).push({
-              id, event_id, status,
-              slot_id, friend_id,
+              id,
+              event_id,
+              status,
+              slot_id,
+              friend_id,
               line_account_id,
               customer_note,
               identity_key,
@@ -674,12 +705,24 @@ function makeEventDb(state: {
             return { success: true, meta: { changes: 1 } };
           }
           if (sql.startsWith('INSERT INTO event_slots')) {
-            const [
-              id, event_id, starts_at, ends_at, capacity, is_active, sort_order,
-            ] = bound as [string, string, string, string, number | null, number, number];
+            const [id, event_id, starts_at, ends_at, capacity, is_active, sort_order] = bound as [
+              string,
+              string,
+              string,
+              string,
+              number | null,
+              number,
+              number,
+            ];
             (state.slots ?? []).push({
-              id, event_id, starts_at, ends_at, capacity,
-              is_active, sort_order, deleted_at: null,
+              id,
+              event_id,
+              starts_at,
+              ends_at,
+              capacity,
+              is_active,
+              sort_order,
+              deleted_at: null,
             });
             return { success: true, meta: { changes: 1 } };
           }
@@ -710,19 +753,43 @@ function makeEventDb(state: {
           }
           if (sql.startsWith('INSERT INTO events')) {
             const [
-              id, line_account_id, name, venue_name, venue_url, image_url,
-              description, description_centered,
-              max_bookings_per_friend, requires_approval, cancel_deadline_hours_before,
-              reminder_day_before_enabled, reminder_hours_before,
-              is_published, sort_order,
-              target_type, account_ids, dedup_priority,
+              id,
+              line_account_id,
+              name,
+              venue_name,
+              venue_url,
+              image_url,
+              description,
+              description_centered,
+              max_bookings_per_friend,
+              requires_approval,
+              cancel_deadline_hours_before,
+              reminder_day_before_enabled,
+              reminder_hours_before,
+              is_published,
+              sort_order,
+              target_type,
+              account_ids,
+              dedup_priority,
             ] = bound as [
-              string, string, string, string | null, string | null, string | null,
-              string | null, number,
-              number | null, number, number | null,
-              number, number | null,
-              number, number,
-              string, string | null, string | null,
+              string,
+              string,
+              string,
+              string | null,
+              string | null,
+              string | null,
+              string | null,
+              number,
+              number | null,
+              number,
+              number | null,
+              number,
+              number | null,
+              number,
+              number,
+              string,
+              string | null,
+              string | null,
             ];
             const now = new Date().toISOString();
             state.events.push({
@@ -754,12 +821,8 @@ function makeEventDb(state: {
           if (sql.startsWith('UPDATE events SET deleted_at')) {
             // 認可は handler 内で ownsEvent 経由で済んでいるので、ここでは
             // id + deleted_at IS NULL のみで一致させる。
-            const [deleted_at, updated_at, id] = bound as [
-              string, string, string,
-            ];
-            const e = state.events.find(
-              (x) => x.id === id && x.deleted_at == null,
-            );
+            const [deleted_at, updated_at, id] = bound as [string, string, string];
+            const e = state.events.find((x) => x.id === id && x.deleted_at == null);
             if (!e) return { success: true, meta: { changes: 0 } };
             e.deleted_at = deleted_at;
             e.updated_at = updated_at;
@@ -951,7 +1014,10 @@ describe('POST /api/events/admin/events', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as EventRow;
     expect(body.target_type).toBe('multi-account-dedup');
-    expect(typeof body.account_ids === 'string' ? JSON.parse(body.account_ids) : body.account_ids).toEqual(['la1', 'la2']);
+    expect(typeof body.account_ids === 'string' ? JSON.parse(body.account_ids) : body.account_ids).toEqual([
+      'la1',
+      'la2',
+    ]);
     // sentinel: line_account_id = account_ids[0]
     expect(body.line_account_id).toBe('la1');
   });
@@ -1043,8 +1109,26 @@ describe('GET /api/events/admin/events', () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2099-06-02T10:00:00Z', ends_at: '2099-06-02T12:00:00Z', capacity: 3, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2099-06-02T10:00:00Z',
+          ends_at: '2099-06-02T12:00:00Z',
+          capacity: 3,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
       bookings: [
         { id: 'b1', event_id: 'e1', status: 'requested' },
@@ -1054,7 +1138,16 @@ describe('GET /api/events/admin/events', () => {
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events?account_id=la1');
-    const body = (await res.json()) as { items: Array<EventRow & { next_slot_starts_at: string | null; total_capacity: number | null; total_active: number; pending_count: number }> };
+    const body = (await res.json()) as {
+      items: Array<
+        EventRow & {
+          next_slot_starts_at: string | null;
+          total_capacity: number | null;
+          total_active: number;
+          pending_count: number;
+        }
+      >;
+    };
     const e = body.items[0];
     expect(e.next_slot_starts_at).toBe('2099-06-01T10:00:00Z');
     expect(e.total_capacity).toBe(8);
@@ -1144,12 +1237,28 @@ describe('event_slots admin', () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2099-06-02T10:00:00Z', ends_at: '2099-06-02T12:00:00Z', capacity: null, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2099-06-02T10:00:00Z',
+          ends_at: '2099-06-02T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
-      bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', status: 'confirmed' },
-      ],
+      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', status: 'confirmed' }],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/slots?account_id=la1');
@@ -1232,7 +1341,18 @@ describe('event_slots admin', () => {
   test('PUT updates slot fields', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/slots/s1?account_id=la1', {
@@ -1248,7 +1368,18 @@ describe('event_slots admin', () => {
   test('PUT 422 when range becomes invalid (only ends_at provided)', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/slots/s1?account_id=la1', {
@@ -1262,7 +1393,18 @@ describe('event_slots admin', () => {
   test('DELETE soft-deletes when no active bookings', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [],
     };
     const app = setupApp(state);
@@ -1276,7 +1418,18 @@ describe('event_slots admin', () => {
   test('DELETE 409 when active bookings exist', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', status: 'confirmed' }],
     };
     const app = setupApp(state);
@@ -1292,7 +1445,18 @@ describe('event_slots admin', () => {
   test('DELETE 204 when only cancelled bookings exist', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', status: 'cancelled' }],
     };
     const app = setupApp(state);
@@ -1326,7 +1490,14 @@ describe('LIFF event detail', () => {
 
   test('GET 404 when soft-deleted', async () => {
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, deleted_at: '2026-05-01T00:00:00Z' })],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          deleted_at: '2026-05-01T00:00:00Z',
+        }),
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
     };
     const app = setupApp(state);
@@ -1397,9 +1568,28 @@ describe('LIFF event detail', () => {
   test('GET includes my_existing_booking when friend already has active booking', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed', identity_key: 'uid:U1-uuid' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+          identity_key: 'uid:U1-uuid',
+        } as BookingRow & Record<string, unknown>,
       ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1', user_id: 'U1-uuid' }],
@@ -1407,10 +1597,12 @@ describe('LIFF event detail', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { my_existing_booking: { id: string; status: string } | null };
+    const body = (await res.json()) as {
+      my_existing_booking: { id: string; status: string } | null;
+    };
     expect(body.my_existing_booking?.id).toBe('b1');
     expect(body.my_existing_booking?.status).toBe('confirmed');
   });
@@ -1424,7 +1616,7 @@ describe('LIFF event detail', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     const body = (await res.json()) as { my_existing_booking: null };
     expect(body.my_existing_booking).toBeNull();
@@ -1438,18 +1630,27 @@ describe('LIFF event slots', () => {
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
     };
     availabilityMocks.getSlotsWithRemaining.mockResolvedValue([
-      { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, active_count: 1, remaining: 4 },
+      {
+        id: 's1',
+        event_id: 'e1',
+        starts_at: '2099-06-01T10:00:00Z',
+        ends_at: '2099-06-01T12:00:00Z',
+        capacity: 5,
+        is_active: 1,
+        sort_order: 0,
+        active_count: 1,
+        remaining: 4,
+      },
     ]);
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/slots?liffId=L1');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: Array<{ id: string; remaining: number }> };
     expect(body.items[0].remaining).toBe(4);
-    expect(availabilityMocks.getSlotsWithRemaining).toHaveBeenCalledWith(
-      expect.anything(),
-      'e1',
-      { only_active: true, only_future: true },
-    );
+    expect(availabilityMocks.getSlotsWithRemaining).toHaveBeenCalledWith(expect.anything(), 'e1', {
+      only_active: true,
+      only_future: true,
+    });
   });
 
   test('GET 404 when event not published', async () => {
@@ -1468,7 +1669,18 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('creates confirmed booking when requires_approval=0', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, requires_approval: 0 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
@@ -1478,7 +1690,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(201);
@@ -1493,9 +1709,7 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
         lineAccountId: 'la1',
         friendId: 'f1',
         kind: 'received_confirmed',
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', body.id, 'received_confirmed',
-        ),
+        retryKey: await createBroadcastRetryKey('event-booking-notification', body.id, 'received_confirmed'),
       }),
     );
     expect(idempotencyMocks.finalizeEventIdempotencyResponse).toHaveBeenCalled();
@@ -1504,7 +1718,18 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('creates requested booking when requires_approval=1', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, requires_approval: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
@@ -1514,7 +1739,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(201);
@@ -1524,9 +1753,7 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'received_pending',
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', body.id, 'received_pending',
-        ),
+        retryKey: await createBroadcastRetryKey('event-booking-notification', body.id, 'received_pending'),
       }),
     );
   });
@@ -1534,16 +1761,35 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('returns idempotent cached response on repeat', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 5, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 5,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
-    idempotencyMocks.reserveEventIdempotency.mockResolvedValue({ kind: 'cached', status: 201, body: { id: 'cached', status: 'confirmed' } });
+    idempotencyMocks.reserveEventIdempotency.mockResolvedValue({
+      kind: 'cached',
+      status: 201,
+      body: { id: 'cached', status: 'confirmed' },
+    });
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(201);
@@ -1574,7 +1820,7 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Authorization': 'Bearer t' },
+      headers: { 'content-type': 'application/json', Authorization: 'Bearer t' },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(400);
@@ -1583,8 +1829,27 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('409 slot_full when capacity reached', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: 1, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'fx', status: 'confirmed' } as BookingRow],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: 1,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'fx',
+          status: 'confirmed',
+        } as BookingRow,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1593,7 +1858,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(409);
@@ -1604,14 +1873,55 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('409 over_friend_limit when max_bookings_per_friend (>1) reached', async () => {
     // max=2 で同一 identity_key の既存 2 件 → 3 件目で over_friend_limit
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, max_bookings_per_friend: 2 })],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          max_bookings_per_friend: 2,
+        }),
+      ],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2099-06-02T10:00:00Z', ends_at: '2099-06-02T12:00:00Z', capacity: null, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2099-06-02T10:00:00Z',
+          ends_at: '2099-06-02T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed', identity_key: 'uid:U1-uuid' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e1', slot_id: 's2', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed', identity_key: 'uid:U1-uuid' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+          identity_key: 'uid:U1-uuid',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's2',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+          identity_key: 'uid:U1-uuid',
+        } as BookingRow & Record<string, unknown>,
       ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1', user_id: 'U1-uuid' }],
@@ -1621,7 +1931,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(409);
@@ -1632,7 +1946,18 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('410 slot_started for past slot', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2000-01-01T00:00:00Z', ends_at: '2000-01-01T02:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2000-01-01T00:00:00Z',
+          ends_at: '2000-01-01T02:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1641,7 +1966,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(410);
@@ -1650,7 +1979,18 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
   test('422 customer_note over 5000 chars', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1659,7 +1999,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1', customer_note: 'a'.repeat(5001) }),
     });
     expect(res.status).toBe(422);
@@ -1678,10 +2022,29 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
           is_published: 1,
         }),
       ],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [
         // 同一人物 (uid:U1-uuid) が別アカ la2 経由で既予約
-        { id: 'b-old', event_id: 'e1', slot_id: 's1', friend_id: 'f-la2', line_account_id: 'la2', status: 'confirmed', identity_key: 'uid:U1-uuid' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b-old',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f-la2',
+          line_account_id: 'la2',
+          status: 'confirmed',
+          identity_key: 'uid:U1-uuid',
+        } as BookingRow & Record<string, unknown>,
       ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f-la1', line_account_id: 'la1', line_user_id: 'U1', user_id: 'U1-uuid' }],
@@ -1691,7 +2054,11 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/e1/bookings?liffId=L1', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'k1', 'Authorization': 'Bearer t' },
+      headers: {
+        'content-type': 'application/json',
+        'Idempotency-Key': 'k1',
+        Authorization: 'Bearer t',
+      },
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(409);
@@ -1706,13 +2073,52 @@ describe('LIFF GET /api/liff/events/me', () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, name: 'X' })],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2000-01-01T10:00:00Z', ends_at: '2000-01-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2000-01-01T10:00:00Z',
+          ends_at: '2000-01-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e1', slot_id: 's2', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b3', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'cancelled' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's2',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b3',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'cancelled',
+        } as BookingRow & Record<string, unknown>,
       ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
@@ -1720,7 +2126,7 @@ describe('LIFF GET /api/liff/events/me', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me?liffId=L1&tab=upcoming', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: Array<{ id: string }> };
@@ -1731,13 +2137,52 @@ describe('LIFF GET /api/liff/events/me', () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2000-01-01T10:00:00Z', ends_at: '2000-01-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2000-01-01T10:00:00Z',
+          ends_at: '2000-01-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e1', slot_id: 's2', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b3', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'cancelled' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's2',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b3',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'cancelled',
+        } as BookingRow & Record<string, unknown>,
       ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
@@ -1745,7 +2190,7 @@ describe('LIFF GET /api/liff/events/me', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me?liffId=L1&tab=past', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: Array<{ id: string }> };
@@ -1761,7 +2206,7 @@ describe('LIFF GET /api/liff/events/me', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: unknown[] };
@@ -1782,15 +2227,35 @@ describe('LIFF GET /api/liff/events/me/:bookingId', () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, name: 'テストイベント' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string; event_name: string };
@@ -1802,15 +2267,35 @@ describe('LIFF GET /api/liff/events/me/:bookingId', () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f2', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f2',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(404);
   });
@@ -1826,7 +2311,7 @@ describe('LIFF GET /api/liff/events/me/:bookingId', () => {
     liffAuthMocks.verifyCallerLineUserId.mockResolvedValue('U1');
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/nonexistent?liffId=L1', {
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(404);
   });
@@ -1844,9 +2329,36 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
   test('cancels confirmed booking when within deadline', async () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, cancel_deadline_hours_before: 24 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          cancel_deadline_hours_before: 24,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1854,7 +2366,7 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1/cancel?liffId=L1', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(200);
     expect(state.bookings[0].status).toBe('cancelled');
@@ -1864,9 +2376,36 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
   test('403 cancel_not_allowed when cancel_deadline_hours_before is null', async () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, cancel_deadline_hours_before: null })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          cancel_deadline_hours_before: null,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1874,7 +2413,7 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1/cancel?liffId=L1', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(403);
   });
@@ -1882,9 +2421,36 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
   test('409 cancel_deadline_passed when too late', async () => {
     const soonMs = Date.now() + 60_000; // 1 minute from now
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, cancel_deadline_hours_before: 24 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(soonMs).toISOString(), ends_at: new Date(soonMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          cancel_deadline_hours_before: 24,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(soonMs).toISOString(),
+          ends_at: new Date(soonMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1892,7 +2458,7 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1/cancel?liffId=L1', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(409);
   });
@@ -1900,9 +2466,36 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
   test('409 invalid_state for already-cancelled booking', async () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, cancel_deadline_hours_before: 24 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'cancelled' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          cancel_deadline_hours_before: 24,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'cancelled',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1910,7 +2503,7 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1/cancel?liffId=L1', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(409);
   });
@@ -1918,9 +2511,36 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
   test('404 cross-friend cancel', async () => {
     const futureMs = Date.now() + 7 * 24 * 3600_000;
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', is_published: 1, cancel_deadline_hours_before: 24 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: new Date(futureMs).toISOString(), ends_at: new Date(futureMs + 7200_000).toISOString(), capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f2', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          is_published: 1,
+          cancel_deadline_hours_before: 24,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: new Date(futureMs).toISOString(),
+          ends_at: new Date(futureMs + 7200_000).toISOString(),
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f2',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -1928,7 +2548,7 @@ describe('LIFF POST /api/liff/events/me/:bookingId/cancel', () => {
     const app = setupApp(state);
     const res = await app.request('/api/liff/events/me/b1/cancel?liffId=L1', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer t' },
+      headers: { Authorization: 'Bearer t' },
     });
     expect(res.status).toBe(404);
   });
@@ -1945,10 +2565,35 @@ describe('admin bookings management', () => {
           account_ids: JSON.stringify(['la1', 'la2']),
         }),
       ],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f-la1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e1', slot_id: 's1', friend_id: 'f-la2', line_account_id: 'la2', status: 'confirmed' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f-la1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f-la2',
+          line_account_id: 'la2',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
       ],
       friends: [
         { id: 'f-la1', line_account_id: 'la1', line_user_id: 'U1' },
@@ -1967,13 +2612,52 @@ describe('admin bookings management', () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
       slots: [
-        { id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null },
-        { id: 's2', event_id: 'e1', starts_at: '2099-06-02T10:00:00Z', ends_at: '2099-06-02T12:00:00Z', capacity: null, is_active: 1, sort_order: 1, deleted_at: null },
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+        {
+          id: 's2',
+          event_id: 'e1',
+          starts_at: '2099-06-02T10:00:00Z',
+          ends_at: '2099-06-02T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 1,
+          deleted_at: null,
+        },
       ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e1', slot_id: 's2', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b3', event_id: 'e1', slot_id: 's1', friend_id: 'f2', line_account_id: 'la1', status: 'cancelled' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's2',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b3',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f2',
+          line_account_id: 'la1',
+          status: 'cancelled',
+        } as BookingRow & Record<string, unknown>,
       ],
       friends: [
         { id: 'f1', line_account_id: 'la1', line_user_id: 'U1' },
@@ -1989,9 +2673,36 @@ describe('admin bookings management', () => {
 
   test('POST decide confirm transitions to confirmed and creates reminders', async () => {
     const state = {
-      events: [baseEvent({ id: 'e1', line_account_id: 'la1', reminder_day_before_enabled: 1, reminder_hours_before: 2 })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          reminder_day_before_enabled: 1,
+          reminder_hours_before: 2,
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -2011,9 +2722,7 @@ describe('admin bookings management', () => {
         lineAccountId: 'la1',
         friendId: 'f1',
         kind: 'confirmed',
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', 'b1', 'confirmed',
-        ),
+        retryKey: await createBroadcastRetryKey('event-booking-notification', 'b1', 'confirmed'),
       }),
     );
   });
@@ -2021,14 +2730,36 @@ describe('admin bookings management', () => {
   test('POST decide notifies through the booking account of a multi-account event', async () => {
     const queries: string[] = [];
     const state = {
-      events: [baseEvent({
-        id: 'e1',
-        line_account_id: 'la1',
-        target_type: 'multi-account-dedup',
-        account_ids: JSON.stringify(['la1', 'la2']),
-      })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b2', event_id: 'e1', slot_id: 's1', friend_id: 'f2', line_account_id: 'la2', status: 'requested' } as BookingRow & Record<string, unknown>],
+      events: [
+        baseEvent({
+          id: 'e1',
+          line_account_id: 'la1',
+          target_type: 'multi-account-dedup',
+          account_ids: JSON.stringify(['la1', 'la2']),
+        }),
+      ],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b2',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f2',
+          line_account_id: 'la2',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la2', liff_id: 'L2', is_active: 1, channel_access_token: 'tok2' }],
       friends: [{ id: 'f2', line_account_id: 'la2', line_user_id: 'U2' }],
       queries,
@@ -2050,8 +2781,8 @@ describe('admin bookings management', () => {
         toLineUserId: 'U2',
       }),
     );
-    const notificationQuery = queries.find((sql) =>
-      sql.includes('FROM event_bookings b') && sql.includes('channel_access_token')) ?? '';
+    const notificationQuery =
+      queries.find((sql) => sql.includes('FROM event_bookings b') && sql.includes('channel_access_token')) ?? '';
     expect(notificationQuery).toContain("e.target_type = 'single'");
     expect(notificationQuery).toContain("e.target_type = 'multi-account-dedup'");
     expect(notificationQuery).toContain('json_each(e.account_ids)');
@@ -2063,8 +2794,28 @@ describe('admin bookings management', () => {
   test('POST decide reject transitions to rejected and appends reason to internal_note', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -2080,9 +2831,7 @@ describe('admin bookings management', () => {
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'rejected',
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', 'b1', 'rejected',
-        ),
+        retryKey: await createBroadcastRetryKey('event-booking-notification', 'b1', 'rejected'),
       }),
     );
   });
@@ -2090,8 +2839,29 @@ describe('admin bookings management', () => {
   test('POST decide returns 409 already_decided', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed', decided_at: '2026-05-09T00:00:00Z' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+          decided_at: '2026-05-09T00:00:00Z',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1 }],
       friends: [],
     };
@@ -2109,8 +2879,28 @@ describe('admin bookings management', () => {
   test('POST admin cancel transitions to cancelled by admin', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
       accounts: [{ id: 'la1', liff_id: 'L1', is_active: 1, channel_access_token: 'tok' }],
       friends: [{ id: 'f1', line_account_id: 'la1', line_user_id: 'U1' }],
     };
@@ -2125,9 +2915,7 @@ describe('admin bookings management', () => {
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'cancelled_by_admin',
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', 'b1', 'cancelled_by_admin',
-        ),
+        retryKey: await createBroadcastRetryKey('event-booking-notification', 'b1', 'cancelled_by_admin'),
       }),
     );
   });
@@ -2135,8 +2923,28 @@ describe('admin bookings management', () => {
   test('PUT internal_note update', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+      ],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/bookings/b1?account_id=la1', {
@@ -2151,8 +2959,28 @@ describe('admin bookings management', () => {
   test('PUT status=attended transitions confirmed→attended', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+      ],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/bookings/b1?account_id=la1', {
@@ -2167,8 +2995,28 @@ describe('admin bookings management', () => {
   test('PUT status=no_show on requested booking returns 409', async () => {
     const state = {
       events: [baseEvent({ id: 'e1', line_account_id: 'la1' })],
-      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
-      bookings: [{ id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>],
+      slots: [
+        {
+          id: 's1',
+          event_id: 'e1',
+          starts_at: '2099-06-01T10:00:00Z',
+          ends_at: '2099-06-01T12:00:00Z',
+          capacity: null,
+          is_active: 1,
+          sort_order: 0,
+          deleted_at: null,
+        },
+      ],
+      bookings: [
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+      ],
     };
     const app = setupApp(state);
     const res = await app.request('/api/events/admin/events/e1/bookings/b1?account_id=la1', {
@@ -2187,10 +3035,38 @@ describe('admin bookings management', () => {
         baseEvent({ id: 'e3', line_account_id: 'la2' }),
       ],
       bookings: [
-        { id: 'b1', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>,
-        { id: 'b2', event_id: 'e2', slot_id: 's2', friend_id: 'f1', line_account_id: 'la1', status: 'requested' } as BookingRow & Record<string, unknown>,
-        { id: 'b3', event_id: 'e1', slot_id: 's1', friend_id: 'f1', line_account_id: 'la1', status: 'confirmed' } as BookingRow & Record<string, unknown>,
-        { id: 'b4', event_id: 'e3', slot_id: 's3', friend_id: 'f3', line_account_id: 'la2', status: 'requested' } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b1',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b2',
+          event_id: 'e2',
+          slot_id: 's2',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b3',
+          event_id: 'e1',
+          slot_id: 's1',
+          friend_id: 'f1',
+          line_account_id: 'la1',
+          status: 'confirmed',
+        } as BookingRow & Record<string, unknown>,
+        {
+          id: 'b4',
+          event_id: 'e3',
+          slot_id: 's3',
+          friend_id: 'f3',
+          line_account_id: 'la2',
+          status: 'requested',
+        } as BookingRow & Record<string, unknown>,
       ],
     };
     const app = setupApp(state);

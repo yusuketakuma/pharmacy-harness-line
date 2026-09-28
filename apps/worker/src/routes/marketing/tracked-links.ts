@@ -58,22 +58,45 @@ async function resolveApiLinkBase(c: { env: { DB: D1Database }; req: { url: stri
 }
 
 /**
- * Resolve the LINE account that owns a tracked link.
- * Priority: tracked_links.line_account_id → scenario_id → scenarios.line_account_id.
+ * Account ids owned by the caller's tenant. Empty set means the session has
+ * no tenant context (legacy single-tenant deployment) — same convention as
+ * tenantAccountSelectorGuard, which also skips checks without tenant context.
+ */
+async function tenantAccountIds(c: {
+  env: { DB: D1Database };
+  get: (key: 'tenantId') => string | undefined;
+}): Promise<Set<string> | null> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return null;
+  const rows = await c.env.DB.prepare(`SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`)
+    .bind(tenantId)
+    .all<{ line_account_id: string }>();
+  return new Set((rows.results ?? []).map((r) => r.line_account_id));
+}
+
+/** A link is visible when unscoped (legacy NULL account) or owned by the tenant. */
+function linkVisibleToTenant(link: TrackedLink, allowed: Set<string> | null): boolean {
+  if (!allowed) return true;
+  return !link.line_account_id || allowed.has(link.line_account_id);
+}
+
+/** The account that owns a link: direct column first, then via its scenario. */
+async function linkOwnerAccountId(db: D1Database, link: TrackedLink): Promise<string | null> {
+  if (link.line_account_id) return link.line_account_id;
+  if (!link.scenario_id) return null;
+  const scRow = await db
+    .prepare(`SELECT line_account_id FROM scenarios WHERE id = ?`)
+    .bind(link.scenario_id)
+    .first<{ line_account_id: string | null }>();
+  return scRow?.line_account_id ?? null;
+}
+
+/**
+ * Resolve the LINE account row that owns a tracked link.
  * Returns null for legacy/unowned links (callers fall back to env defaults).
  */
-async function resolveLinkAccount(
-  db: D1Database,
-  link: TrackedLink,
-): Promise<Record<string, unknown> | null> {
-  let accountId: string | null = link.line_account_id ?? null;
-  if (!accountId && link.scenario_id) {
-    const scRow = await db
-      .prepare(`SELECT line_account_id FROM scenarios WHERE id = ?`)
-      .bind(link.scenario_id)
-      .first<{ line_account_id: string | null }>();
-    accountId = scRow?.line_account_id ?? null;
-  }
+async function resolveLinkAccount(db: D1Database, link: TrackedLink): Promise<Record<string, unknown> | null> {
+  const accountId = await linkOwnerAccountId(db, link);
   if (!accountId) return null;
   return db
     .prepare(
@@ -87,7 +110,8 @@ async function resolveLinkAccount(
 // GET /api/tracked-links — list all
 trackedLinks.get('/api/tracked-links', async (c) => {
   try {
-    const items = await getTrackedLinks(c.env.DB);
+    const allowed = await tenantAccountIds(c);
+    const items = (await getTrackedLinks(c.env.DB)).filter((item) => linkVisibleToTenant(item, allowed));
     const base = await resolveApiLinkBase(c);
     return c.json({ success: true, data: items.map((item) => serializeTrackedLink(item, base)) });
   } catch (err) {
@@ -101,7 +125,7 @@ trackedLinks.get('/api/tracked-links/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const link = await getTrackedLinkById(c.env.DB, id);
-    if (!link) {
+    if (!link || !linkVisibleToTenant(link, await tenantAccountIds(c))) {
       return c.json({ success: false, error: 'Tracked link not found' }, 404);
     }
     const clicks = await getLinkClicks(c.env.DB, id);
@@ -182,8 +206,24 @@ trackedLinks.patch('/api/tracked-links/:id', async (c) => {
       ogImageUrl?: string | null;
     }>();
 
+    const allowed = await tenantAccountIds(c);
+    const existing = await getTrackedLinkById(c.env.DB, id);
+    if (
+      !existing ||
+      !linkVisibleToTenant(existing, allowed) ||
+      !linkVisibleToTenant(
+        {
+          ...existing,
+          line_account_id: body.lineAccountId === undefined ? existing.line_account_id : body.lineAccountId,
+        },
+        allowed,
+      )
+    ) {
+      return c.json({ success: false, error: 'Tracked link not found' }, 404);
+    }
+
     const link = await updateTrackedLink(c.env.DB, id, body);
-    if (!link) {
+    if (!link || !linkVisibleToTenant(link, allowed)) {
       return c.json({ success: false, error: 'Tracked link not found' }, 404);
     }
     const base = await resolveApiLinkBase(c);
@@ -199,7 +239,7 @@ trackedLinks.delete('/api/tracked-links/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const link = await getTrackedLinkById(c.env.DB, id);
-    if (!link) {
+    if (!link || !linkVisibleToTenant(link, await tenantAccountIds(c))) {
       return c.json({ success: false, error: 'Tracked link not found' }, 404);
     }
     await deleteTrackedLink(c.env.DB, id);
@@ -253,13 +293,21 @@ function getAndroidPackage(url: string): string | null {
 }
 
 function buildAppRedirectHtml(destinationUrl: string): string {
-  const escaped = destinationUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const escaped = destinationUrl
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
   const androidPackage = getAndroidPackage(destinationUrl);
   // intent://path#Intent;scheme=https;package=com.xxx;S.browser_fallback_url=https://...;end
   const intentUrl = androidPackage
     ? `intent://${destinationUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(destinationUrl)};end`
     : null;
-  const intentEscaped = intentUrl ? intentUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;') : '';
+  // Script contents are raw text, so HTML entities would alter the URL.
+  // Escape '<' as well to keep a URL from terminating the script element.
+  const scriptString = (value: string) => JSON.stringify(value).replace(/</g, '\\u003c');
+  const destinationJson = scriptString(destinationUrl);
+  const intentJson = scriptString(intentUrl ?? '');
 
   return `<!DOCTYPE html>
 <html><head>
@@ -272,10 +320,10 @@ function buildAppRedirectHtml(destinationUrl: string): string {
 <script>
 (function(){
   var isAndroid = /Android/i.test(navigator.userAgent);
-  if(isAndroid && "${intentEscaped}"){
-    window.location.href="${intentEscaped}";
+  if(isAndroid && ${intentJson}){
+    window.location.href=${intentJson};
   } else {
-    window.location.href="${escaped}";
+    window.location.href=${destinationJson};
   }
 })();
 </script>
@@ -344,6 +392,20 @@ trackedLinks.get('/t/:linkId', async (c) => {
     }
   }
 
+  // `f`/`lu` are unauthenticated URL parameters. A scoped link must not let a
+  // caller smuggle another account's friend id into tag/scenario/mileage side
+  // effects — accept the claim only when the friend belongs to the link's
+  // owner account. Fully unscoped legacy links keep the historical behavior.
+  if (friendId) {
+    const ownerAccountId = await linkOwnerAccountId(c.env.DB, link);
+    if (ownerAccountId) {
+      const owned = await c.env.DB.prepare(`SELECT 1 AS ok FROM friends WHERE id = ? AND line_account_id = ?`)
+        .bind(friendId, ownerAccountId)
+        .first<{ ok: number }>();
+      if (!owned) friendId = null;
+    }
+  }
+
   // Run side-effects async (click recording, tag/scenario actions)
   const ctx = c.executionCtx as ExecutionContext;
   ctx.waitUntil(
@@ -373,10 +435,12 @@ trackedLinks.get('/t/:linkId', async (c) => {
             // the tag is NEWLY applied — an in-app /t click must start a
             // tag-triggered campaign exactly like the /auth/line ref path
             // does, and stay silent on re-clicks.
-            actions.push(attachTagAndFireSideEffects(c.env.DB, friendId, link.tag_id, {
-              defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
-              workerUrl: c.env.WORKER_URL,
-            }));
+            actions.push(
+              attachTagAndFireSideEffects(c.env.DB, friendId, link.tag_id, {
+                defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
+                workerUrl: c.env.WORKER_URL,
+              }),
+            );
           }
 
           if (link.scenario_id) {

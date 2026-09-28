@@ -1,0 +1,30 @@
+{
+  "snapshot": "F33-W.json",
+  "toolTerminalResults": {
+    "initialVerifyCI": {
+      "session": 56739,
+      "exit": 0
+    },
+    "finalWorkerTest": {
+      "session": 23764,
+      "exit": 0
+    },
+    "finalWorkerTypecheck": {
+      "session": 67688,
+      "exit": 0
+    },
+    "finalNative": {
+      "session": 13767,
+      "exit": 0
+    },
+    "finalPerformance": {
+      "exit": 0
+    },
+    "finalPRegression": {
+      "processExit": 1,
+      "harnessSession": 40000,
+      "harnessExit": 0
+    }
+  },
+  "reviewFinalHashesVerified": true
+}

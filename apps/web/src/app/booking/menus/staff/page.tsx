@@ -1,78 +1,78 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import Header from '@/components/layout/header'
-import { bookingApi, type BookingMenu, type BookingStaff, type StaffMenuMatrix } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Header from '@/components/layout/header';
+import { bookingApi, type BookingMenu, type BookingStaff, type StaffMenuMatrix } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
 
 // このメニューを各スタッフが提供するか／料金所要を上書きするかの一括編集 UI。
 // staff_menus は staff_id × menu_id 主キー。スタッフごとに個別 PUT で書く。
 export default function MenuStaffMatrix() {
-  const sp = useSearchParams()
-  const id = sp.get('menu_id') ?? ''
-  const { selectedAccountId } = useAccount()
-  const [menu, setMenu] = useState<BookingMenu | null>(null)
-  const [staff, setStaff] = useState<BookingStaff[]>([])
-  const [rows, setRows] = useState<Record<string, StaffMenuMatrix>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const sp = useSearchParams();
+  const id = sp.get('menu_id') ?? '';
+  const { selectedAccountId } = useAccount();
+  const [menu, setMenu] = useState<BookingMenu | null>(null);
+  const [staff, setStaff] = useState<BookingStaff[]>([]);
+  const [rows, setRows] = useState<Record<string, StaffMenuMatrix>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    if (!selectedAccountId || !id) return
-    setLoading(true)
-    setError(null)
+    if (!selectedAccountId || !id) return;
+    setLoading(true);
+    setError(null);
     // 前 menu/account の rows が残ったまま fetch 失敗 → 保存すると別 menu の
     // 設定を上書きする事故になる。先にクリア + 失敗時は保存ボタン無効化。
-    setMenu(null)
-    setStaff([])
-    setRows({})
+    setMenu(null);
+    setStaff([]);
+    setRows({});
     try {
       const [menusRes, sRes] = await Promise.all([
         bookingApi.listMenus(selectedAccountId),
         bookingApi.listStaff(selectedAccountId),
-      ])
-      setMenu(menusRes.menus.find((m) => m.id === id) ?? null)
-      setStaff(sRes.staff)
-      const rowsMap: Record<string, StaffMenuMatrix> = {}
+      ]);
+      setMenu(menusRes.menus.find((m) => m.id === id) ?? null);
+      setStaff(sRes.staff);
+      const rowsMap: Record<string, StaffMenuMatrix> = {};
       await Promise.all(
         sRes.staff.map(async (s) => {
-          const r = await bookingApi.getStaffMenus(selectedAccountId, s.id)
-          const me = r.matrix.find((x) => x.menu_id === id)
+          const r = await bookingApi.getStaffMenus(selectedAccountId, s.id);
+          const me = r.matrix.find((x) => x.menu_id === id);
           rowsMap[s.id] = me ?? {
             menu_id: id,
             name: '',
             is_offered: 0,
             override_duration_minutes: null,
             override_price: null,
-          }
+          };
         }),
-      )
-      setRows(rowsMap)
+      );
+      setRows(rowsMap);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [id, selectedAccountId])
+  }, [id, selectedAccountId]);
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
 
   function update(staffId: string, patch: Partial<StaffMenuMatrix>) {
-    setRows({ ...rows, [staffId]: { ...rows[staffId], ...patch } })
+    setRows({ ...rows, [staffId]: { ...rows[staffId], ...patch } });
   }
 
   async function saveAll() {
-    if (!selectedAccountId) return
-    setSaving(true)
-    setError(null)
+    if (!selectedAccountId) return;
+    setSaving(true);
+    setError(null);
     try {
       for (const s of staff) {
-        const fullMatrix = await bookingApi.getStaffMenus(selectedAccountId, s.id)
+        const fullMatrix = await bookingApi.getStaffMenus(selectedAccountId, s.id);
         const updated = fullMatrix.matrix.map((row) =>
           row.menu_id === id
             ? {
@@ -87,14 +87,14 @@ export default function MenuStaffMatrix() {
                 override_duration_minutes: row.override_duration_minutes,
                 override_price: row.override_price,
               },
-        )
-        await bookingApi.putStaffMenus(selectedAccountId, s.id, updated)
+        );
+        await bookingApi.putStaffMenus(selectedAccountId, s.id, updated);
       }
-      setSavedAt(Date.now())
+      setSavedAt(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
@@ -121,11 +121,7 @@ export default function MenuStaffMatrix() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
       {savedAt && Date.now() - savedAt < 3000 && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
           保存しました
@@ -158,15 +154,17 @@ export default function MenuStaffMatrix() {
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">スタッフ</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">提供する</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">所要分（上書き）</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">
+                    所要分（上書き）
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">料金（上書き）</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {staff.map((s) => {
-                  const row = rows[s.id]
-                  if (!row) return null
-                  const offered = Boolean(row.is_offered)
+                  const row = rows[s.id];
+                  if (!row) return null;
+                  const offered = Boolean(row.is_offered);
                   return (
                     <tr key={s.id} className={offered ? '' : 'opacity-60'}>
                       <td className="px-4 py-3 text-sm">
@@ -225,7 +223,7 @@ export default function MenuStaffMatrix() {
                         />
                       </td>
                     </tr>
-                  )
+                  );
                 })}
               </tbody>
             </table>
@@ -233,5 +231,5 @@ export default function MenuStaffMatrix() {
         </div>
       )}
     </div>
-  )
+  );
 }

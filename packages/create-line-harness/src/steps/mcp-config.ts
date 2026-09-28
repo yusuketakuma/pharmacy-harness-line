@@ -1,6 +1,6 @@
-import * as p from "@clack/prompts";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import * as p from '@clack/prompts';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 interface McpConfigOptions {
   workerUrl: string;
@@ -35,19 +35,18 @@ interface LineAccount {
  * Best-effort: any failure (network, multi-account, unexpected shape) just
  * skips the field and never breaks the install.
  */
-async function resolveDefaultAccountId(
-  options: McpConfigOptions,
-): Promise<string | undefined> {
+async function resolveDefaultAccountId(options: McpConfigOptions): Promise<string | undefined> {
   try {
-    const base = options.workerUrl.replace(/\/$/, "");
+    const base = options.workerUrl.replace(/\/$/, '');
     const res = await fetch(`${base}/api/line-accounts`, {
       headers: { Authorization: `Bearer ${options.apiKey}` },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return undefined;
-    const json = (await res.json().catch(() => null)) as
-      | { success?: boolean; data?: LineAccount[] }
-      | null;
+    const json = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      data?: LineAccount[];
+    } | null;
     if (!json?.success || !Array.isArray(json.data)) return undefined;
     if (json.data.length === 1) return json.data[0]?.id;
     return undefined;
@@ -57,7 +56,7 @@ async function resolveDefaultAccountId(
 }
 
 export async function generateMcpConfig(options: McpConfigOptions): Promise<void> {
-  const mcpJsonPath = join(process.cwd(), ".mcp.json");
+  const mcpJsonPath = join(process.cwd(), '.mcp.json');
 
   const env: Record<string, string> = {
     LINE_HARNESS_API_URL: options.workerUrl,
@@ -67,15 +66,14 @@ export async function generateMcpConfig(options: McpConfigOptions): Promise<void
   // Set a default account for single-account installs so MCP-created
   // broadcasts are tagged with line_account_id and show up in the admin UI.
   // Prefer the caller-provided id; fall back to asking the worker API.
-  const defaultAccountId =
-    options.accountId ?? (await resolveDefaultAccountId(options));
+  const defaultAccountId = options.accountId ?? (await resolveDefaultAccountId(options));
   if (defaultAccountId) {
     env.LINE_HARNESS_ACCOUNT_ID = defaultAccountId;
   }
 
   const newServerConfig = {
-    command: "npx",
-    args: ["-y", "@line-harness/mcp-server@latest"],
+    command: 'npx',
+    args: ['-y', '@line-harness/mcp-server@latest'],
     env,
   };
 
@@ -83,7 +81,7 @@ export async function generateMcpConfig(options: McpConfigOptions): Promise<void
 
   if (existsSync(mcpJsonPath)) {
     try {
-      mcpConfig = JSON.parse(readFileSync(mcpJsonPath, "utf-8"));
+      mcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
     } catch {
       // Invalid JSON, start fresh
     }
@@ -94,17 +92,15 @@ export async function generateMcpConfig(options: McpConfigOptions): Promise<void
   }
 
   // Don't overwrite existing line-harness config — use a unique name
-  let serverName = "line-harness";
-  if (mcpConfig.mcpServers["line-harness"]) {
+  let serverName = 'line-harness';
+  if (mcpConfig.mcpServers['line-harness']) {
     // Extract a short suffix from the API key
     const suffix = options.apiKey.slice(0, 8);
     serverName = `line-harness-${suffix}`;
-    p.log.info(
-      `既存の line-harness 設定があるため、${serverName} として追加します`,
-    );
+    p.log.info(`既存の line-harness 設定があるため、${serverName} として追加します`);
   }
   mcpConfig.mcpServers[serverName] = newServerConfig;
 
-  writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2) + "\n");
+  writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2) + '\n');
   p.log.success(`.mcp.json に MCP 設定を追加しました（${serverName}）`);
 }

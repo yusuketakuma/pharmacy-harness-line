@@ -144,7 +144,9 @@ function renderCalendar(): string {
       selected ? 'selected' : '',
       new Date(currentYear, currentMonth, day).getDay() === 0 ? 'sun' : '',
       new Date(currentYear, currentMonth, day).getDay() === 6 ? 'sat' : '',
-    ].filter(Boolean).join(' ');
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     html += `<span class="${classes}" ${past ? '' : `data-date="${dateStr}"`}>${day}</span>`;
   }
@@ -181,13 +183,13 @@ function renderSlots(): string {
     `;
   }
 
-  const slotButtons = slots.map((slot) => {
-    const isSelected = selectedSlot?.startAt === slot.startAt;
-    const cls = slot.available
-      ? (isSelected ? 'slot-btn selected' : 'slot-btn available')
-      : 'slot-btn full';
-    return `<button class="${cls}" ${slot.available ? `data-start="${slot.startAt}" data-end="${slot.endAt}"` : 'disabled'}>${formatTime(slot.startAt)} - ${formatTime(slot.endAt)}</button>`;
-  }).join('');
+  const slotButtons = slots
+    .map((slot) => {
+      const isSelected = selectedSlot?.startAt === slot.startAt;
+      const cls = slot.available ? (isSelected ? 'slot-btn selected' : 'slot-btn available') : 'slot-btn full';
+      return `<button class="${cls}" ${slot.available ? `data-start="${slot.startAt}" data-end="${slot.endAt}"` : 'disabled'}>${formatTime(slot.startAt)} - ${formatTime(slot.endAt)}</button>`;
+    })
+    .join('');
 
   return `
     <div class="slots-section">
@@ -369,7 +371,7 @@ async function fetchSlots(date: string): Promise<void> {
     if (CONNECTION_ID) params.set('connectionId', CONNECTION_ID);
     const res = await apiCall(`/api/integrations/google-calendar/slots?${params}`);
     if (!res.ok) throw new Error('スロット取得に失敗しました');
-    const json = await res.json() as { success: boolean; data: Slot[] };
+    const json = (await res.json()) as { success: boolean; data: Slot[] };
     if (!json.success) throw new Error('スロット取得に失敗しました');
     state.slots = json.data;
   } catch (err) {
@@ -407,7 +409,7 @@ async function submitBooking(): Promise<void> {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => null) as { error?: string } | null;
+      const errData = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(errData?.error || '予約に失敗しました');
     }
 
@@ -443,17 +445,23 @@ export async function initBooking(): Promise<void> {
         displayName: profile.displayName,
         existingUuid: existingUuid,
       }),
-    }).then(async (res) => {
-      if (res.ok) {
-        const data = await res.json() as { success: boolean; data?: { userId?: string } };
-        if (data?.data?.userId) {
-          try {
-            localStorage.setItem(UUID_STORAGE_KEY, data.data.userId);
-            state.friendId = data.data.userId;
-          } catch { /* silent */ }
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { success: boolean; data?: { userId?: string } };
+          if (data?.data?.userId) {
+            try {
+              localStorage.setItem(UUID_STORAGE_KEY, data.data.userId);
+              state.friendId = data.data.userId;
+            } catch {
+              /* silent */
+            }
+          }
         }
-      }
-    }).catch(() => { /* silent */ });
+      })
+      .catch(() => {
+        /* silent */
+      });
   }
 
   render();

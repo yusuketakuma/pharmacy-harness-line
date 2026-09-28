@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T11:37:00Z",
+  "scope": "v0.34.0-patient-critical-journey",
+  "status": "NOT_RUN",
+  "releaseReadiness": "BLOCKED",
+  "prerequisite": {
+    "V033_7": "BLOCKED",
+    "rule": "V034 acceptance cannot promote or release while V033-7 is not PASS on one exact candidate."
+  },
+  "localImplementation": {
+    "V034_1": "PARTIAL_LOCAL_EC_POLICY_GATE",
+    "V034_2": "PASS_LOCAL",
+    "V034_3": "PASS_LOCAL",
+    "V034_4": "PARTIAL_LOCAL_DEVICE_TRIALS_NOT_RUN"
+  },
+  "freeze": {
+    "branch": "feat/pharmacy-v0.34-patient-critical-journey",
+    "baseSourceSha": "6679a979ebde",
+    "baselineIdentity": "v0.33.2_BASE_SOURCE",
+    "candidateIdentity": "LOCAL_SOURCE_COMMIT",
+    "exactCandidateSha": "b038890333628959837e44769f5d25886238084e",
+    "frozenBeforeDeviceTrials": true,
+    "dataPolicy": "Synthetic fixtures only. Do not capture PHI, PII, credentials, ID tokens, prescription images, or production data."
+  },
+  "baseline": {
+    "status": "NOT_RUN",
+    "sourceSha": "6679a979ebde",
+    "comparison": "Existing v0.33.2 patient flow without the candidate timeline and upload-recovery changes.",
+    "claimBoundary": "The baseline is identified but no real-device timing or success-rate measurement has been performed."
+  },
+  "participants": [
+    {
+      "id": "patient-self",
+      "attributes": "Adult patient selecting their own synthetic profile and using standard text size."
+    },
+    {
+      "id": "family-proxy",
+      "attributes": "Family member selecting a separately owned synthetic family profile without changing the authenticated LINE owner."
+    },
+    {
+      "id": "older-adult",
+      "attributes": "Older adult using 200% text/zoom and assistive technology where available."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "timeline-to-detail",
+      "start": "Open the pharmacy LIFF main menu with synthetic owned history.",
+      "trialsPerEnvironment": 3,
+      "successDefinition": "The participant finds 利用状況, identifies the latest server-owned status and next action, and opens the fixed matching detail route without viewing another owner's data.",
+      "failureDefinition": "The participant opens the wrong domain, cannot identify the next action, reaches an unsafe or broken destination, sees another owner's item, or needs facilitator intervention."
+    },
+    {
+      "id": "new-prescription-send",
+      "start": "Open 処方せん事前送信 with synthetic self and family profiles available.",
+      "trialsPerEnvironment": 3,
+      "successDefinition": "The participant selects the intended profile, adds 1-4 synthetic images, completes both consents and confirmation, sends once, and understands that 受付内容の確認待ち is not 薬局受付済み.",
+      "failureDefinition": "Wrong-patient selection, missing consent, duplicate mutation, input loss, unclear received-versus-accepted state, critical validation miss, or facilitator intervention."
+    },
+    {
+      "id": "interrupted-upload-recovery",
+      "start": "Begin a synthetic upload, then inject offline, timeout, reload, back navigation, or LINE WebView restart before the outcome is known.",
+      "trialsPerEnvironment": 3,
+      "successDefinition": "The participant returns to the owned draft, sees ready versus missing work, reselects only needed images, reconfirms consent, and completes without duplicate submission or PHI browser persistence.",
+      "failureDefinition": "Blind mutation retry, duplicate submission, unrecoverable input loss, wrong-owner recovery, stale patient binding, PHI persistence, or inability to reach a safe status screen."
+    }
+  ],
+  "environments": [
+    {
+      "id": "ios-line-webview",
+      "required": "Current supported iOS hardware and LINE in-app WebView",
+      "variants": [
+        "normal-network",
+        "slow-network-or-timeout",
+        "200-percent-text-or-zoom",
+        "VoiceOver",
+        "back-forward-reload-webview-restart"
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "android-line-webview",
+      "required": "Current supported Android hardware and LINE in-app WebView",
+      "variants": [
+        "normal-network",
+        "slow-network-or-timeout",
+        "200-percent-text-or-zoom",
+        "TalkBack",
+        "back-forward-reload-webview-restart"
+      ],
+      "status": "NOT_RUN"
+    }
+  ],
+  "accessibilityChecks": [
+    "Focus order follows the visual task order.",
+    "Validation and recovery errors identify the problem and move focus to the alert or affected field.",
+    "Loading, success, received, accepted, offline, and recovery state changes are announced.",
+    "Controls remain operable and readable at 200% text or zoom without hidden primary actions.",
+    "Text and controls retain sufficient contrast in LINE WebView and low-contrast viewing conditions.",
+    "All task controls have an accessible name, role, state, and at least a 44px target."
+  ],
+  "acceptance": {
+    "zeroTolerance": [
+      "duplicate-submission",
+      "input-loss",
+      "wrong-owner-data",
+      "critical-safety-error"
+    ],
+    "primaryRule": "Every zero-tolerance count must be 0 and every required environment/task combination must complete without facilitator intervention before PASS.",
+    "auxiliaryMetrics": {
+      "completionSeconds": 90,
+      "successRatePercent": 90,
+      "gate": false
+    },
+    "auxiliaryRule": "Time and success-rate targets are descriptive only and cannot override a safety, ownership, correctness, or accessibility failure."
+  },
+  "automatedEvidence": {
+    "workerFocused": "PASS_14_FILES_216_TESTS_POST_REVIEW",
+    "workerPackage": "PASS_241_FILES_2558_TESTS_EXACT_CANDIDATE",
+    "workerTypecheck": "PASS_EXACT_CANDIDATE",
+    "workerBuild": "PASS_EXACT_CANDIDATE",
+    "workerDeployDryRun": "PASS_NO_DEPLOY_2369_77_KIB_GZIP_487_31_KIB",
+    "workerProductionBuild": "PASS_EXACT_CANDIDATE",
+    "workerProductionDeployDryRun": "PASS_EXACT_SCRIPT_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS",
+    "workerProductionArgumentProbe": "RED_LITERAL_SEPARATOR_REACHED_PLACEHOLDER_API_7003_NO_MUTATION",
+    "liffFocused": "PASS_23_FILES_144_TESTS_EXACT_CANDIDATE",
+    "liffTypecheck": "PASS_EXACT_CANDIDATE",
+    "liffBuild": "PASS_EXACT_CANDIDATE",
+    "liffProductionTarget": "PASS_CONFIG_PROJECT_LINE_CRM_LIFF_PROD_BRANCH_MAIN_DEPLOY_NOT_RUN",
+    "sharedDeploymentWorkflow": "PASS_1_FILE_26_TESTS",
+    "repositoryVerify": "PASS_CURRENT_SOURCE_CANDIDATE_WORKSPACE_TYPES_TESTS_SCRIPTS_MIGRATIONS",
+    "routeInventory": "PASS_38_PAGES_42_API_GROUPS_231_UNIQUE_ROUTES",
+    "currentCandidatePerformanceReplay": "PARTIAL_PASS_LOCAL_7_RUNS_DB_REPLAY_IMPROVED_NO_REMOTE_D1_OR_REAL_DEVICE",
+    "liffBundleComparison": "NO_INITIAL_BUNDLE_IMPROVEMENT_CURRENT_FEATURE_CANDIDATE_GZIP_PLUS_2_91_KIB",
+    "authOriginGuard": "PASS_4_FILES_157_TESTS_UNKNOWN_AND_LIFF_BROWSER_ORIGINS_REJECTED",
+    "uxGateContract": "PASS_1_FILE_1_TEST",
+    "browserAudit": "PASS_LOCAL_CHROME_SYNTHETIC_TIMELINE_STATES_AND_200_PERCENT",
+    "browserAuditCoverage": [
+      "390px populated timeline with three domains",
+      "network failure uses a Japanese alert, receives focus, and recovers through retry",
+      "empty timeline state",
+      "200-percent root text with no horizontal overflow and 44px-or-larger controls",
+      "long pharmacy name remains fully visible rather than ellipsized",
+      "timeline detail navigation retains liffId and opens the fixed prescription history route",
+      "axe-core WCAG 2 A/AA: zero violations and zero incomplete checks after remediation"
+    ],
+    "browserAuditLimit": "Local synthetic Chrome evidence only; it does not substitute for LINE WebView, VoiceOver, TalkBack, real-device zoom, slow-network, or participant trials.",
+    "sourceRemediationCommits": [
+      "3589ff6 reject untrusted browser login origins",
+      "d9d245e expose the shared LIFF version badge accessibly",
+      "d43debd hide timeline network error details behind the existing Japanese message helper",
+      "b29309e keep the full pharmacy name visible at increased text size",
+      "4d54ec3 give repeated timeline detail links distinct accessible names",
+      "0dcea76 restore LIFF and Worker candidate type safety",
+      "2d08893 build the selected production Worker environment and preserve provisioned vars",
+      "c1c2acc provide an argument-free production Worker dry-run script",
+      "429d6a5 target the configured production LIFF Pages project explicitly",
+      "b038890 inventory the patient timeline page and API safety boundaries"
+    ],
+    "claimBoundary": "Automated tests support the candidate but do not substitute for real iOS/Android LINE WebView or assistive-technology trials."
+  },
+  "results": {
+    "deviceTrials": "NOT_RUN",
+    "assistiveTechnology": "NOT_RUN",
+    "slowNetwork": "NOT_RUN"
+  },
+  "boundaries": {
+    "realPatientData": "NOT_USED",
+    "phiOrPiiCaptured": false,
+    "credentialsCaptured": false,
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_b038890333628959837e44769f5d25886238084e",
+    "pullRequest": "NOT_RUN",
+    "devDeploy": "NOT_RUN",
+    "productionDeploy": "NOT_RUN",
+    "productionMutation": "NOT_RUN",
+    "lineMutation": "NOT_RUN"
+  }
+}

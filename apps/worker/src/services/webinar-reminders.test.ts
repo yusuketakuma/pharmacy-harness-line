@@ -17,14 +17,22 @@ vi.mock('../custom/pharmacy/growth-loop/access.js', () => ({
   isPharmacyModeAccount: pharmacyMode.check,
 }));
 
-const { processWebinarReminders, sendWebinarRegistrationConfirmation, buildWebinarUrl } =
-  await import('./webinar-reminders.js');
+const { processWebinarReminders, sendWebinarRegistrationConfirmation, buildWebinarUrl } = await import(
+  './webinar-reminders.js'
+);
 
 const NOW = 1_800_000_000;
 const REG = {
-  id: 'reg-1', webinar_id: 'w1', friend_id: 'friend-1',
-  session_start_at: NOW + 240, notified_at: null, created_at: 'x',
-  slug: 'test-webinar', title: 'テスト', account_id: 'acc-1', duration_seconds: 1200,
+  id: 'reg-1',
+  webinar_id: 'w1',
+  friend_id: 'friend-1',
+  session_start_at: NOW + 240,
+  notified_at: null,
+  created_at: 'x',
+  slug: 'test-webinar',
+  title: 'テスト',
+  account_id: 'acc-1',
+  duration_seconds: 1200,
 };
 const OPTIONS = {
   proxyBaseUrl: 'https://proxy.example.com/',
@@ -56,7 +64,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW * 1000));
   dbMocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_user_id: 'U1', is_following: 1 });
   dbMocks.getLineAccountById.mockResolvedValue({
-    id: 'acc-1', channel_access_token: 'tok', liff_id: '111-aaa',
+    id: 'acc-1',
+    channel_access_token: 'tok',
+    liff_id: '111-aaa',
   });
   dbMocks.markWebinarRegistrationNotified.mockResolvedValue(true);
   proxyFetch.mockResolvedValue(new Response(null, { status: 200 }));
@@ -94,9 +104,7 @@ describe('processWebinarReminders', () => {
     });
     const body = JSON.parse(String(init.body)) as { to: string; messages: Array<{ text: string }> };
     expect(body.to).toBe('U1');
-    expect(body.messages[0].text).toContain(
-      buildWebinarUrl('111-aaa', 'test-webinar', REG.session_start_at),
-    );
+    expect(body.messages[0].text).toContain(buildWebinarUrl('111-aaa', 'test-webinar', REG.session_start_at));
     expect(body.messages[0].text).toContain(`sessionStartAt=${REG.session_start_at}`);
     expect(body.messages[0].text).toContain('何度でも開けます');
     expect(body.messages[0].text).toContain('まもなく');
@@ -130,7 +138,11 @@ describe('processWebinarReminders', () => {
 
   test('ブロック済み friend は送らず消化する', async () => {
     dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
-    dbMocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_user_id: 'U1', is_following: 0 });
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'friend-1',
+      line_user_id: 'U1',
+      is_following: 0,
+    });
     const result = await processWebinarReminders(mappedDb(), OPTIONS);
     expect(proxyFetch).not.toHaveBeenCalled();
     expect(dbMocks.markWebinarRegistrationNotified).toHaveBeenCalledWith(expect.anything(), 'reg-1');
@@ -138,9 +150,7 @@ describe('processWebinarReminders', () => {
   });
 
   test('開始済みセッションは「始まりました」文言になる', async () => {
-    dbMocks.getDueWebinarRegistrations.mockResolvedValue([
-      { ...REG, session_start_at: NOW - 30 },
-    ]);
+    dbMocks.getDueWebinarRegistrations.mockResolvedValue([{ ...REG, session_start_at: NOW - 30 }]);
     await processWebinarReminders(mappedDb(), OPTIONS);
     const [, init] = proxyFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as { messages: Array<{ text: string }> };
@@ -225,9 +235,7 @@ describe('sendWebinarRegistrationConfirmation', () => {
     });
     const body = JSON.parse(String(init.body)) as { messages: Array<{ text: string }> };
     expect(body.messages[0].text).toContain('受付しました');
-    expect(body.messages[0].text).toContain(
-      buildWebinarUrl('111-aaa', 'test-webinar', NOW + 3600),
-    );
+    expect(body.messages[0].text).toContain(buildWebinarUrl('111-aaa', 'test-webinar', NOW + 3600));
     expect(body.messages[0].text).toContain('専用の入場リンク');
   });
 });

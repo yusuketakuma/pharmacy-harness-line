@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), capability: vi.fn(), list: vi.fn(), acknowledge: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  access: vi.fn(),
+  capability: vi.fn(),
+  list: vi.fn(),
+  acknowledge: vi.fn(),
+}));
 vi.mock('../operations-access.js', () => ({ canAccessPharmacyOperationsAccount: mocks.access }));
 vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 vi.mock('./repository.js', () => ({
@@ -33,7 +38,9 @@ describe('shared pharmacy activity routes', () => {
   it('rejects cross-account reads before querying the inbox', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(
-      '/api/custom/pharmacy/activity-notifications?line_account_id=account-b', {}, env,
+      '/api/custom/pharmacy/activity-notifications?line_account_id=account-b',
+      {},
+      env,
     );
     expect(response.status).toBe(403);
     expect(mocks.list).not.toHaveBeenCalled();
@@ -42,7 +49,8 @@ describe('shared pharmacy activity routes', () => {
   it('acknowledges one shared account item without a claim step', async () => {
     const response = await app().request(
       '/api/custom/pharmacy/activity-notifications/notification-1/ack?line_account_id=account-a',
-      { method: 'POST' }, env,
+      { method: 'POST' },
+      env,
     );
     expect(response.status).toBe(200);
     expect(mocks.acknowledge).toHaveBeenCalledWith(env.DB, 'account-a', 'notification-1', 'staff-a');

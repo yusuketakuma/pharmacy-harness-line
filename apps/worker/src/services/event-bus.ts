@@ -37,7 +37,10 @@ class WebhookUnknownOutcomeError extends Error {
 class WebhookRejectedError extends Error {
   readonly name = 'WebhookRejectedError';
 
-  constructor(readonly status: number, statusText: string) {
+  constructor(
+    readonly status: number,
+    statusText: string,
+  ) {
     super(`Webhook delivery failed: ${status} ${statusText}`);
   }
 }
@@ -56,11 +59,7 @@ type WebhookRequest = {
   headers: Record<string, string>;
 };
 
-async function postWebhook(
-  url: string,
-  body: string,
-  headers: Record<string, string>,
-): Promise<number> {
+async function postWebhook(url: string, body: string, headers: Record<string, string>): Promise<number> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -88,17 +87,18 @@ async function deliverWebhook(
 ): Promise<void> {
   if (validateHttpsUrl(url)) throw new Error('Invalid webhook URL');
   const eventKey = context?.eventKey;
-  const deliveryId = eventKey && context
-    ? await createBroadcastRetryKey(
-        'outgoing-webhook',
-        context.tenantId ?? 'legacy',
-        context.lineAccountId ?? '',
-        context.eventType,
-        eventKey,
-        context.targetType,
-        context.targetId,
-      )
-    : null;
+  const deliveryId =
+    eventKey && context
+      ? await createBroadcastRetryKey(
+          'outgoing-webhook',
+          context.tenantId ?? 'legacy',
+          context.lineAccountId ?? '',
+          context.eventType,
+          eventKey,
+          context.targetType,
+          context.targetId,
+        )
+      : null;
   const prepareRequest = async (timestamp: string): Promise<WebhookRequest> => {
     const prepared = typeof request === 'function' ? await request(timestamp) : request;
     const headers = { ...prepared.headers };
@@ -120,48 +120,49 @@ async function deliverWebhook(
   const claimToken = crypto.randomUUID();
   const now = jstNow();
   let payloadTimestamp = now;
-  const inserted = await db.prepare(
-    `INSERT OR IGNORE INTO outgoing_webhook_deliveries
+  const inserted = await db
+    .prepare(
+      `INSERT OR IGNORE INTO outgoing_webhook_deliveries
       (id, tenant_id, line_account_id, target_type, target_id, event_type,
        outcome, claim_token, attempt_count, attempted_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 'attempted', ?, 1, ?, ?, ?)`,
-  ).bind(
-    deliveryId,
-    context.tenantId,
-    context.lineAccountId,
-    context.targetType,
-    context.targetId,
-    context.eventType,
-    claimToken,
-    now,
-    now,
-    now,
-  ).run();
+    )
+    .bind(
+      deliveryId,
+      context.tenantId,
+      context.lineAccountId,
+      context.targetType,
+      context.targetId,
+      context.eventType,
+      claimToken,
+      now,
+      now,
+      now,
+    )
+    .run();
 
   if ((inserted.meta?.changes ?? 0) !== 1) {
-    const existing = await db.prepare(
-      `SELECT outcome, created_at FROM outgoing_webhook_deliveries
+    const existing = await db
+      .prepare(
+        `SELECT outcome, created_at FROM outgoing_webhook_deliveries
         WHERE id = ? AND tenant_id = ? AND line_account_id IS ?`,
-    ).bind(deliveryId, context.tenantId, context.lineAccountId)
+      )
+      .bind(deliveryId, context.tenantId, context.lineAccountId)
       .first<{ outcome: 'attempted' | 'sent' | 'failed'; created_at: string }>();
     if (existing?.outcome === 'sent') return;
     if (existing?.outcome !== 'failed') {
       throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
     }
     payloadTimestamp = existing.created_at;
-    const reclaimed = await db.prepare(
-      `UPDATE outgoing_webhook_deliveries
+    const reclaimed = await db
+      .prepare(
+        `UPDATE outgoing_webhook_deliveries
           SET outcome = 'attempted', claim_token = ?, attempt_count = attempt_count + 1,
               http_status = NULL, attempted_at = ?, settled_at = NULL, updated_at = ?
         WHERE id = ? AND tenant_id = ? AND line_account_id IS ? AND outcome = 'failed'`,
-    ).bind(
-      claimToken,
-      now,
-      now,
-      deliveryId,
-      context.tenantId,
-      context.lineAccountId,
-    ).run();
+      )
+      .bind(claimToken, now, now, deliveryId, context.tenantId, context.lineAccountId)
+      .run();
     if ((reclaimed.meta?.changes ?? 0) !== 1) {
       throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
     }
@@ -171,22 +172,16 @@ async function deliverWebhook(
     const settledAt = jstNow();
     let result: D1Result;
     try {
-      result = await db.prepare(
-        `UPDATE outgoing_webhook_deliveries
+      result = await db
+        .prepare(
+          `UPDATE outgoing_webhook_deliveries
             SET outcome = ?, claim_token = NULL, http_status = ?,
                 settled_at = ?, updated_at = ?
           WHERE id = ? AND tenant_id = ? AND line_account_id IS ?
             AND outcome = 'attempted' AND claim_token = ?`,
-      ).bind(
-        outcome,
-        status,
-        settledAt,
-        settledAt,
-        deliveryId,
-        context.tenantId,
-        context.lineAccountId,
-        claimToken,
-      ).run();
+        )
+        .bind(outcome, status, settledAt, settledAt, deliveryId, context.tenantId, context.lineAccountId, claimToken)
+        .run();
     } catch {
       throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
     }
@@ -243,29 +238,32 @@ export async function fireEvent(
 ): Promise<void> {
   let eventAccountId = lineAccountId ?? null;
   if (!eventAccountId && payload.friendId) {
-    const friend = await db.prepare(
-      `SELECT line_account_id FROM friends WHERE id = ?`,
-    ).bind(payload.friendId).first<{ line_account_id: string | null }>();
+    const friend = await db
+      .prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+      .bind(payload.friendId)
+      .first<{ line_account_id: string | null }>();
     eventAccountId = friend?.line_account_id ?? null;
   }
   if (await isPharmacyModeAccount(db, eventAccountId)) return;
 
   let eventTenantId = tenantId ?? null;
   if (!eventTenantId && eventAccountId) {
-    const mapping = await db.prepare(
-      `SELECT tenant_id FROM tenant_line_accounts WHERE line_account_id = ?`,
-    ).bind(eventAccountId).first<{ tenant_id: string }>();
+    const mapping = await db
+      .prepare(`SELECT tenant_id FROM tenant_line_accounts WHERE line_account_id = ?`)
+      .bind(eventAccountId)
+      .first<{ tenant_id: string }>();
     eventTenantId = mapping?.tenant_id ?? null;
   }
 
   let tenantAutomationAccountIds: Set<string> | undefined;
   if (eventTenantId && !eventAccountId) {
-    const mappings = await db.prepare(
-      `SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`,
-    ).bind(eventTenantId).all<{ line_account_id: string }>();
+    const mappings = await db
+      .prepare(`SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`)
+      .bind(eventTenantId)
+      .all<{ line_account_id: string }>();
     tenantAutomationAccountIds = new Set<string>();
     for (const mapping of mappings.results ?? []) {
-      if (!await isPharmacyModeAccount(db, mapping.line_account_id)) {
+      if (!(await isPharmacyModeAccount(db, mapping.line_account_id))) {
         tenantAutomationAccountIds.add(mapping.line_account_id);
       }
     }
@@ -274,12 +272,10 @@ export async function fireEvent(
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
     fireOutgoingWebhooks(db, eventType, payload, eventTenantId, eventAccountId, eventKey),
-    processScoring(db, eventType, payload),
+    processScoring(db, eventType, payload, eventKey),
   ];
   if (payload.friendId && payload.conversionEventName) {
-    phase1.push(
-      sendAdConversions(db, payload.friendId, payload.conversionEventName, payload.conversionValue),
-    );
+    phase1.push(sendAdConversions(db, payload.friendId, payload.conversionEventName, payload.conversionValue));
   }
   await Promise.allSettled(phase1);
 
@@ -321,35 +317,40 @@ async function fireOutgoingWebhooks(
     const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType, tenantId);
     for (const wh of webhooks) {
       try {
-        await deliverWebhook(db, wh.url, async (timestamp) => {
-          const body = JSON.stringify({ event: eventType, timestamp, data: payload });
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        await deliverWebhook(
+          db,
+          wh.url,
+          async (timestamp) => {
+            const body = JSON.stringify({ event: eventType, timestamp, data: payload });
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-          // HMAC署名（シークレットがある場合）
-          if (wh.secret) {
-            const encoder = new TextEncoder();
-            const key = await crypto.subtle.importKey(
-              'raw',
-              encoder.encode(wh.secret),
-              { name: 'HMAC', hash: 'SHA-256' },
-              false,
-              ['sign'],
-            );
-            const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-            headers['X-Webhook-Signature'] = Array.from(new Uint8Array(signature))
-              .map((b) => b.toString(16).padStart(2, '0'))
-              .join('');
-          }
+            // HMAC署名（シークレットがある場合）
+            if (wh.secret) {
+              const encoder = new TextEncoder();
+              const key = await crypto.subtle.importKey(
+                'raw',
+                encoder.encode(wh.secret),
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign'],
+              );
+              const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+              headers['X-Webhook-Signature'] = Array.from(new Uint8Array(signature))
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('');
+            }
 
-          return { body, headers };
-        }, {
-          tenantId,
-          lineAccountId,
-          eventType,
-          eventKey,
-          targetType: 'configured',
-          targetId: wh.id,
-        });
+            return { body, headers };
+          },
+          {
+            tenantId,
+            lineAccountId,
+            eventType,
+            eventKey,
+            targetType: 'configured',
+            targetId: wh.id,
+          },
+        );
       } catch (err) {
         console.error(`送信Webhook ${wh.id} への通知失敗:`, err);
       }
@@ -364,10 +365,13 @@ async function processScoring(
   db: D1Database,
   eventType: string,
   payload: EventPayload,
+  eventKey?: string,
 ): Promise<void> {
   if (!payload.friendId) return;
   try {
-    await applyScoring(db, payload.friendId, eventType);
+    // eventKey がある再配送可能な経路では rule ごとに dedupe する。
+    // キー無し(単発呼出し)は従来どおり毎回適用する。
+    await applyScoring(db, payload.friendId, eventType, eventKey ? `fire:${eventKey}` : undefined);
   } catch (err) {
     console.error('processScoring error:', err);
   }
@@ -391,9 +395,7 @@ async function processAutomations(
         return !automation.line_account_id || automation.line_account_id === lineAccountId;
       }
       if (tenantAccountIds) {
-        return Boolean(
-          automation.line_account_id && tenantAccountIds.has(automation.line_account_id),
-        );
+        return Boolean(automation.line_account_id && tenantAccountIds.has(automation.line_account_id));
       }
       return true;
     });
@@ -402,7 +404,10 @@ async function processAutomations(
     for (const automation of automations) {
       const automationAccountId = lineAccountId ?? automation.line_account_id;
       const conditions = JSON.parse(automation.conditions) as Record<string, unknown>;
-      const actions = JSON.parse(automation.actions) as Array<{ type: string; params: Record<string, string> }>;
+      const actions = JSON.parse(automation.actions) as Array<{
+        type: string;
+        params: Record<string, string>;
+      }>;
 
       // 条件チェック（簡易版: 条件が空なら常にマッチ）
       if (!matchConditions(conditions, payload)) continue;
@@ -419,9 +424,7 @@ async function processAutomations(
           });
           continue;
         }
-        const hadLegacyReplyToken = action.type === 'send_message'
-          && !eventKey
-          && Boolean(payload.replyToken);
+        const hadLegacyReplyToken = action.type === 'send_message' && !eventKey && Boolean(payload.replyToken);
         try {
           await executeAction(db, action, payload, lineAccessToken, automationAccountId, {
             tenantId: tenantId ?? null,
@@ -462,10 +465,7 @@ async function processAutomations(
 }
 
 /** 条件マッチング */
-function matchConditions(
-  conditions: Record<string, unknown>,
-  payload: EventPayload,
-): boolean {
+function matchConditions(conditions: Record<string, unknown>, payload: EventPayload): boolean {
   // 条件が空 → 常にマッチ
   if (Object.keys(conditions).length === 0) return true;
 
@@ -567,12 +567,19 @@ async function executeAction(
       let logContent: string;
       if (resolvedType === 'flex') {
         const contents = JSON.parse(resolvedContent);
-        msg = { type: 'flex', altText: action.params.altText || extractFlexAltText(contents), contents };
+        msg = {
+          type: 'flex',
+          altText: action.params.altText || extractFlexAltText(contents),
+          contents,
+        };
         logContent = JSON.stringify(contents);
       } else if (resolvedType === 'image') {
         // template に "originalContentUrl" / "previewImageUrl" を持つ JSON が入る前提。
         // parse 失敗時は text fallback ではなく throw → automation 側で partial 扱いにする。
-        const parsed = JSON.parse(resolvedContent) as { originalContentUrl: string; previewImageUrl: string };
+        const parsed = JSON.parse(resolvedContent) as {
+          originalContentUrl: string;
+          previewImageUrl: string;
+        };
         msg = {
           type: 'image',
           originalContentUrl: parsed.originalContentUrl,
@@ -662,8 +669,7 @@ async function executeAction(
           .replace(/\t/g, '\\t')
           .replace(/[\u0000-\u001f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
       const messageText = (payload.eventData?.text as string | undefined) || '';
-      const raw = (action.params.data || '{}')
-        .replace(/\{\{message\}\}/g, escapeForJsonString(messageText));
+      const raw = (action.params.data || '{}').replace(/\{\{message\}\}/g, escapeForJsonString(messageText));
       const patch = JSON.parse(raw) as Record<string, unknown>;
       const merged = { ...current, ...patch };
       await db

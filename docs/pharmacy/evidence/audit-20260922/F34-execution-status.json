@@ -1,0 +1,22 @@
+{
+  "snapshot": "F34-W.json",
+  "toolTerminalResults": {
+    "red": {
+      "session": 52282,
+      "exit": 1
+    },
+    "near": {
+      "session": 10420,
+      "exit": 0
+    },
+    "worker": {
+      "session": 46762,
+      "exit": 0
+    },
+    "typecheck": {
+      "session": 48386,
+      "exit": 0
+    }
+  },
+  "isolatedPatchReplay": "PASS"
+}

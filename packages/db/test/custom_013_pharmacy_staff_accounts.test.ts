@@ -12,18 +12,17 @@ describe('custom_011 pharmacy staff account assignments', () => {
     sqlite.pragma('foreign_keys = ON');
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
 
-    const table = sqlite.prepare(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pharmacy_staff_accounts'`,
-    ).get() as { sql: string } | undefined;
+    const table = sqlite
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pharmacy_staff_accounts'`)
+      .get() as { sql: string } | undefined;
     expect(table?.sql).toContain('line_account_id');
     expect(table?.sql).toContain('staff_id');
     expect(table?.sql).toContain('created_at');
     expect(table?.sql).toContain('updated_at');
 
-    const indexes = sqlite.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_pharmacy_staff_accounts_staff'`,
-    ).get() as { name: string } | undefined;
+    const indexes = sqlite
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_pharmacy_staff_accounts_staff'`)
+      .get() as { name: string } | undefined;
     expect(indexes?.name).toBe('idx_pharmacy_staff_accounts_staff');
   });
-
 });

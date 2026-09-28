@@ -41,10 +41,7 @@ export interface FriendFormSubmission extends FormSubmission {
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-export async function getForms(
-  db: D1Database,
-  tenantId: string | null = null,
-): Promise<Form[]> {
+export async function getForms(db: D1Database, tenantId: string | null = null): Promise<Form[]> {
   const result = await db
     .prepare(`SELECT * FROM forms WHERE tenant_id IS ? ORDER BY created_at DESC`)
     .bind(tenantId)
@@ -65,10 +62,7 @@ export interface FormWithStats extends Form {
   used_by_accounts: FormUsedByAccount[];
 }
 
-export async function getFormsWithStats(
-  db: D1Database,
-  tenantId: string | null = null,
-): Promise<FormWithStats[]> {
+export async function getFormsWithStats(db: D1Database, tenantId: string | null = null): Promise<FormWithStats[]> {
   // Single query: forms + last submission + per-account submission counts.
   // json_group_array returns '[]' (not NULL) when subquery yields no rows.
   const result = await db
@@ -118,11 +112,7 @@ export async function getFormsWithStats(
   });
 }
 
-export async function getFormById(
-  db: D1Database,
-  id: string,
-  tenantId?: string | null,
-): Promise<Form | null> {
+export async function getFormById(db: D1Database, id: string, tenantId?: string | null): Promise<Form | null> {
   const scoped = tenantId !== undefined;
   return db
     .prepare(`SELECT * FROM forms WHERE id = ?${scoped ? ' AND tenant_id IS ?' : ''}`)
@@ -261,27 +251,15 @@ export async function updateForm(
       'description' in input ? (input.description ?? null) : existing.description,
       input.fields ?? existing.fields,
       'onSubmitTagId' in input ? (input.onSubmitTagId ?? null) : existing.on_submit_tag_id,
-      'onSubmitScenarioId' in input
-        ? (input.onSubmitScenarioId ?? null)
-        : existing.on_submit_scenario_id,
-      'onSubmitMessageType' in input
-        ? (input.onSubmitMessageType ?? null)
-        : existing.on_submit_message_type,
-      'onSubmitMessageContent' in input
-        ? (input.onSubmitMessageContent ?? null)
-        : existing.on_submit_message_content,
-      'onSubmitWebhookUrl' in input
-        ? (input.onSubmitWebhookUrl ?? null)
-        : existing.on_submit_webhook_url,
-      'onSubmitWebhookHeaders' in input
-        ? (input.onSubmitWebhookHeaders ?? null)
-        : existing.on_submit_webhook_headers,
+      'onSubmitScenarioId' in input ? (input.onSubmitScenarioId ?? null) : existing.on_submit_scenario_id,
+      'onSubmitMessageType' in input ? (input.onSubmitMessageType ?? null) : existing.on_submit_message_type,
+      'onSubmitMessageContent' in input ? (input.onSubmitMessageContent ?? null) : existing.on_submit_message_content,
+      'onSubmitWebhookUrl' in input ? (input.onSubmitWebhookUrl ?? null) : existing.on_submit_webhook_url,
+      'onSubmitWebhookHeaders' in input ? (input.onSubmitWebhookHeaders ?? null) : existing.on_submit_webhook_headers,
       'onSubmitWebhookFailMessage' in input
         ? (input.onSubmitWebhookFailMessage ?? null)
         : existing.on_submit_webhook_fail_message,
-      'saveToMetadata' in input
-        ? (input.saveToMetadata !== false ? 1 : 0)
-        : existing.save_to_metadata,
+      'saveToMetadata' in input ? (input.saveToMetadata !== false ? 1 : 0) : existing.save_to_metadata,
       'isActive' in input ? (input.isActive ? 1 : 0) : existing.is_active,
       'ogTitle' in input ? (input.ogTitle ?? null) : existing.og_title,
       'ogDescription' in input ? (input.ogDescription ?? null) : existing.og_description,
@@ -295,19 +273,17 @@ export async function updateForm(
   return getFormById(db, id, tenantId);
 }
 
-export async function deleteForm(
-  db: D1Database,
-  id: string,
-  tenantId: string | null = null,
-): Promise<boolean> {
+export async function deleteForm(db: D1Database, id: string, tenantId: string | null = null): Promise<boolean> {
   // フォームを参照しているウェビナー CTA カードも同時に削除する。宙吊りの
   // form_id が残ると、放置運用中のオートウェビナーでカードだけ出続けて
   // 全タップがエラーになる (D1 は FK 未強制)。
   const results = await db.batch([
-    db.prepare(
-      `DELETE FROM webinar_ctas
+    db
+      .prepare(
+        `DELETE FROM webinar_ctas
         WHERE form_id IN (SELECT id FROM forms WHERE id = ? AND tenant_id IS ?)`,
-    ).bind(id, tenantId),
+      )
+      .bind(id, tenantId),
     db.prepare(`DELETE FROM forms WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId),
   ]);
   return (results[1]?.meta?.changes ?? 0) > 0;
@@ -361,10 +337,7 @@ export interface CreateFormSubmissionInput {
   data: string; // JSON string
 }
 
-export async function createFormSubmission(
-  db: D1Database,
-  input: CreateFormSubmissionInput,
-): Promise<FormSubmission> {
+export async function createFormSubmission(db: D1Database, input: CreateFormSubmissionInput): Promise<FormSubmission> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -382,8 +355,5 @@ export async function createFormSubmission(
     .bind(now, input.formId)
     .run();
 
-  return (await db
-    .prepare(`SELECT * FROM form_submissions WHERE id = ?`)
-    .bind(id)
-    .first<FormSubmission>())!;
+  return (await db.prepare(`SELECT * FROM form_submissions WHERE id = ?`).bind(id).first<FormSubmission>())!;
 }

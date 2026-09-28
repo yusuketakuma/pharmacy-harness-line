@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import {
   applyAdminPrescriptionAction,
   cancelPrescription,
@@ -46,6 +47,63 @@ function fakeDb(row: unknown, batchChanges = 1) {
   return { db: { prepare, batch } as unknown as D1Database, calls, prepare };
 }
 
+describe('admin action concurrent audit', () => {
+  it('records only the winning update when two actions share the same timestamp', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE pharmacy_prescription_submissions (
+      id TEXT PRIMARY KEY, line_account_id TEXT, status TEXT, updated_at TEXT,
+      intake_required INTEGER, source_handoff_id TEXT, resubmission_reason_code TEXT, closed_at TEXT);
+      INSERT INTO pharmacy_prescription_submissions VALUES
+        ('submission-a', 'account-a', 'received', '2026-09-05T00:00:00.000Z', 0, NULL, NULL, NULL);
+      CREATE TABLE pharmacy_prescription_events (
+        id TEXT PRIMARY KEY, submission_id TEXT, actor_type TEXT, actor_id TEXT,
+        event_type TEXT, from_status TEXT, to_status TEXT, reason_code TEXT, created_at TEXT);`);
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: SQLInputValue[]) => ({
+          first: async () => sqlite.prepare(sql).get(...values),
+          run: () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
+        }),
+      }),
+      batch: async (statements: Array<{ run(): unknown }>) => {
+        sqlite.exec('BEGIN');
+        try {
+          const results = statements.map((statement) => statement.run());
+          sqlite.exec('COMMIT');
+          return results;
+        } catch (error) {
+          sqlite.exec('ROLLBACK');
+          throw error;
+        }
+      },
+    } as unknown as D1Database;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T01:00:00.000Z'));
+    try {
+      const outcomes = await Promise.allSettled(
+        ['staff-a', 'staff-b'].map((actor) =>
+          applyAdminPrescriptionAction(
+            db,
+            'account-a',
+            'submission-a',
+            'admin_cancel',
+            '2026-09-05T00:00:00.000Z',
+            actor,
+            null,
+          ),
+        ),
+      );
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      const rejected = outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult;
+      expect(rejected.reason.message).toBe('prescription admin action conflict');
+      expect(sqlite.prepare('SELECT count(*) AS n FROM pharmacy_prescription_events').get()!.n).toBe(1);
+    } finally {
+      vi.useRealTimers();
+      sqlite.close();
+    }
+  });
+});
+
 describe('reservePrescriptionDraft', () => {
   it('inserts idempotently and reads back only through the patient tenant key', async () => {
     const existing = {
@@ -75,9 +133,7 @@ describe('reservePrescriptionDraft', () => {
     expect(calls[0].values).toContain('prescription_intake');
     expect(calls[0].sql).toContain('desired_fulfillment_method');
     expect(calls[1].sql).toContain('INSERT INTO pharmacy_prescription_events');
-    expect(calls[2].sql).toContain(
-      'WHERE line_account_id = ? AND friend_id = ? AND idempotency_key = ?',
-    );
+    expect(calls[2].sql).toContain('WHERE line_account_id = ? AND friend_id = ? AND idempotency_key = ?');
     expect(calls[2].values).toEqual(['account-1', 'friend-1', 'request-123']);
   });
 
@@ -100,42 +156,105 @@ describe('reservePrescriptionDraft', () => {
 
   it('fails a new reservation when the atomic capability predicate inserts nothing', async () => {
     const { db } = fakeDb(null, 0);
-    await expect(reservePrescriptionDraft(
-      db,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-      {
-        idempotencyKey: 'request-123', desiredPickupAt: null,
-        originalPrescriptionConsent: true, readinessNoticeConsent: true,
-      },
-    )).rejects.toThrow('FEATURE_DISABLED');
+    await expect(
+      reservePrescriptionDraft(
+        db,
+        { lineAccountId: 'account-1', friendId: 'friend-1' },
+        {
+          idempotencyKey: 'request-123',
+          desiredPickupAt: null,
+          originalPrescriptionConsent: true,
+          readinessNoticeConsent: true,
+        },
+      ),
+    ).rejects.toThrow('FEATURE_DISABLED');
   });
 
   it('pins a family patient and intake revision when the new flow supplies both ids', async () => {
     const existing = {
-      id: 'submission-1', status: 'draft', upload_revision: 1,
+      id: 'submission-1',
+      status: 'draft',
+      upload_revision: 1,
       updated_at: '2026-08-17T00:00:00.000Z',
-      patient_id: 'patient-1', intake_response_id: 'response-1',
+      patient_id: 'patient-1',
+      intake_response_id: 'response-1',
     };
     const { db, calls } = fakeDb(existing);
-    await reservePrescriptionDraft(db, {
-      lineAccountId: 'account-1', friendId: 'friend-1',
-    }, {
-      idempotencyKey: 'request-123',
-      desiredPickupAt: null,
-      originalPrescriptionConsent: true,
-      readinessNoticeConsent: true,
-      patientId: 'patient-1',
-      intakeResponseId: 'response-1',
-    });
+    await reservePrescriptionDraft(
+      db,
+      {
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+      },
+      {
+        idempotencyKey: 'request-123',
+        desiredPickupAt: null,
+        originalPrescriptionConsent: true,
+        readinessNoticeConsent: true,
+        patientId: 'patient-1',
+        intakeResponseId: 'response-1',
+      },
+    );
     expect(calls.some((call) => call.sql.includes('intake_required'))).toBe(true);
     expect(calls.some((call) => call.sql.includes('pharmacy_prescription_patients'))).toBe(true);
   });
 });
 
 describe('admin account-scoped repository', () => {
+  it('projects linked and latest intake timestamps without answers or another owner/account revision', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE pharmacy_prescription_patients (
+      submission_id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      intake_response_id TEXT, reviewed_at TEXT);
+      CREATE TABLE pharmacy_patient_intake_responses (
+      id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      revision INTEGER, created_at TEXT, answers_json TEXT);
+      INSERT INTO pharmacy_prescription_patients VALUES ('submission-a','account-a','friend-a','patient-a','response-1',NULL);
+      INSERT INTO pharmacy_patient_intake_responses VALUES
+      ('response-1','account-a','friend-a','patient-a',1,'2026-09-01T01:00:00.000Z','{"notes":"synthetic-private-answer"}'),
+      ('response-2','account-a','friend-a','patient-a',2,'2026-09-04T01:00:00.000Z','{}'),
+      ('wrong-account','account-b','friend-a','patient-a',9,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-friend','account-a','friend-b','patient-a',10,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-patient','account-a','friend-a','patient-b',11,'2026-09-05T01:00:00.000Z','{}');`);
+    const queries: string[] = [];
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: SQLInputValue[]) => ({
+          first: async () => {
+            queries.push(sql);
+            if (sql.includes('FROM pharmacy_prescription_submissions'))
+              return values[1] === 'account-a' ? { id: values[0], friend_id: 'friend-a' } : null;
+            if (sql.includes('FROM pharmacy_prescription_patients')) return sqlite.prepare(sql).get(...values) ?? null;
+            return null;
+          },
+          all: async () => ({ results: [] }),
+        }),
+      }),
+    } as unknown as D1Database;
+    try {
+      const result = await getAdminPrescriptionDetail(db, 'account-a', 'submission-a');
+      expect(result?.intake).toEqual({
+        revision: 1,
+        submitted_at: '2026-09-01T01:00:00.000Z',
+        latest_revision: 2,
+        latest_submitted_at: '2026-09-04T01:00:00.000Z',
+        reviewed_at: null,
+      });
+      expect(JSON.stringify(result)).not.toContain('synthetic-private-answer');
+      expect(queries.join('\n')).not.toContain('answers_json');
+      expect(queries[0]).toContain('f.display_name AS patient_display_name');
+      expect((await getAdminPrescriptionDetail(db, 'account-a', 'legacy-submission'))?.intake).toBeNull();
+      await expect(getAdminPrescriptionDetail(db, 'account-b', 'submission-a')).resolves.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('blocks a new-flow acceptance until the latest fulfillment quote is acceptable', async () => {
     const current = {
-      status: 'received', updated_at: '2026-08-17T00:00:00.000Z', intake_required: 1,
+      status: 'received',
+      updated_at: '2026-08-17T00:00:00.000Z',
+      intake_required: 1,
     };
     const quote = {
       decision: 'conditional',
@@ -148,33 +267,50 @@ describe('admin account-scoped repository', () => {
           first: async () => {
             calls.push({ operation: 'first' });
             if (sql.includes('pharmacy_prescription_submissions')) return current;
-            if (sql.includes('pharmacy_prescription_validities')) return { verification_status: 'verified', valid_until: '2999-12-31' };
+            if (sql.includes('pharmacy_prescription_validities'))
+              return { verification_status: 'verified', valid_until: '2999-12-31' };
             return quote;
           },
-          run: async () => { calls.push({ operation: 'run' }); return { meta: { changes: 1 } }; },
+          run: async () => {
+            calls.push({ operation: 'run' });
+            return { meta: { changes: 1 } };
+          },
           all: async () => ({ results: [] }),
         }),
       }),
-      batch: async () => { calls.push({ operation: 'batch' }); return []; },
+      batch: async () => {
+        calls.push({ operation: 'batch' });
+        return [];
+      },
     } as unknown as D1Database;
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept',
-      '2026-08-17T00:00:00.000Z', 'staff-1', null,
-    )).rejects.toThrow('fulfillment quote not acceptable');
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        '2026-08-17T00:00:00.000Z',
+        'staff-1',
+        null,
+      ),
+    ).rejects.toThrow('fulfillment quote not acceptable');
     expect(calls.every((call) => call.operation !== 'batch')).toBe(true);
   });
 
   it('requires FulfillmentQuote for a Myna-linked submission even without intake_required', async () => {
     const current = {
-      status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
-      intake_required: 0, source_handoff_id: 'handoff-1',
+      status: 'received',
+      updated_at: '2026-08-17T00:00:00.000Z',
+      intake_required: 0,
+      source_handoff_id: 'handoff-1',
     };
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
           first: async () => {
             if (sql.includes('pharmacy_prescription_submissions')) return current;
-            if (sql.includes('pharmacy_prescription_validities')) return { verification_status: 'verified', valid_until: '2999-12-31' };
+            if (sql.includes('pharmacy_prescription_validities'))
+              return { verification_status: 'verified', valid_until: '2999-12-31' };
             return null;
           },
           run: async () => ({ meta: { changes: 1 } }),
@@ -183,19 +319,28 @@ describe('admin account-scoped repository', () => {
       }),
       batch: async () => [],
     } as unknown as D1Database;
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept',
-      '2026-08-17T00:00:00.000Z', 'staff-1', null,
-    )).rejects.toThrow('fulfillment quote required');
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        '2026-08-17T00:00:00.000Z',
+        'staff-1',
+        null,
+      ),
+    ).rejects.toThrow('fulfillment quote required');
   });
 
   it('lists a stable queue for one account without image keys or thumbnails', async () => {
     const { db, calls } = fakeDb([{ id: 'submission-1', status: 'received' }]);
-    await expect(listAdminPrescriptionQueue(db, 'account-1', {
-      status: 'received',
-      cursor: { requestedAt: '2026-08-17T00:00:00.000Z', id: 'submission-0' },
-      limit: 20,
-    })).resolves.toEqual([{ id: 'submission-1', status: 'received' }]);
+    await expect(
+      listAdminPrescriptionQueue(db, 'account-1', {
+        status: 'received',
+        cursor: { requestedAt: '2026-08-17T00:00:00.000Z', id: 'submission-0' },
+        limit: 20,
+      }),
+    ).resolves.toEqual([{ id: 'submission-1', status: 'received' }]);
     expect(calls[0].sql).toContain('s.line_account_id = ?');
     expect(calls[0].sql).toContain('s.status = ?');
     expect(calls[0].sql).toContain('ORDER BY COALESCE(s.requested_at, s.created_at), s.id');
@@ -204,48 +349,79 @@ describe('admin account-scoped repository', () => {
   });
 
   it('fails closed when a received prescription has no verified validity', async () => {
-    const current = { status: 'received', updated_at: 'v1', intake_required: 0, source_handoff_id: null };
+    const current = {
+      status: 'received',
+      updated_at: 'v1',
+      intake_required: 0,
+      source_handoff_id: null,
+    };
     const calls: string[] = [];
     const db = {
-      prepare: (sql: string) => ({ bind: () => ({
-        first: async () => {
-          calls.push(sql);
-          return sql.includes('pharmacy_prescription_submissions') ? current : null;
-        },
-        run: async () => ({ meta: { changes: 1 } }),
-      }) }),
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => {
+            calls.push(sql);
+            return sql.includes('pharmacy_prescription_submissions') ? current : null;
+          },
+          run: async () => ({ meta: { changes: 1 } }),
+        }),
+      }),
       batch: vi.fn(),
     } as unknown as D1Database;
 
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
-      new Date('2026-08-17T00:00:00.000Z'),
-    )).rejects.toThrow(/validity verification required/);
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        'v1',
+        'staff-1',
+        null,
+        new Date('2026-08-17T00:00:00.000Z'),
+      ),
+    ).rejects.toThrow(/validity verification required/);
     expect(calls.some((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(db.batch).not.toHaveBeenCalled();
   });
 
   it('moves a verified but expired prescription to review instead of accepting it', async () => {
-    const current = { status: 'received', updated_at: 'v1', intake_required: 0, source_handoff_id: null };
+    const current = {
+      status: 'received',
+      updated_at: 'v1',
+      intake_required: 0,
+      source_handoff_id: null,
+    };
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
-        sql,
-        values,
-        first: async () => sql.includes('pharmacy_prescription_submissions')
-          ? current
-          : { verification_status: 'verified', valid_until: '2026-08-16' },
-      }) }),
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          sql,
+          values,
+          first: async () =>
+            sql.includes('pharmacy_prescription_submissions')
+              ? current
+              : { verification_status: 'verified', valid_until: '2026-08-16' },
+        }),
+      }),
       batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
         batches.push(statements);
         return statements.map(() => ({ meta: { changes: 1 } }));
       },
     } as unknown as D1Database;
 
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
-      new Date('2026-08-17T00:00:00.000Z'),
-    )).rejects.toThrow(/validity expired/);
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        'v1',
+        'staff-1',
+        null,
+        new Date('2026-08-17T00:00:00.000Z'),
+      ),
+    ).rejects.toThrow(/validity expired/);
     expect(batches[0][0].sql).toContain("verification_status = 'expired_review_required'");
     expect(batches[0][1].sql).toContain('INSERT INTO pharmacy_growth_events');
   });
@@ -253,9 +429,7 @@ describe('admin account-scoped repository', () => {
   it('authorizes a private image by account, submission, and file id', async () => {
     const file = { r2_key: 'private-key', content_type: 'image/png' };
     const { db, calls } = fakeDb(file);
-    await expect(getAdminPrescriptionFile(
-      db, 'account-1', 'submission-1', 'file-1',
-    )).resolves.toEqual(file);
+    await expect(getAdminPrescriptionFile(db, 'account-1', 'submission-1', 'file-1')).resolves.toEqual(file);
     expect(calls[0].sql).toContain('s.line_account_id = ?');
     expect(calls[0].sql).toContain('f.submission_id = ? AND f.id = ?');
     expect(calls[0].sql).toContain("f.state = 'ready'");
@@ -268,26 +442,31 @@ describe('admin account-scoped repository', () => {
     expect(calls[0].sql).toContain('f.submission_id = ? AND f.id = ? AND s.line_account_id = ?');
     expect(calls[0].sql).toContain("f.state = 'ready'");
     expect(calls[0].values).toContain('staff-1');
-    expect(calls[0].values).toEqual(
-      expect.arrayContaining(['staff-1', 'submission-1', 'file-1', 'account-1']),
-    );
+    expect(calls[0].values).toEqual(expect.arrayContaining(['staff-1', 'submission-1', 'file-1', 'account-1']));
   });
 
   it('applies an admin transition with scoped CAS and an atomic event', async () => {
     const { db, calls } = fakeDb({
-      status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
+      status: 'received',
+      updated_at: '2026-08-17T00:00:00.000Z',
     });
-    await expect(applyAdminPrescriptionAction(
-      db,
-      'account-1',
-      'submission-1',
-      'admin_accept',
-      '2026-08-17T00:00:00.000Z',
-      'staff-1',
-      null,
-    )).resolves.toMatchObject({ status: 'accepted' });
-    const update = calls.find((call) => call.operation === 'batch' && call.sql.includes('UPDATE pharmacy_prescription_submissions'));
-    const event = calls.find((call) => call.operation === 'batch' && call.sql.includes('INSERT INTO pharmacy_prescription_events'));
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        '2026-08-17T00:00:00.000Z',
+        'staff-1',
+        null,
+      ),
+    ).resolves.toMatchObject({ status: 'accepted' });
+    const update = calls.find(
+      (call) => call.operation === 'batch' && call.sql.includes('UPDATE pharmacy_prescription_submissions'),
+    );
+    const event = calls.find(
+      (call) => call.operation === 'batch' && call.sql.includes('INSERT INTO pharmacy_prescription_events'),
+    );
     expect(update?.sql).toContain('line_account_id = ?');
     expect(update?.sql).toContain('status = ? AND updated_at = ?');
     expect(event).toBeDefined();
@@ -298,12 +477,16 @@ describe('admin account-scoped repository', () => {
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => sql.includes('FROM pharmacy_prescription_events e')
-            ? {
-              id: 'operation-1', actor_id: 'staff-1', from_status: 'received',
-              to_status: 'accepted', reason_code: null,
-            }
-            : null,
+          first: async () =>
+            sql.includes('FROM pharmacy_prescription_events e')
+              ? {
+                  id: 'operation-1',
+                  actor_id: 'staff-1',
+                  from_status: 'received',
+                  to_status: 'accepted',
+                  reason_code: null,
+                }
+              : null,
           run: async () => ({ meta: { changes: 1 } }),
           all: async () => ({ results: [] }),
         }),
@@ -311,18 +494,26 @@ describe('admin account-scoped repository', () => {
       batch,
     } as unknown as D1Database;
 
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept',
-      'stale-version', 'staff-1', null, 'operation-1',
-    )).resolves.toEqual({ status: 'accepted', statusEventId: 'operation-1' });
+    await expect(
+      applyAdminPrescriptionAction(
+        db,
+        'account-1',
+        'submission-1',
+        'admin_accept',
+        'stale-version',
+        'staff-1',
+        null,
+        'operation-1',
+      ),
+    ).resolves.toEqual({ status: 'accepted', statusEventId: 'operation-1' });
     expect(batch).not.toHaveBeenCalled();
   });
 
   it('rejects invalid transitions before writing', async () => {
     const { db, calls } = fakeDb({ status: 'closed', updated_at: 'v1' });
-    await expect(applyAdminPrescriptionAction(
-      db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
-    )).rejects.toThrow('invalid prescription transition');
+    await expect(
+      applyAdminPrescriptionAction(db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null),
+    ).rejects.toThrow('invalid prescription transition');
     expect(calls.every((call) => call.operation !== 'batch')).toBe(true);
   });
 
@@ -364,25 +555,41 @@ describe('admin account-scoped repository', () => {
       [{ id: 'file-1', content_type: 'image/png' }],
       [{ id: 'event-1', event_type: 'status_changed' }],
       { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
-      { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      {
+        issued_on: '2026-08-17',
+        valid_until: '2026-08-20',
+        validity_basis: 'default_4_days',
+        verification_status: 'verified',
+      },
+      null,
     ];
     const calls: string[] = [];
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => { calls.push(sql); return values.shift(); },
-          all: async () => { calls.push(sql); return { results: values.shift() }; },
+          first: async () => {
+            calls.push(sql);
+            return values.shift();
+          },
+          all: async () => {
+            calls.push(sql);
+            return { results: values.shift() };
+          },
         }),
       }),
     } as unknown as D1Database;
-    await expect(getAdminPrescriptionDetail(
-      db, 'account-1', 'submission-1',
-    )).resolves.toEqual({
+    await expect(getAdminPrescriptionDetail(db, 'account-1', 'submission-1')).resolves.toEqual({
       submission: { id: 'submission-1', status: 'received' },
       files: [{ id: 'file-1', content_type: 'image/png' }],
       events: [{ id: 'event-1', event_type: 'status_changed' }],
       source: { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
-      validity: { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      validity: {
+        issued_on: '2026-08-17',
+        valid_until: '2026-08-20',
+        validity_basis: 'default_4_days',
+        verification_status: 'verified',
+      },
+      intake: null,
     });
     expect(calls.every((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(calls.join('\n')).not.toContain('r2_key');
@@ -394,24 +601,19 @@ describe('patient history, cancellation, and resubmission', () => {
 
   it('lists owned submission history without selecting image rows or keys', async () => {
     const { db, calls } = fakeDb([{ id: 'submission-1', status: 'received' }]);
-    await expect(listPrescriptionHistory(db, patient)).resolves.toEqual([
-      { id: 'submission-1', status: 'received' },
-    ]);
+    await expect(listPrescriptionHistory(db, patient)).resolves.toEqual([{ id: 'submission-1', status: 'received' }]);
     expect(calls[0].sql).not.toContain('pharmacy_prescription_files');
     expect(calls[0].sql).not.toContain('r2_key');
     expect(calls[0].sql).toContain('LEFT JOIN pharmacy_fulfillment_quotes');
     expect(calls[0].sql).toContain('q.estimated_ready_at');
     expect(calls[0].sql).toContain('q.requirements_json');
-    expect(calls[0].values).toEqual(['account-1', 'friend-1']);
+    expect(calls[0].values.slice(0, 2)).toEqual(['account-1', 'friend-1']);
+    expect(calls[0].values.slice(2)).toEqual(['friend-1', expect.any(String)]);
   });
 
   it('cancels only patient-cancellable state with CAS and returns owned live object keys', async () => {
-    const { db, calls } = fakeDb([
-      { id: 'file-1', r2_key: 'custom/pharmacy/prescriptions/submission-1/1/file-1' },
-    ]);
-    await expect(cancelPrescription(
-      db, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
-    )).resolves.toEqual([
+    const { db, calls } = fakeDb([{ id: 'file-1', r2_key: 'custom/pharmacy/prescriptions/submission-1/1/file-1' }]);
+    await expect(cancelPrescription(db, patient, 'submission-1', '2026-08-17T00:00:00.000Z')).resolves.toEqual([
       { id: 'file-1', r2_key: 'custom/pharmacy/prescriptions/submission-1/1/file-1' },
     ]);
     expect(calls[0].sql).toContain("status IN ('draft','received')");
@@ -422,9 +624,7 @@ describe('patient history, cancellation, and resubmission', () => {
 
   it('reserves the next upload revision without replacing active_revision', async () => {
     const { db, calls } = fakeDb(null);
-    await reservePrescriptionResubmission(
-      db, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
-    );
+    await reservePrescriptionResubmission(db, patient, 'submission-1', '2026-08-17T00:00:00.000Z');
     expect(calls[0].sql).toContain('upload_revision = upload_revision + 1');
     expect(calls[0].sql).not.toContain('active_revision =');
     expect(calls[0].sql).toContain("status = 'needs_resubmission'");
@@ -433,9 +633,9 @@ describe('patient history, cancellation, and resubmission', () => {
 
   it('records arrival only for the owned accepted or ready submission with CAS', async () => {
     const { db, calls } = fakeDb(null);
-    await expect(reportPrescriptionArrival(
-      db, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
-    )).resolves.toMatchObject({ arrivalReportedAt: expect.any(String) });
+    await expect(
+      reportPrescriptionArrival(db, patient, 'submission-1', '2026-08-17T00:00:00.000Z'),
+    ).resolves.toMatchObject({ arrivalReportedAt: expect.any(String) });
     expect(calls[0].sql).toContain("status IN ('accepted','ready')");
     expect(calls[0].sql).toContain('line_account_id = ? AND friend_id = ?');
     expect(calls[0].sql).toContain('arrival_reported_at IS NULL');
@@ -443,10 +643,12 @@ describe('patient history, cancellation, and resubmission', () => {
 
   it('rejects stale cancellation and resubmission updates', async () => {
     const { db } = fakeDb([], 0);
-    await expect(cancelPrescription(db, patient, 'submission-1', 'stale'))
-      .rejects.toThrow('prescription cancel conflict');
-    await expect(reservePrescriptionResubmission(db, patient, 'submission-1', 'stale'))
-      .rejects.toThrow('prescription resubmission conflict');
+    await expect(cancelPrescription(db, patient, 'submission-1', 'stale')).rejects.toThrow(
+      'prescription cancel conflict',
+    );
+    await expect(reservePrescriptionResubmission(db, patient, 'submission-1', 'stale')).rejects.toThrow(
+      'prescription resubmission conflict',
+    );
   });
 
   it('marks an owned file deleted and records its PHI-free event', async () => {
@@ -462,17 +664,12 @@ describe('submitPrescription', () => {
   it('atomically requires consent and 1-4 contiguous ready files before activation', async () => {
     const { submitPrescription } = await import('./repository.js');
     const { db, calls } = fakeDb(null);
-    await submitPrescription(
-      db,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-      'submission-1',
-      {
-        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
-        desiredPickupAt: '2026-08-19T09:00:00.000Z',
-        originalPrescriptionConsent: true,
-        readinessNoticeConsent: true,
-      },
-    );
+    await submitPrescription(db, { lineAccountId: 'account-1', friendId: 'friend-1' }, 'submission-1', {
+      expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+      desiredPickupAt: '2026-08-19T09:00:00.000Z',
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    });
     expect(calls[0].sql).toContain('desired_pickup_at = ?');
     expect(calls[0].sql).toContain('original_prescription_consent_at = ?');
     expect(calls[0].sql).toContain('readiness_notice_consent_at = ?');
@@ -490,17 +687,14 @@ describe('submitPrescription', () => {
   it('returns a conflict when the conditional update changes no row', async () => {
     const { submitPrescription } = await import('./repository.js');
     const { db } = fakeDb(null, 0);
-    await expect(submitPrescription(
-      db,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-      'submission-1',
-      {
+    await expect(
+      submitPrescription(db, { lineAccountId: 'account-1', friendId: 'friend-1' }, 'submission-1', {
         expectedUpdatedAt: 'stale-version',
         desiredPickupAt: null,
         originalPrescriptionConsent: true,
         readinessNoticeConsent: true,
-      },
-    )).rejects.toThrow('prescription submit conflict');
+      }),
+    ).rejects.toThrow('prescription submit conflict');
   });
 });
 
@@ -517,13 +711,13 @@ describe('prescription file persistence', () => {
       position: 1,
     };
     const { db, calls } = fakeDb(existing);
-    await expect(reservePrescriptionFile(
-      db,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-      'submission-1',
-      1,
-      { contentType: 'image/png', byteSize: 8, sha256: 'a'.repeat(64) },
-    )).resolves.toEqual(existing);
+    await expect(
+      reservePrescriptionFile(db, { lineAccountId: 'account-1', friendId: 'friend-1' }, 'submission-1', 1, {
+        contentType: 'image/png',
+        byteSize: 8,
+        sha256: 'a'.repeat(64),
+      }),
+    ).resolves.toEqual(existing);
     expect(calls[0].sql).toContain("s.status IN ('draft','needs_resubmission')");
     expect(calls[0].sql).toContain('s.line_account_id = ? AND s.friend_id = ?');
     expect(calls[0].sql).toContain('tenant_line_accounts');
@@ -535,16 +729,22 @@ describe('prescription file persistence', () => {
 
   it('rejects a different image replayed into the same position', async () => {
     const { db } = fakeDb({
-      id: 'file-1', r2_key: 'key', content_type: 'image/png', byte_size: 8,
-      sha256: 'b'.repeat(64), state: 'ready', revision: 1, position: 1,
+      id: 'file-1',
+      r2_key: 'key',
+      content_type: 'image/png',
+      byte_size: 8,
+      sha256: 'b'.repeat(64),
+      state: 'ready',
+      revision: 1,
+      position: 1,
     });
-    await expect(reservePrescriptionFile(
-      db,
-      { lineAccountId: 'account-1', friendId: 'friend-1' },
-      'submission-1',
-      1,
-      { contentType: 'image/png', byteSize: 8, sha256: 'a'.repeat(64) },
-    )).rejects.toThrow('prescription file position conflict');
+    await expect(
+      reservePrescriptionFile(db, { lineAccountId: 'account-1', friendId: 'friend-1' }, 'submission-1', 1, {
+        contentType: 'image/png',
+        byteSize: 8,
+        sha256: 'a'.repeat(64),
+      }),
+    ).rejects.toThrow('prescription file position conflict');
   });
 
   it('marks only the exact pending owned file ready', async () => {

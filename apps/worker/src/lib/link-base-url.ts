@@ -24,10 +24,7 @@ import { getLinkBaseUrl, getTrackedLinkBaseUrl } from '@line-crm/db';
  * repo forbids a localhost fallback, and silently emitting a base-less URL would
  * bake broken affiliate links into client responses.
  */
-export async function resolveLinkBaseUrl(
-  db: D1Database,
-  env: { WORKER_URL?: string },
-): Promise<string> {
+export async function resolveLinkBaseUrl(db: D1Database, env: { WORKER_URL?: string }): Promise<string> {
   const stored = await getLinkBaseUrl(db, '__global__');
   if (stored) {
     // Already normalised (no trailing slash) by setLinkBaseUrl.
@@ -36,9 +33,7 @@ export async function resolveLinkBaseUrl(
 
   const workerUrl = env.WORKER_URL?.trim();
   if (!workerUrl) {
-    throw new Error(
-      'WORKER_URL is not configured; cannot resolve affiliate link base URL',
-    );
+    throw new Error('WORKER_URL is not configured; cannot resolve affiliate link base URL');
   }
   return workerUrl.replace(/\/$/, '') + '/r';
 }
@@ -55,10 +50,7 @@ export async function resolveLinkBaseUrl(
  * always build `${base}/t/${code}` themselves so both branches produce the
  * same URL shape.
  */
-export async function resolveTrackedLinkBaseUrl(
-  db: D1Database,
-  fallback: string,
-): Promise<string> {
+export async function resolveTrackedLinkBaseUrl(db: D1Database, fallback: string): Promise<string> {
   const stored = await getTrackedLinkBaseUrl(db, '__global__');
   if (stored) return stored;
   return fallback.replace(/\/$/, '');

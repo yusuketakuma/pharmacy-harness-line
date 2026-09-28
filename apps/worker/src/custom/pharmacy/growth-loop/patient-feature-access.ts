@@ -17,8 +17,9 @@ export async function listExistingPatientFeatures(
   db: D1Database,
   patient: PrescriptionPatient,
 ): Promise<ExistingFeature[]> {
-  const row = await db.prepare(
-    `SELECT
+  const row = await db
+    .prepare(
+      `SELECT
        EXISTS (SELECT 1 FROM pharmacy_prescription_submissions
                 WHERE line_account_id = ? AND friend_id = ?) AS prescription_intake,
        EXISTS (SELECT 1 FROM pharmacy_myna_handoffs
@@ -31,13 +32,21 @@ export async function listExistingPatientFeatures(
                 WHERE line_account_id = ? AND owner_friend_id = ?) AS medication_followup,
        EXISTS (SELECT 1 FROM pharmacy_emergency_intakes
                 WHERE line_account_id = ? AND owner_friend_id = ?) AS emergency_contraception`,
-  ).bind(
-    patient.lineAccountId, patient.friendId,
-    patient.lineAccountId, patient.friendId,
-    patient.lineAccountId, patient.friendId,
-    patient.lineAccountId, patient.friendId,
-    patient.lineAccountId, patient.friendId,
-    patient.lineAccountId, patient.friendId,
-  ).first<ExistingFeatureRow>();
+    )
+    .bind(
+      patient.lineAccountId,
+      patient.friendId,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.lineAccountId,
+      patient.friendId,
+    )
+    .first<ExistingFeatureRow>();
   return EXISTING_FEATURES.filter((feature) => row?.[feature] === 1);
 }

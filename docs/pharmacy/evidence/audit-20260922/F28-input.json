@@ -1,0 +1,12 @@
+{
+  "P": "3be2dbf1bed931fbf98cca4e40f934fce2058ba4",
+  "W": {
+    "packages/plugin-template/README.md": "aa48a3029e83bebf286530b5170a669e4c829d0dd172de8c03318816be0ab9d6",
+    "packages/plugin-template/mcp-server/index.ts": "b952bf294cf44d4bfd266f8e9b699cbf55f29c73bb73d24693d6c2a0f7cde83e"
+  },
+  "existing": {
+    "packages/plugin-template/README.md": "85d85b522c149818a6d3b7e00528ab01f1f1642d499edf9dd7dc94078c198f4e",
+    "packages/plugin-template/mcp-server/index.ts": "d481dc77fcddb5436158808cb5045904bd4852ab96e0b2ffe6776ed7e3d05628"
+  },
+  "patchReplay": "PASS 2paths"
+}

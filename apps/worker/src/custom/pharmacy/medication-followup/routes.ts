@@ -4,21 +4,30 @@ import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { readJsonObject } from '../json.js';
 import { canAccessPharmacyAccount, hasPharmacyCapability } from '../growth-loop/access.js';
+import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescriptions/patient.js';
 import {
-  resolvePrescriptionPatient,
-  type PrescriptionPatient,
-} from '../prescriptions/patient.js';
-import {
+  getMedicationFollowUpOperations,
+  getMedicationFollowUpOperationsOutlook,
   getOwnerMedicationFollowUp,
+  listMedicationFollowUpAssignees,
+  listMedicationFollowUpContacts,
   listOwnerMedicationFollowUps,
+  recordMedicationFollowUpContact,
   respondToMedicationFollowUp,
+  saveMedicationFollowUpOperations,
   scheduleMedicationFollowUp,
   transitionMedicationFollowUp,
   type MedicationFollowUp,
+  type MedicationFollowUpAssignee,
+  type MedicationFollowUpContactInput,
+  type MedicationFollowUpContactRecord,
+  type MedicationFollowUpOperations,
   type MedicationFollowUpPatientResponse,
   type MedicationFollowUpStatus,
   type PatientMedicationFollowUp,
 } from './repository.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
+import { recordTenantAudit } from '../../../lib/tenant-audit.js';
 
 type MedicationFollowUpEnv = {
   Bindings: Env['Bindings'];
@@ -28,7 +37,11 @@ type MedicationFollowUpEnv = {
 export const medicationFollowUpRoutes = new Hono<MedicationFollowUpEnv>();
 
 const STAFF_TRANSITIONS = new Set<MedicationFollowUpStatus>([
-  'assigned', 'responded', 'escalated', 'closed', 'cancelled',
+  'assigned',
+  'responded',
+  'escalated',
+  'closed',
+  'cancelled',
 ]);
 
 function adminProjection(row: MedicationFollowUp) {
@@ -37,12 +50,51 @@ function adminProjection(row: MedicationFollowUp) {
     source_submission_id: row.source_submission_id,
     status: row.status,
     due_at: row.due_at,
+    question_set_version: row.question_set_version,
+    response_deadline_at: row.response_deadline_at,
+    assigned_to: row.assigned_to,
     delivered_at: row.delivered_at,
     responded_at: row.responded_at,
     closed_at: row.closed_at,
     version: row.version,
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+function contactProjection(row: MedicationFollowUpContactRecord) {
+  return {
+    id: row.id,
+    channel: row.channel,
+    outcome_code: row.outcome_code,
+    next_contact_at: row.next_contact_at,
+    occurred_at: row.occurred_at,
+  };
+}
+
+function assigneeProjection(row: MedicationFollowUpAssignee) {
+  return { id: row.id, name: row.name, role: row.role };
+}
+
+function parseContact(value: unknown): MedicationFollowUpContactInput | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const nextContactAt = body.nextContactAt;
+  if (
+    (nextContactAt !== undefined && nextContactAt !== null && typeof nextContactAt !== 'string') ||
+    typeof body.channel !== 'string' ||
+    typeof body.outcomeCode !== 'string' ||
+    typeof body.idempotencyKey !== 'string' ||
+    !['line', 'phone'].includes(body.channel) ||
+    !['answered', 'no_answer', 'resolved', 'follow_up_required', 'escalated'].includes(body.outcomeCode)
+  ) {
+    return null;
+  }
+  return {
+    channel: body.channel as MedicationFollowUpContactInput['channel'],
+    outcomeCode: body.outcomeCode as MedicationFollowUpContactInput['outcomeCode'],
+    ...(nextContactAt !== undefined ? { nextContactAt: nextContactAt as string | null } : {}),
+    idempotencyKey: body.idempotencyKey,
   };
 }
 
@@ -62,29 +114,37 @@ function patientProjection(row: PatientMedicationFollowUp) {
 medicationFollowUpRoutes.use('/api/liff/pharmacy/medication-followups/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
-  const patient = await resolvePrescriptionPatient(
-    c.env.DB, c.req.query('liffId') ?? '', identity,
-  );
+  const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('medicationFollowUpPatient', patient);
   return next();
 });
 
 medicationFollowUpRoutes.get('/api/liff/pharmacy/medication-followups', async (c) => {
   const owner = c.get('medicationFollowUpPatient');
-  const followUps = await listOwnerMedicationFollowUps(
-    c.env.DB, owner.lineAccountId, owner.friendId,
-  );
+  const followUps = await listOwnerMedicationFollowUps(c.env.DB, owner.lineAccountId, owner.friendId);
   return c.json({ followUps: followUps.map(patientProjection) });
+});
+
+medicationFollowUpRoutes.get('/api/liff/pharmacy/medication-followups/outlook', async (c) => {
+  const owner = c.get('medicationFollowUpPatient');
+  const outlook = await getMedicationFollowUpOperationsOutlook(c.env.DB, owner.lineAccountId);
+  return c.json({ outlook });
 });
 
 medicationFollowUpRoutes.post('/api/liff/pharmacy/medication-followups/:id/respond', async (c) => {
   const owner = c.get('medicationFollowUpPatient');
   const body = await readJsonObject(c.req);
   const response = body?.response as MedicationFollowUpPatientResponse | undefined;
-  if (!body || !['no_issue', 'concern', 'pharmacist_requested'].includes(response ?? '') ||
-      typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion) ||
-      typeof body.idempotencyKey !== 'string') {
+  if (
+    !body ||
+    !['no_issue', 'concern', 'pharmacist_requested'].includes(response ?? '') ||
+    typeof body.expectedVersion !== 'number' ||
+    !Number.isInteger(body.expectedVersion) ||
+    typeof body.idempotencyKey !== 'string'
+  ) {
     return c.json({ error: '回答を確認できませんでした' }, 400);
   }
   try {
@@ -96,21 +156,25 @@ medicationFollowUpRoutes.post('/api/liff/pharmacy/medication-followups/:id/respo
       expectedVersion: body.expectedVersion,
       idempotencyKey: body.idempotencyKey,
     });
-    const updated = await getOwnerMedicationFollowUp(
-      c.env.DB, owner.lineAccountId, owner.friendId, followUp.id,
-    );
+    const updated = await getOwnerMedicationFollowUp(c.env.DB, owner.lineAccountId, owner.friendId, followUp.id);
     if (!updated) return c.json({ error: '回答を保存できませんでした' }, 409);
     return c.json({ followUp: patientProjection(updated) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
+    if (/schema unavailable|closure unavailable/i.test(message)) {
+      return c.json({ error: '服薬後フォローの追加機能を確認できませんでした。' }, 503);
+    }
     return c.json({ error: '回答を保存できませんでした' }, /conflict/i.test(message) ? 409 : 400);
   }
 });
 
-async function scope(c: Context<MedicationFollowUpEnv>): Promise<{
-  lineAccountId: string;
-  staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
-} | Response> {
+async function scope(c: Context<MedicationFollowUpEnv>): Promise<
+  | {
+      lineAccountId: string;
+      staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    }
+  | Response
+> {
   const lineAccountId = c.req.query('line_account_id');
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const staff = c.get('staff');
@@ -121,16 +185,130 @@ async function scope(c: Context<MedicationFollowUpEnv>): Promise<{
   return { lineAccountId, staff };
 }
 
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/assignees', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const assignees = await listMedicationFollowUpAssignees(c.env.DB, account.lineAccountId);
+    return c.json({ assignees: assignees.map(assigneeProjection) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
+function operationsProjection(row: MedicationFollowUpOperations) {
+  let responseSla: unknown = {};
+  try {
+    responseSla = JSON.parse(row.response_sla_json);
+  } catch {
+    responseSla = {};
+  }
+  return {
+    service_hours_text: row.service_hours_text,
+    response_sla: responseSla,
+    primary_staff_id: row.primary_staff_id,
+    backup_staff_id: row.backup_staff_id,
+    after_hours_message_code: row.after_hours_message_code,
+    emergency_message_code: row.emergency_message_code,
+    enabled: row.enabled === 1,
+    version: row.version,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function operationsError(c: Context<MedicationFollowUpEnv>, error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (/schema unavailable/i.test(message)) {
+    return c.json({ error: '服薬後フォローの運用設定は準備中です。' }, 503);
+  }
+  if (/invalid follow-up operations staff/i.test(message)) {
+    return c.json({ error: '担当者の設定を確認してください。' }, 400);
+  }
+  if (/invalid follow-up operations/i.test(message)) {
+    return c.json({ error: '運用設定の入力内容を確認してください。' }, 400);
+  }
+  if (/operations conflict/i.test(message)) {
+    return c.json({ error: '運用設定は別の操作で更新されています。再読み込みしてください。' }, 409);
+  }
+  return c.json({ error: '運用設定を処理できませんでした。' }, 500);
+}
+
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/operations', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const operations = await getMedicationFollowUpOperations(c.env.DB, account.lineAccountId);
+    return c.json({ operations: operations ? operationsProjection(operations) : null });
+  } catch (error) {
+    return operationsError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.put('/api/custom/pharmacy/medication-followups/operations', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  if (account.staff.role !== 'owner' && account.staff.role !== 'admin') {
+    return c.json({ error: '運用設定の変更はオーナーまたは管理者のみ実行できます' }, 403);
+  }
+  const body = await readJsonObject(c.req);
+  if (
+    !body ||
+    typeof body.serviceHoursText !== 'string' ||
+    typeof body.responseSla !== 'object' ||
+    body.responseSla === null ||
+    Array.isArray(body.responseSla) ||
+    typeof body.primaryStaffId !== 'string' ||
+    (body.backupStaffId !== undefined && body.backupStaffId !== null && typeof body.backupStaffId !== 'string') ||
+    typeof body.afterHoursMessageCode !== 'string' ||
+    typeof body.emergencyMessageCode !== 'string' ||
+    typeof body.enabled !== 'boolean' ||
+    typeof body.expectedVersion !== 'number' ||
+    !Number.isInteger(body.expectedVersion)
+  ) {
+    return c.json({ error: '運用設定の入力内容を確認してください' }, 400);
+  }
+  if (!(await hasPharmacyCapability(c.env.DB, account.lineAccountId, 'medication_followup'))) {
+    return c.json({ error: '服薬後フォローはこのアカウントでは無効です' }, 409);
+  }
+  try {
+    const operations = await saveMedicationFollowUpOperations(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      serviceHoursText: body.serviceHoursText,
+      responseSla: body.responseSla,
+      primaryStaffId: body.primaryStaffId,
+      backupStaffId: body.backupStaffId as string | null | undefined,
+      afterHoursMessageCode: body.afterHoursMessageCode,
+      emergencyMessageCode: body.emergencyMessageCode,
+      enabled: body.enabled,
+      expectedVersion: body.expectedVersion,
+      actorStaffId: account.staff.id,
+    });
+    return c.json({ operations: operationsProjection(operations) });
+  } catch (error) {
+    return operationsError(c, error);
+  }
+});
+
 function followUpError(c: Context<MedicationFollowUpEnv>, error: unknown): Response {
   const message = error instanceof Error ? error.message : '';
+  if (/schema unavailable|closure unavailable/i.test(message)) {
+    return c.json({ error: '服薬後フォローの追加対応記録は準備中です。' }, 503);
+  }
   if (/not found/i.test(message)) {
     return c.json({ error: '対象の服薬後フォローが見つかりません。' }, 404);
   }
+  if (/assigned staff/i.test(message)) {
+    return c.json({ error: '担当する人間スタッフを選択してください。' }, 400);
+  }
+  if (/invalid|due time|deadline|next contact/i.test(message)) {
+    return c.json({ error: '服薬後フォローの入力内容を確認してください。' }, 400);
+  }
+  if (/response record|required|contact conflict/i.test(message)) {
+    return c.json({ error: '対応記録を保存してから状態を更新してください。' }, 409);
+  }
   if (/already|conflict/i.test(message)) {
     return c.json({ error: '服薬後フォローは更新されています。再読み込みしてください。' }, 409);
-  }
-  if (/invalid|due time/i.test(message)) {
-    return c.json({ error: '服薬後フォローの入力内容を確認してください。' }, 400);
   }
   return c.json({ error: '服薬後フォローを処理できませんでした。' }, 500);
 }
@@ -142,18 +320,29 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups', async
     return c.json({ error: 'pharmacy capability is not enabled', code: 'FEATURE_DISABLED' }, 409);
   }
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.submissionId !== 'string' || typeof body.dueAt !== 'string' ||
-      typeof body.idempotencyKey !== 'string') {
+  if (
+    !body ||
+    typeof body.submissionId !== 'string' ||
+    typeof body.dueAt !== 'string' ||
+    typeof body.idempotencyKey !== 'string' ||
+    (body.responseDeadlineAt !== undefined &&
+      body.responseDeadlineAt !== null &&
+      typeof body.responseDeadlineAt !== 'string')
+  ) {
     return c.json({ error: 'submissionId, dueAt, and idempotencyKey are required' }, 400);
   }
   try {
-    const followUp = await scheduleMedicationFollowUp(c.env.DB, {
+    const scheduleInput = {
       lineAccountId: account.lineAccountId,
       submissionId: body.submissionId,
       dueAt: body.dueAt,
       staffId: account.staff.id,
       idempotencyKey: body.idempotencyKey,
-    });
+      ...(body.responseDeadlineAt !== undefined
+        ? { responseDeadlineAt: body.responseDeadlineAt as string | null }
+        : {}),
+    };
+    const followUp = await scheduleMedicationFollowUp(c.env.DB, scheduleInput);
     return c.json({ followUp: adminProjection(followUp) }, 201);
   } catch (error) {
     return followUpError(c, error);
@@ -164,20 +353,79 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups/:id/tra
   const account = await scope(c);
   if (account instanceof Response) return account;
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.status !== 'string' || !STAFF_TRANSITIONS.has(body.status as MedicationFollowUpStatus) ||
-      typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion)) {
+  if (
+    !body ||
+    typeof body.status !== 'string' ||
+    !STAFF_TRANSITIONS.has(body.status as MedicationFollowUpStatus) ||
+    typeof body.expectedVersion !== 'number' ||
+    !Number.isInteger(body.expectedVersion)
+  ) {
     return c.json({ error: 'valid status and expectedVersion are required' }, 400);
   }
+  const contact = body.contact === undefined ? undefined : parseContact(body.contact);
+  if (body.contact !== undefined && !contact) {
+    return c.json({ error: '対応記録の入力内容を確認してください' }, 400);
+  }
+  if (body.assigneeStaffId !== undefined && body.assigneeStaffId !== null && typeof body.assigneeStaffId !== 'string') {
+    return c.json({ error: '担当者の入力内容を確認してください' }, 400);
+  }
   try {
-    const followUp = await transitionMedicationFollowUp(c.env.DB, {
+    const transitionInput = {
       lineAccountId: account.lineAccountId,
       followUpId: c.req.param('id'),
       toStatus: body.status as MedicationFollowUpStatus,
       expectedVersion: body.expectedVersion,
-      actorType: 'staff',
+      actorType: 'staff' as const,
       actorId: account.staff.id,
-    });
+      ...(contact ? { contact } : {}),
+      ...(body.assigneeStaffId !== undefined ? { assigneeStaffId: body.assigneeStaffId as string | null } : {}),
+    };
+    const followUp = await transitionMedicationFollowUp(c.env.DB, transitionInput);
     return c.json({ followUp: adminProjection(followUp) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/:id/contacts', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const contacts = await listMedicationFollowUpContacts(c.env.DB, account.lineAccountId, c.req.param('id'));
+    await recordTenantAudit(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      actorStaffId: account.staff.id,
+      action: 'phi.medication_followup_contacts_viewed',
+      resourceType: 'medication_followup',
+      resourceId: c.req.param('id'),
+    });
+    c.header('Cache-Control', 'private, no-store');
+    return c.json({ contacts: contacts.map(contactProjection) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups/:id/contacts', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  const body = await readJsonObject(c.req);
+  const contact = parseContact(body);
+  if (!contact || typeof body?.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion)) {
+    return c.json({ error: '対応記録とexpectedVersionは必須です' }, 400);
+  }
+  try {
+    const saved = await recordMedicationFollowUpContact(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      followUpId: c.req.param('id'),
+      channel: contact.channel,
+      outcomeCode: contact.outcomeCode,
+      nextContactAt: contact.nextContactAt,
+      actorStaffId: account.staff.id,
+      idempotencyKey: contact.idempotencyKey,
+      expectedVersion: body.expectedVersion,
+    });
+    return c.json({ contact: contactProjection(saved) });
   } catch (error) {
     return followUpError(c, error);
   }

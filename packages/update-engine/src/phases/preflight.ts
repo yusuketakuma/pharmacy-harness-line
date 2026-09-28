@@ -25,18 +25,13 @@ import { executeD1Query } from '../cf-api/d1.js';
  * event before re-throwing (kept out of this function so error policy
  * lives with the orchestrator).
  */
-export async function runPreflight(
-  ctx: UpdateContext,
-  ev: EventEmitter,
-): Promise<void> {
+export async function runPreflight(ctx: UpdateContext, ev: EventEmitter): Promise<void> {
   await ev.emit({ step: 'preflight', status: 'running' });
 
   // 1. Semver gate — refuse upgrades that skip a required intermediate
   //    release. The manifest's `min_from_version` is authoritative.
   if (compareSemver(ctx.current.version, ctx.target.min_from_version) < 0) {
-    throw new Error(
-      `min_from_version ${ctx.target.min_from_version} not satisfied (current ${ctx.current.version})`,
-    );
+    throw new Error(`min_from_version ${ctx.target.min_from_version} not satisfied (current ${ctx.current.version})`);
   }
 
   // 2. Verify the CF API token is live and scoped.
@@ -91,23 +86,17 @@ async function readBodyExcerpt(res: Response): Promise<string> {
 }
 
 async function verifyToken(creds: CfApiCreds): Promise<void> {
-  const res = await fetch(
-    'https://api.cloudflare.com/client/v4/user/tokens/verify',
-    {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${creds.apiToken}` },
-    },
-  );
+  const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${creds.apiToken}` },
+  });
   if (!res.ok) {
     const excerpt = await readBodyExcerpt(res);
     throw new Error(`CF API token verify failed: HTTP ${res.status} ${excerpt}`);
   }
 }
 
-async function verifyWorker(
-  creds: CfApiCreds,
-  workerName: string,
-): Promise<void> {
+async function verifyWorker(creds: CfApiCreds, workerName: string): Promise<void> {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/workers/scripts/${workerName}`,
     {
@@ -117,16 +106,11 @@ async function verifyWorker(
   );
   if (!res.ok) {
     const excerpt = await readBodyExcerpt(res);
-    throw new Error(
-      `Worker '${workerName}' not found or inaccessible: HTTP ${res.status} ${excerpt}`,
-    );
+    throw new Error(`Worker '${workerName}' not found or inaccessible: HTTP ${res.status} ${excerpt}`);
   }
 }
 
-async function verifyPagesProject(
-  creds: CfApiCreds,
-  projectName: string,
-): Promise<void> {
+async function verifyPagesProject(creds: CfApiCreds, projectName: string): Promise<void> {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/pages/projects/${projectName}`,
     {
@@ -136,8 +120,6 @@ async function verifyPagesProject(
   );
   if (!res.ok) {
     const excerpt = await readBodyExcerpt(res);
-    throw new Error(
-      `Pages project '${projectName}' not found or inaccessible: HTTP ${res.status} ${excerpt}`,
-    );
+    throw new Error(`Pages project '${projectName}' not found or inaccessible: HTTP ${res.status} ${excerpt}`);
   }
 }

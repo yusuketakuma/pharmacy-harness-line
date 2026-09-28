@@ -22,13 +22,9 @@ export interface BroadcastRenderContext {
   displayName?: string | null;
 }
 
-export function renderMessageContent(
-  content: string,
-  liffIdOrContext: string | null | BroadcastRenderContext,
-): string {
-  const context: BroadcastRenderContext = typeof liffIdOrContext === 'object'
-    ? liffIdOrContext ?? {}
-    : { liffId: liffIdOrContext };
+export function renderMessageContent(content: string, liffIdOrContext: string | null | BroadcastRenderContext): string {
+  const context: BroadcastRenderContext =
+    typeof liffIdOrContext === 'object' ? (liffIdOrContext ?? {}) : { liffId: liffIdOrContext };
 
   let result = content;
   if (context.liffId) result = result.replace(/\{\{\s*liff_id\s*\}\}/g, context.liffId);
@@ -41,10 +37,7 @@ function renderJsonValue(value: unknown, context: BroadcastRenderContext): unkno
   if (Array.isArray(value)) return value.map((item) => renderJsonValue(item, context));
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [
-        renderMessageContent(key, context),
-        renderJsonValue(item, context),
-      ]),
+      Object.entries(value).map(([key, item]) => [renderMessageContent(key, context), renderJsonValue(item, context)]),
     );
   }
   return value;

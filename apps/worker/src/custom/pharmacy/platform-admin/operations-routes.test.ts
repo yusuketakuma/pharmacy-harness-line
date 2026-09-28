@@ -20,7 +20,7 @@ lineSdkMocks.LineClient.mockImplementation(function () {
 
 const readinessMocks = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../readiness.js', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../readiness.js')>(),
+  ...(await importOriginal<typeof import('../readiness.js')>()),
   getPharmacyReadiness: readinessMocks.get,
 }));
 
@@ -42,9 +42,13 @@ beforeEach(() => {
     electronicPrescription: { status: 'UNVERIFIED' },
     emergencyContraception: { status: 'BLOCKED' },
     richMenu: {
-      status: 'UNVERIFIED', capabilityRevisionCurrent: false,
-      layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
-      publishedVersionAvailable: true, currentDefaultRecorded: true,
+      status: 'UNVERIFIED',
+      capabilityRevisionCurrent: false,
+      layoutConfigured: true,
+      savedVersionAvailable: true,
+      uploadVerified: true,
+      publishedVersionAvailable: true,
+      currentDefaultRecorded: true,
       defaultReadbackVerified: false,
       reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
     },
@@ -53,7 +57,12 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-type SessionRow = { tenant_id: string; staff_id: string; expires_at: string; revoked_at: string | null };
+type SessionRow = {
+  tenant_id: string;
+  staff_id: string;
+  expires_at: string;
+  revoked_at: string | null;
+};
 
 type MembershipRow = { tenant_id: string; staff_id: string; role: string; is_active: number };
 
@@ -85,23 +94,52 @@ function fakeDb(): Store {
   ];
   const lineAccounts = [
     {
-      tenant_id: 'tenant-a', id: 'account-a', name: 'Account A', channel_id: '1000', is_active: 1,
-      liff_id: 'liff-a', login_channel_id: 'login-a', bot_identity_count: 1,
-      messaging_credential_count: 2, login_credential_count: 1,
-      tenant_status: 'active', active_staff_assignment_count: 1, capability_config_count: 1,
+      tenant_id: 'tenant-a',
+      id: 'account-a',
+      name: 'Account A',
+      channel_id: '1000',
+      is_active: 1,
+      liff_id: 'liff-a',
+      login_channel_id: 'login-a',
+      bot_identity_count: 1,
+      messaging_credential_count: 2,
+      login_credential_count: 1,
+      tenant_status: 'active',
+      active_staff_assignment_count: 1,
+      capability_config_count: 1,
       last_webhook_received_at: '2026-08-18T09:00:00.000Z',
     },
     {
-      tenant_id: 'tenant-a', id: 'account-a2', name: 'Account A2', channel_id: '1001', is_active: 0,
-      liff_id: null, login_channel_id: null, bot_identity_count: 0,
-      messaging_credential_count: 0, login_credential_count: 0, last_webhook_received_at: null,
-      tenant_status: 'active', active_staff_assignment_count: 0, capability_config_count: 0,
+      tenant_id: 'tenant-a',
+      id: 'account-a2',
+      name: 'Account A2',
+      channel_id: '1001',
+      is_active: 0,
+      liff_id: null,
+      login_channel_id: null,
+      bot_identity_count: 0,
+      messaging_credential_count: 0,
+      login_credential_count: 0,
+      last_webhook_received_at: null,
+      tenant_status: 'active',
+      active_staff_assignment_count: 0,
+      capability_config_count: 0,
     },
     {
-      tenant_id: 'tenant-b', id: 'account-b', name: 'Account B', channel_id: '2000', is_active: 1,
-      liff_id: 'liff-b', login_channel_id: 'login-b', bot_identity_count: 1,
-      messaging_credential_count: 2, login_credential_count: 1, last_webhook_received_at: null,
-      tenant_status: 'active', active_staff_assignment_count: 1, capability_config_count: 1,
+      tenant_id: 'tenant-b',
+      id: 'account-b',
+      name: 'Account B',
+      channel_id: '2000',
+      is_active: 1,
+      liff_id: 'liff-b',
+      login_channel_id: 'login-b',
+      bot_identity_count: 1,
+      messaging_credential_count: 2,
+      login_credential_count: 1,
+      last_webhook_received_at: null,
+      tenant_status: 'active',
+      active_staff_assignment_count: 1,
+      capability_config_count: 1,
     },
   ];
 
@@ -127,18 +165,15 @@ function fakeDb(): Store {
             return tenants.find((tenant) => tenant.id === values[0]) ?? null;
           }
           if (sql.includes('FROM tenant_staff_memberships')) {
-            return memberships.find((row) =>
-              row.tenant_id === values[0] && row.staff_id === values[1]) ?? null;
+            return memberships.find((row) => row.tenant_id === values[0] && row.staff_id === values[1]) ?? null;
           }
           if (sql.includes('FROM tenant_admin_sessions')) {
             return {
-              count: sessions.filter((row) =>
-                row.tenant_id === values[0] && row.revoked_at === null).length,
+              count: sessions.filter((row) => row.tenant_id === values[0] && row.revoked_at === null).length,
             };
           }
           if (sql.includes('FROM tenant_line_accounts')) {
-            return lineAccounts.find((row) =>
-              row.tenant_id === values[0] && row.id === values[1]) ?? null;
+            return lineAccounts.find((row) => row.tenant_id === values[0] && row.id === values[1]) ?? null;
           }
           return null;
         },
@@ -157,9 +192,13 @@ function fakeDb(): Store {
                     role: row.role,
                     staff_active: staff.is_active,
                     membership_active: row.is_active,
-                    active_session_count: sessions.filter((session) =>
-                      session.staff_id === staff.id && session.tenant_id === row.tenant_id &&
-                      session.revoked_at === null && session.expires_at > now).length,
+                    active_session_count: sessions.filter(
+                      (session) =>
+                        session.staff_id === staff.id &&
+                        session.tenant_id === row.tenant_id &&
+                        session.revoked_at === null &&
+                        session.expires_at > now,
+                    ).length,
                   };
                 }),
             };
@@ -191,8 +230,7 @@ function fakeDb(): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('UPDATE tenant_staff_memberships')) {
-            const target = memberships.find((row) =>
-              row.tenant_id === values[1] && row.staff_id === values[2]);
+            const target = memberships.find((row) => row.tenant_id === values[1] && row.staff_id === values[2]);
             if (!target) return { meta: { changes: 0 } };
             target.is_active = 0;
             return { meta: { changes: 1 } };
@@ -282,16 +320,18 @@ describe('platform admin staff roster', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       success: true,
-      data: [{
-        staffId: 'staff-1',
-        name: 'Aoi',
-        email: 'aoi@example.test',
-        role: 'admin',
-        isActive: true,
-        membershipActive: true,
-        // Two live rows: the expired one and the revoked one do not count.
-        activeSessionCount: 2,
-      }],
+      data: [
+        {
+          staffId: 'staff-1',
+          name: 'Aoi',
+          email: 'aoi@example.test',
+          role: 'admin',
+          isActive: true,
+          membershipActive: true,
+          // Two live rows: the expired one and the revoked one do not count.
+          activeSessionCount: 2,
+        },
+      ],
     });
     expect(store.auditEvents.at(-1)).toMatchObject({ action: 'list_staff', tenant_id: 'tenant-a' });
   });
@@ -307,26 +347,26 @@ describe('platform admin staff roster', () => {
 describe('platform admin staff disable', () => {
   it('deactivates the tenant membership and revokes their sessions for this tenant', async () => {
     const store = fakeDb();
-    const response = await post(
-      '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable',
-      env(store.db),
-    );
+    const response = await post('/api/platform-admin/tenants/tenant-a/staff/staff-1/disable', env(store.db));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       data: { staffId: 'staff-1', sessionsRevoked: 3 },
     });
-    expect(store.memberships.find((row) =>
-      row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(0);
+    expect(store.memberships.find((row) => row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(
+      0,
+    );
     // The platform-wide staff_members row must NOT be touched:
     // platform_admins.staff_id points at it and the platform-admin login
     // INNER JOINs staff_members.is_active = 1, so clearing it here would lock a
     // platform admin out of the platform console from a tenant-scoped route.
     expect(store.staffMembers.find((staff) => staff.id === 'staff-1')?.is_active).toBe(1);
-    expect(store.sessions.filter((session) =>
-      session.tenant_id === 'tenant-a' && session.revoked_at === null)).toHaveLength(0);
-    expect(store.sessions.filter((session) =>
-      session.tenant_id === 'tenant-b' && session.revoked_at === null)).toHaveLength(1);
+    expect(
+      store.sessions.filter((session) => session.tenant_id === 'tenant-a' && session.revoked_at === null),
+    ).toHaveLength(0);
+    expect(
+      store.sessions.filter((session) => session.tenant_id === 'tenant-b' && session.revoked_at === null),
+    ).toHaveLength(1);
     expect(store.auditEvents.at(-1)).toMatchObject({
       action: 'disable_staff',
       tenant_id: 'tenant-a',
@@ -342,33 +382,33 @@ describe('platform admin staff disable', () => {
     // future path that does from silently re-introducing the cross-tenant
     // blast radius this route used to have.
     store.memberships.push({
-      tenant_id: 'tenant-b', staff_id: 'staff-1', role: 'admin', is_active: 1,
+      tenant_id: 'tenant-b',
+      staff_id: 'staff-1',
+      role: 'admin',
+      is_active: 1,
     });
 
-    const response = await post(
-      '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable',
-      env(store.db),
-    );
+    const response = await post('/api/platform-admin/tenants/tenant-a/staff/staff-1/disable', env(store.db));
 
     expect(response.status).toBe(200);
-    expect(store.memberships.find((row) =>
-      row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(0);
-    expect(store.memberships.find((row) =>
-      row.tenant_id === 'tenant-b' && row.staff_id === 'staff-1')?.is_active).toBe(1);
+    expect(store.memberships.find((row) => row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(
+      0,
+    );
+    expect(store.memberships.find((row) => row.tenant_id === 'tenant-b' && row.staff_id === 'staff-1')?.is_active).toBe(
+      1,
+    );
     expect(store.staffMembers.find((staff) => staff.id === 'staff-1')?.is_active).toBe(1);
   });
 
   it('refuses a staff id that belongs to a different tenant', async () => {
     const store = fakeDb();
-    const response = await post(
-      '/api/platform-admin/tenants/tenant-a/staff/staff-2/disable',
-      env(store.db),
-    );
+    const response = await post('/api/platform-admin/tenants/tenant-a/staff/staff-2/disable', env(store.db));
 
     expect(response.status).toBe(404);
     expect(store.staffMembers.find((staff) => staff.id === 'staff-2')?.is_active).toBe(1);
-    expect(store.sessions.filter((session) =>
-      session.tenant_id === 'tenant-b' && session.revoked_at === null)).toHaveLength(1);
+    expect(
+      store.sessions.filter((session) => session.tenant_id === 'tenant-b' && session.revoked_at === null),
+    ).toHaveLength(1);
     expect(store.auditEvents).toHaveLength(0);
   });
 });
@@ -380,8 +420,9 @@ describe('platform admin tenant session revocation', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ success: true, data: { revoked: 3 } });
-    expect(store.sessions.filter((session) => session.revoked_at === null))
-      .toEqual([expect.objectContaining({ tenant_id: 'tenant-b' })]);
+    expect(store.sessions.filter((session) => session.revoked_at === null)).toEqual([
+      expect.objectContaining({ tenant_id: 'tenant-b' }),
+    ]);
     expect(store.auditEvents.at(-1)).toMatchObject({
       action: 'revoke_tenant_sessions',
       tenant_id: 'tenant-a',
@@ -399,13 +440,31 @@ describe('platform admin tenant session revocation', () => {
 
 describe('platform admin LINE status', () => {
   it('verifies the configured LIFF endpoint live for the explicitly selected account', async () => {
-    const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        access_token: 'stateless-token', expires_in: 900, token_type: 'Bearer',
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ apps: [{
-        liffId: 'liff-a', view: { url: 'https://liff.example.test/?liffId=liff-a' },
-      }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'stateless-token',
+            expires_in: 900,
+            token_type: 'Bearer',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                liffId: 'liff-a',
+                view: { url: 'https://liff.example.test/?liffId=liff-a' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
     vi.stubGlobal('fetch', fetcher);
 
     const response = await get(
@@ -414,7 +473,7 @@ describe('platform admin LINE status', () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { data: Array<Record<string, any>> };
+    const body = (await response.json()) as { data: Array<Record<string, any>> };
     const account = body.data.find((candidate) => candidate.id === 'account-a');
     expect(account).toMatchObject({
       liffEndpointEvidence: { status: 'MATCH', source: 'line_api' },
@@ -457,19 +516,23 @@ describe('platform admin LINE status', () => {
 
   it('records a fixed diagnostic reason without returning the LINE error body', async () => {
     const store = fakeDb();
-    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValueOnce(
-      new Response('upstream detail must not escape', { status: 401 }),
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('upstream detail must not escape', { status: 401 })),
+    );
 
     const response = await get(
       '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
       env(store.db),
     );
-    const body = await response.json() as { data: Array<Record<string, any>> };
+    const body = (await response.json()) as { data: Array<Record<string, any>> };
 
     expect(body.data[0]).toMatchObject({
       liffEndpointEvidence: {
-        status: 'ERROR', source: 'line_api', reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: 401,
+        status: 'ERROR',
+        source: 'line_api',
+        reason: 'TOKEN_REQUEST_FAILED',
+        upstreamStatus: 401,
       },
     });
     expect(store.auditEvents.at(-1)?.detail_json).toBe(
@@ -483,7 +546,7 @@ describe('platform admin LINE status', () => {
     const response = await get('/api/platform-admin/tenants/tenant-a/line-status', env(store.db));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { data: unknown };
+    const body = (await response.json()) as { data: unknown };
     expect(body).toMatchObject({
       success: true,
       data: [
@@ -503,19 +566,25 @@ describe('platform admin LINE status', () => {
           liffReasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'],
           lastWebhookReceivedAt: '2026-08-18T09:00:00.000Z',
           readiness: {
-            accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
+            accountId: 'account-a',
+            checkedAt: '2026-08-21T00:00:00.000Z',
             electronicPrescription: { status: 'UNVERIFIED' },
             emergencyContraception: { status: 'BLOCKED' },
             richMenu: {
-              status: 'UNVERIFIED', capabilityRevisionCurrent: false,
-              layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
-              publishedVersionAvailable: true, currentDefaultRecorded: true,
+              status: 'UNVERIFIED',
+              capabilityRevisionCurrent: false,
+              layoutConfigured: true,
+              savedVersionAvailable: true,
+              uploadVerified: true,
+              publishedVersionAvailable: true,
+              currentDefaultRecorded: true,
               defaultReadbackVerified: false,
               reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
             },
           },
           configurationDoctor: {
-            accountId: 'account-a', status: 'UNVERIFIED',
+            accountId: 'account-a',
+            status: 'UNVERIFIED',
             reasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'],
           },
         },
@@ -535,23 +604,34 @@ describe('platform admin LINE status', () => {
           liffReasonCodes: ['LIFF_ID_MISSING'],
           lastWebhookReceivedAt: null,
           readiness: {
-            accountId: 'account-a2', checkedAt: '2026-08-21T00:00:00.000Z',
+            accountId: 'account-a2',
+            checkedAt: '2026-08-21T00:00:00.000Z',
             electronicPrescription: { status: 'UNVERIFIED' },
             emergencyContraception: { status: 'BLOCKED' },
             richMenu: {
-              status: 'UNVERIFIED', capabilityRevisionCurrent: false,
-              layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
-              publishedVersionAvailable: true, currentDefaultRecorded: true,
+              status: 'UNVERIFIED',
+              capabilityRevisionCurrent: false,
+              layoutConfigured: true,
+              savedVersionAvailable: true,
+              uploadVerified: true,
+              publishedVersionAvailable: true,
+              currentDefaultRecorded: true,
               defaultReadbackVerified: false,
               reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
             },
           },
           configurationDoctor: {
-            accountId: 'account-a2', status: 'BLOCKED',
+            accountId: 'account-a2',
+            status: 'BLOCKED',
             reasonCodes: expect.arrayContaining([
-              'ACCOUNT_INACTIVE', 'STAFF_ASSIGNMENT_MISSING', 'CAPABILITY_CONFIG_MISSING',
-              'BOT_IDENTITY_MISSING', 'LIFF_ID_MISSING', 'LOGIN_CHANNEL_MISSING',
-              'MESSAGING_CREDENTIAL_MISSING', 'LOGIN_CREDENTIAL_MISSING',
+              'ACCOUNT_INACTIVE',
+              'STAFF_ASSIGNMENT_MISSING',
+              'CAPABILITY_CONFIG_MISSING',
+              'BOT_IDENTITY_MISSING',
+              'LIFF_ID_MISSING',
+              'LOGIN_CHANNEL_MISSING',
+              'MESSAGING_CREDENTIAL_MISSING',
+              'LOGIN_CREDENTIAL_MISSING',
             ]),
           },
         },
@@ -560,25 +640,27 @@ describe('platform admin LINE status', () => {
     // Neither the word "token" nor "secret" may appear anywhere in the
     // payload — not as a value, and not as a field name that could carry one.
     expect(JSON.stringify(body)).not.toMatch(/token|secret/iu);
-    expect(store.auditEvents.at(-1)).toMatchObject({ action: 'view_line_status', tenant_id: 'tenant-a' });
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'view_line_status',
+      tenant_id: 'tenant-a',
+    });
   });
 
   it('keeps the tenant diagnostic available when one readiness read cannot be verified', async () => {
     readinessMocks.get.mockImplementation(async (_db: D1Database, accountId: string) => {
       if (accountId === 'account-a2') throw new Error('readiness unavailable');
       return {
-        accountId, checkedAt: '2026-08-21T00:00:00.000Z',
+        accountId,
+        checkedAt: '2026-08-21T00:00:00.000Z',
         electronicPrescription: { status: 'UNVERIFIED' },
         emergencyContraception: { status: 'BLOCKED' },
         richMenu: { status: 'UNVERIFIED' },
       };
     });
 
-    const response = await get(
-      '/api/platform-admin/tenants/tenant-a/line-status', env(fakeDb().db),
-    );
+    const response = await get('/api/platform-admin/tenants/tenant-a/line-status', env(fakeDb().db));
     expect(response.status).toBe(200);
-    const body = await response.json() as { data: Array<Record<string, unknown>> };
+    const body = (await response.json()) as { data: Array<Record<string, unknown>> };
     expect(body.data.find((account) => account.id === 'account-a2')).toMatchObject({
       readiness: null,
       configurationDoctor: {
@@ -635,7 +717,7 @@ describe('platform admin LINE connection test', () => {
 
     const response = await post(path, env(store.db));
     expect(response.status).toBe(200);
-    const body = await response.json() as { data: { ok: boolean; error: string } };
+    const body = (await response.json()) as { data: { ok: boolean; error: string } };
     expect(body.data).toEqual({ ok: false, error: 'LINE API request failed' });
     // The upstream body is never echoed back, so it cannot smuggle out
     // anything the response promised not to expose.
@@ -678,16 +760,20 @@ describe('platform admin operations audit coverage', () => {
   // registered route must have a fixture here that proves it writes one.
   const FIXTURES: Record<string, { path: string; method: 'GET' | 'POST' }> = {
     'GET /api/platform-admin/tenants/:id/staff': {
-      path: '/api/platform-admin/tenants/tenant-a/staff', method: 'GET',
+      path: '/api/platform-admin/tenants/tenant-a/staff',
+      method: 'GET',
     },
     'POST /api/platform-admin/tenants/:id/staff/:staffId/disable': {
-      path: '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable', method: 'POST',
+      path: '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable',
+      method: 'POST',
     },
     'POST /api/platform-admin/tenants/:id/revoke-sessions': {
-      path: '/api/platform-admin/tenants/tenant-a/revoke-sessions', method: 'POST',
+      path: '/api/platform-admin/tenants/tenant-a/revoke-sessions',
+      method: 'POST',
     },
     'GET /api/platform-admin/tenants/:id/line-status': {
-      path: '/api/platform-admin/tenants/tenant-a/line-status', method: 'GET',
+      path: '/api/platform-admin/tenants/tenant-a/line-status',
+      method: 'GET',
     },
     'POST /api/platform-admin/tenants/:id/line-accounts/:lineAccountId/test-connection': {
       path: '/api/platform-admin/tenants/tenant-a/line-accounts/account-a/test-connection',
@@ -696,8 +782,7 @@ describe('platform admin operations audit coverage', () => {
   };
 
   it('covers every registered route with a fixture', () => {
-    const registered = platformAdminOperationsRoutes.routes
-      .map((route) => `${route.method} ${route.path}`);
+    const registered = platformAdminOperationsRoutes.routes.map((route) => `${route.method} ${route.path}`);
     expect(new Set(registered)).toEqual(new Set(Object.keys(FIXTURES)));
   });
 
@@ -705,12 +790,12 @@ describe('platform admin operations audit coverage', () => {
     const store = fakeDb();
     credentialMocks.readLineCredential.mockResolvedValue('channel-access-token');
     lineClientMocks.request.mockResolvedValue({
-      data: { userId: 'Ubotuser0001', displayName: 'Bot' }, headers: new Headers(),
+      data: { userId: 'Ubotuser0001', displayName: 'Bot' },
+      headers: new Headers(),
     });
 
-    const response = fixture.method === 'GET'
-      ? await get(fixture.path, env(store.db))
-      : await post(fixture.path, env(store.db));
+    const response =
+      fixture.method === 'GET' ? await get(fixture.path, env(store.db)) : await post(fixture.path, env(store.db));
 
     expect(response.status).toBe(200);
     expect(store.auditEvents.length).toBeGreaterThan(0);

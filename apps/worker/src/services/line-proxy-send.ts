@@ -1,4 +1,4 @@
-import type { Message } from '@line-crm/line-sdk';
+import { createLineApiError, type Message } from '@line-crm/line-sdk';
 
 export type HarnessProxyDispatch = (request: Request) => Promise<Response>;
 
@@ -49,9 +49,7 @@ export async function pushViaHarnessProxy(
   const signal = AbortSignal.timeout(LINE_PUSH_TIMEOUT_MS);
   let response: Response;
   try {
-    const operation = dispatch
-      ? dispatch(new Request(url, { ...init, signal }))
-      : fetch(url, { ...init, signal });
+    const operation = dispatch ? dispatch(new Request(url, { ...init, signal })) : fetch(url, { ...init, signal });
     response = await Promise.race([
       operation,
       new Promise<never>((_, reject) => {
@@ -63,8 +61,7 @@ export async function pushViaHarnessProxy(
   }
 
   // 同じ retry key がすでに LINE に受理済みなら、再送の 409 も成功扱い。
-  const alreadyAccepted =
-    response.status === 409 && Boolean(response.headers.get('x-line-accepted-request-id'));
+  const alreadyAccepted = response.status === 409 && Boolean(response.headers.get('x-line-accepted-request-id'));
   if (response.ok || alreadyAccepted) return;
   if (response.status >= 500) {
     throw new LineHarnessUnknownOutcomeError(
@@ -98,12 +95,5 @@ export async function replyViaHarnessProxy(
   const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
   if (response.ok) return;
 
-  const body = (await response.json().catch(() => null)) as
-    { message?: unknown; error?: unknown } | null;
-  const detail = body && typeof (body.message ?? body.error) === 'string'
-    ? String(body.message ?? body.error).slice(0, 200)
-    : '';
-  throw new Error(
-    `LINE API error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`,
-  );
+  throw await createLineApiError(response);
 }

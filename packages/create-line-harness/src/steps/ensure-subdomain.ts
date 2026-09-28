@@ -1,16 +1,13 @@
-import * as p from "@clack/prompts";
-import pc from "picocolors";
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
 import {
   getWorkersSubdomain,
   putWorkersSubdomain,
   SubdomainConflictError,
   type CfApiCreds,
-} from "@line-harness/update-engine";
-import { readWranglerOAuthToken } from "../lib/wrangler-oauth.js";
-import {
-  isValidSubdomainName,
-  sanitizeSubdomainCandidate,
-} from "../lib/subdomain-name.js";
+} from '@line-harness/update-engine';
+import { readWranglerOAuthToken } from '../lib/wrangler-oauth.js';
+import { isValidSubdomainName, sanitizeSubdomainCandidate } from '../lib/subdomain-name.js';
 
 /**
  * Make sure the Cloudflare account has a workers.dev subdomain BEFORE the
@@ -60,40 +57,39 @@ function onboardingUrl(accountId: string): string {
 /** DNS-propagation note shown right after a successful registration. */
 function dnsPropagationNote(): string {
   return [
-    "登録直後は DNS 反映に数分かかることがあります。",
-    "この後のデプロイ確認やヘルスチェックが失敗した場合は、数分待ってから",
-    "同じコマンドを再実行してください（続きから再開されます）。",
-  ].join("\n");
+    '登録直後は DNS 反映に数分かかることがあります。',
+    'この後のデプロイ確認やヘルスチェックが失敗した場合は、数分待ってから',
+    '同じコマンドを再実行してください（続きから再開されます）。',
+  ].join('\n');
 }
 
 function manualRegistrationGuide(accountId: string): string {
   return [
-    "CLI からの自動登録ができなかったため、ブラウザで手動登録してください:",
-    "",
+    'CLI からの自動登録ができなかったため、ブラウザで手動登録してください:',
+    '',
     `  1. ${pc.cyan(onboardingUrl(accountId))} を開く`,
-    "  2. 「サブドメインの登録」（Register subdomain）で好きな名前を入力して登録",
-    "     （この名前はアカウント共通で、URL の一部になります）",
-  ].join("\n");
+    '  2. 「サブドメインの登録」（Register subdomain）で好きな名前を入力して登録',
+    '     （この名前はアカウント共通で、URL の一部になります）',
+  ].join('\n');
 }
 
 async function promptSubdomainName(defaultCandidate: string | null): Promise<string> {
   const name = await p.text({
-    message:
-      "workers.dev サブドメイン名（Worker の URL が https://<Worker名>.<この名前>.workers.dev になります）",
+    message: 'workers.dev サブドメイン名（Worker の URL が https://<Worker名>.<この名前>.workers.dev になります）',
     placeholder: defaultCandidate ?? undefined,
     defaultValue: defaultCandidate ?? undefined,
     validate(value) {
-      const v = (value || defaultCandidate || "").trim();
+      const v = (value || defaultCandidate || '').trim();
       if (!isValidSubdomainName(v)) {
-        return "英小文字・数字・ハイフンのみ、63文字以内、先頭と末尾は英数字にしてください";
+        return '英小文字・数字・ハイフンのみ、63文字以内、先頭と末尾は英数字にしてください';
       }
     },
   });
   if (p.isCancel(name)) {
-    p.cancel("セットアップをキャンセルしました");
+    p.cancel('セットアップをキャンセルしました');
     process.exit(0);
   }
-  return ((name as string) || defaultCandidate || "").trim();
+  return ((name as string) || defaultCandidate || '').trim();
 }
 
 /**
@@ -101,10 +97,7 @@ async function promptSubdomainName(defaultCandidate: string | null): Promise<str
  * Returns the registered name, or null when the caller should fall back to
  * the manual (dashboard) path.
  */
-async function registerInteractively(
-  creds: CfApiCreds,
-  defaultName: string,
-): Promise<string | null> {
+async function registerInteractively(creds: CfApiCreds, defaultName: string): Promise<string | null> {
   let candidate = sanitizeSubdomainCandidate(defaultName);
   for (;;) {
     const name = await promptSubdomainName(candidate);
@@ -121,9 +114,7 @@ async function registerInteractively(
     } catch (error) {
       if (error instanceof SubdomainConflictError) {
         s.stop(pc.yellow(`"${name}" は既に使われています`));
-        p.log.warn(
-          "workers.dev サブドメインは全世界で早い者勝ちです。別の名前を入力してください。",
-        );
+        p.log.warn('workers.dev サブドメインは全世界で早い者勝ちです。別の名前を入力してください。');
         continue;
       }
       const msg = error instanceof Error ? error.message : String(error);
@@ -144,22 +135,22 @@ async function registerManually(creds: CfApiCreds): Promise<string | null> {
 
   for (;;) {
     const choice = await p.select({
-      message: "ダッシュボードでの登録が終わったら「確認する」を選んでください",
+      message: 'ダッシュボードでの登録が終わったら「確認する」を選んでください',
       options: [
-        { value: "check", label: "確認する（登録済みかチェックします）" },
-        { value: "continue", label: "確認せずに続行する（未登録だとデプロイに失敗します）" },
+        { value: 'check', label: '確認する（登録済みかチェックします）' },
+        { value: 'continue', label: '確認せずに続行する（未登録だとデプロイに失敗します）' },
       ],
     });
     if (p.isCancel(choice)) {
-      p.cancel("セットアップをキャンセルしました");
+      p.cancel('セットアップをキャンセルしました');
       process.exit(0);
     }
-    if (choice === "continue") {
+    if (choice === 'continue') {
       return null;
     }
 
     const s = p.spinner();
-    s.start("登録状態を確認中...");
+    s.start('登録状態を確認中...');
     try {
       const subdomain = await getWorkersSubdomain({ creds });
       if (subdomain) {
@@ -167,7 +158,7 @@ async function registerManually(creds: CfApiCreds): Promise<string | null> {
         p.log.info(dnsPropagationNote());
         return subdomain;
       }
-      s.stop(pc.yellow("まだ登録が確認できません"));
+      s.stop(pc.yellow('まだ登録が確認できません'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       s.stop(pc.yellow(`確認に失敗しました: ${msg}`));
@@ -175,14 +166,8 @@ async function registerManually(creds: CfApiCreds): Promise<string | null> {
   }
 }
 
-export async function ensureWorkersDevSubdomain(
-  options: EnsureSubdomainOptions,
-): Promise<EnsureSubdomainResult> {
-  const apiToken =
-    options.apiToken ??
-    process.env.CLOUDFLARE_API_TOKEN ??
-    readWranglerOAuthToken() ??
-    undefined;
+export async function ensureWorkersDevSubdomain(options: EnsureSubdomainOptions): Promise<EnsureSubdomainResult> {
+  const apiToken = options.apiToken ?? process.env.CLOUDFLARE_API_TOKEN ?? readWranglerOAuthToken() ?? undefined;
 
   if (!apiToken) {
     // Can't pre-check (no readable credential). Not fatal: wrangler deploy
@@ -193,7 +178,7 @@ export async function ensureWorkersDevSubdomain(
   const creds: CfApiCreds = { accountId: options.accountId, apiToken };
 
   const s = p.spinner();
-  s.start("workers.dev サブドメイン確認中...");
+  s.start('workers.dev サブドメイン確認中...');
   let existing: string | null;
   try {
     existing = await getWorkersSubdomain({ creds });
@@ -201,7 +186,7 @@ export async function ensureWorkersDevSubdomain(
     // Auth scope/network issues etc. — the account may well have a
     // subdomain, so don't drag the user into registration. Proceed and let
     // the deploy tell the truth.
-    s.stop("workers.dev サブドメイン確認をスキップ（状態を取得できませんでした）");
+    s.stop('workers.dev サブドメイン確認をスキップ（状態を取得できませんでした）');
     return { registeredNow: false, subdomain: null };
   }
 
@@ -210,12 +195,12 @@ export async function ensureWorkersDevSubdomain(
     return { registeredNow: false, subdomain: existing };
   }
 
-  s.stop(pc.yellow("workers.dev サブドメインが未登録です"));
+  s.stop(pc.yellow('workers.dev サブドメインが未登録です'));
   p.log.info(
     [
-      "この Cloudflare アカウントにはまだ workers.dev サブドメインがありません。",
-      "Worker を公開するために必要なので、ここで登録します（無料・1アカウント1回だけ）。",
-    ].join("\n"),
+      'この Cloudflare アカウントにはまだ workers.dev サブドメインがありません。',
+      'Worker を公開するために必要なので、ここで登録します（無料・1アカウント1回だけ）。',
+    ].join('\n'),
   );
 
   const registeredName = await registerInteractively(creds, options.defaultName);

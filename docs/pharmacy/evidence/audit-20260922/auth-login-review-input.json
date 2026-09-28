@@ -1,0 +1,22 @@
+{
+  "snapshot": "6751d6edcb164dd8e4ac59fc53824a438bfac13d",
+  "paths": {
+    "apps/worker/src/routes/admin/admin-auth.ts": "15cd14eef3ef09050466efb5afacfdc6466313504b9c062816ecec7b9399f829",
+    "apps/worker/src/middleware/auth.ts": "f6b0883ce43baa9db2652655308ec0900af258dcec23ce69d47e21fd1038f01a",
+    "apps/worker/src/custom/pharmacy/provisioning/credentials.ts": "8524486d5f319787d139a179e576bd8c02808d32918bd3ab95dd422a22664c6e",
+    "apps/worker/src/custom/pharmacy/provisioning/auth-throttle.ts": "e82482a0e9a01a057249657fca6b009d82a904b41498fe72c01b28b8f7016795",
+    "apps/worker/src/custom/pharmacy/provisioning/auth-policy.ts": "5050c16cbc42ce3b4b576c115727053a58be9e71a9df908b27bf49a31002fa72",
+    "apps/worker/src/custom/pharmacy/provisioning/common-passwords.ts": "cca0f1b446df8c993483cba33531f4e6c7c402b79a002938624c5ad9de3451be",
+    "apps/worker/src/custom/pharmacy/crypto-utils.ts": "69a2a506fd04aa030a822f7283968e4b0e2a0b38fd8e840221bdb2b57b6548aa",
+    "docs/pharmacy/ADMIN-AUTH.md": "8b962e6439195627dcff2c85e727ddf1c7d3ac0b2f19e1ec5262906cc55d8b8a",
+    "packages/db/migrations/014_custom_071_shared_pharmacy_auth.sql": "199bdd2df55d564f2ed8410a821cf1bd92a831e3cbad2b49d788c80e6344ba21",
+    "packages/db/migrations/006_custom_063_auth_disable_revocation.sql": "1e860828cb99486bca6073859730b19ce33fc01834fa8c6806397299c93a0df0",
+    "packages/db/test/010_custom_067_admin_login_throttles.test.ts": "d15d7a5365595fc41cd5fedaabc7019215c3082433f0912859cdabf0978807c7",
+    "packages/db/test/custom_015_pharmacy_tenant_credentials.test.ts": "e110e42fc1a9b96d9802000ce613137bf3e0da8d72bb4aa7e2052a69d94143fb",
+    "apps/worker/src/custom/pharmacy/provisioning/admin-auth.test.ts": "2624213d273bd90052d5c868241755c286e70db48a6375e103605353ecab3a48",
+    "apps/worker/src/custom/pharmacy/provisioning/credentials.test.ts": "cc39cf3e359e5a775e6a9fb8120c18d21cca782d1db26836b82c6d5ca8e2958f",
+    "apps/worker/src/custom/pharmacy/provisioning/auth-throttle.test.ts": "b87e8a0d2a34b2dcb348b5d777b642f94d652f0376e76b117de66c8d57d74381"
+  },
+  "owner": "primary",
+  "mode": "read-only; no product source changes; no new test runs; scope detailed in auth-login-review.md"
+}

@@ -1,0 +1,7 @@
+{
+  "P": "07f131c3b65b59d746bca7a33635ba1c3a128610",
+  "paths": {
+    "apps/worker/src/routes/admin/images.ts": "e19118db5d647ba8b1d00498bee3cf5a15a723631f2b152018fdbb2f435b9c9b",
+    "apps/worker/src/routes/admin/images.test.ts": "5c5eee155b6b8141fafd244998283867093f65adbee7d37d56d575fe552ab344"
+  }
+}

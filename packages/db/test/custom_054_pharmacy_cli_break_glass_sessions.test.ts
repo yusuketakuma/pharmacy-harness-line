@@ -19,6 +19,27 @@ describe('custom_054 pharmacy CLI break-glass sessions', () => {
       '006_custom_063_auth_disable_revocation.sql',
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
+      '009_custom_066_auth_session_activity.sql',
+      '010_custom_067_admin_login_throttles.sql',
+      '011_custom_068_patient_proxy_controls.sql',
+      '012_custom_069_patient_control_audit.sql',
+      '013_custom_070_patient_proxy_lifecycle.sql',
+      '014_custom_071_shared_pharmacy_auth.sql',
+      '015_custom_072_pharmacy_beta_memberships.sql',
+      '016_custom_073_pharmacy_medication_followup_closure.sql',
+      '017_custom_074_pharmacy_followup_operations.sql',
+      '018_custom_075_pharmacy_medication_followup_assignments.sql',
+      '019_custom_076_pharmacy_followup_operations_scope.sql',
+      '020_custom_077_pharmacy_beta_notification_bindings.sql',
+      '021_calendar_bookings_overlap_index.sql',
+      '022_booking_idempotency_scoped.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
+      '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
+      '029_custom_081_pharmacy_validity_notification_queue.sql',
     ]);
   });
 
@@ -53,16 +74,18 @@ describe('custom_054 pharmacy CLI break-glass sessions', () => {
               '2026-08-24T00:00:00.000Z', ?, NULL, NULL)`);
 
     expect(insert.run('session-a', 'a'.repeat(64), 'all', '2026-08-24T02:00:00.000Z').changes).toBe(1);
-    expect(() => insert.run('session-b', 'b'.repeat(64), 'read', '2026-08-24T02:00:00.000Z'))
-      .toThrow(/check/i);
-    expect(() => insert.run('session-c', 'c'.repeat(64), 'all', '2026-08-24T02:00:01.000Z'))
-      .toThrow(/check/i);
-    expect(() => db.prepare(`UPDATE pharmacy_cli_break_glass_sessions SET reason = 'changed'`).run())
-      .toThrow(/immutable/i);
-    expect(db.prepare(`UPDATE pharmacy_cli_break_glass_sessions
+    expect(() => insert.run('session-b', 'b'.repeat(64), 'read', '2026-08-24T02:00:00.000Z')).toThrow(/check/i);
+    expect(() => insert.run('session-c', 'c'.repeat(64), 'all', '2026-08-24T02:00:01.000Z')).toThrow(/check/i);
+    expect(() => db.prepare(`UPDATE pharmacy_cli_break_glass_sessions SET reason = 'changed'`).run()).toThrow(
+      /immutable/i,
+    );
+    expect(
+      db
+        .prepare(`UPDATE pharmacy_cli_break_glass_sessions
       SET revoked_at = '2026-08-24T01:00:00.000Z', revoked_by = 'platform-a'
-      WHERE id = 'session-a'`).run().changes).toBe(1);
-    expect(() => db.prepare('DELETE FROM pharmacy_cli_break_glass_sessions').run())
-      .toThrow(/immutable/i);
+      WHERE id = 'session-a'`)
+        .run().changes,
+    ).toBe(1);
+    expect(() => db.prepare('DELETE FROM pharmacy_cli_break_glass_sessions').run()).toThrow(/immutable/i);
   });
 });

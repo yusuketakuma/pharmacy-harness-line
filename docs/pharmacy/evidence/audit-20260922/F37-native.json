@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "exit": 0,
+  "artifact": {
+    "path": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F37-native-LytpkV/index.mjs",
+    "bytes": 96905,
+    "sha256": "374e43daad3ac8c4d62c239d5375da6cdcf6e627903408baea5be718061e77b4"
+  },
+  "checks": [
+    "fresh epoch 1",
+    "old PHI released on native D1",
+    "repeated request advances 3 to 4",
+    "erasure verify/assess/resolve advances to 7",
+    "stale version 409",
+    "next request epoch 8, exact and owner agree"
+  ],
+  "outbound": 0,
+  "scope": "Actual compiled DSR routes/repository, synthetic fixed server identity, full bootstrap local Miniflare D1; not full auth or real R2/provider. Concurrent interleave covered by actualSQLite regression separately."
+}

@@ -120,14 +120,17 @@ export async function getCalendarBookings(
     clauses.push('booking.connection_id = ?');
     values.push(opts.connectionId);
   }
-  const result = await db.prepare(
-    `SELECT booking.*
+  const result = await db
+    .prepare(
+      `SELECT booking.*
        FROM calendar_bookings AS booking
        INNER JOIN google_calendar_connections AS connection
          ON connection.id = booking.connection_id
       WHERE ${clauses.join(' AND ')}
       ORDER BY booking.start_at ASC`,
-  ).bind(...values).all<CalendarBookingRow>();
+    )
+    .bind(...values)
+    .all<CalendarBookingRow>();
   return result.results;
 }
 
@@ -136,13 +139,16 @@ export async function getCalendarBookingById(
   id: string,
   tenantId: string | null = null,
 ): Promise<CalendarBookingRow | null> {
-  return db.prepare(
-    `SELECT booking.*
+  return db
+    .prepare(
+      `SELECT booking.*
        FROM calendar_bookings AS booking
        INNER JOIN google_calendar_connections AS connection
          ON connection.id = booking.connection_id
       WHERE booking.id = ? AND connection.tenant_id IS ?`,
-  ).bind(id, tenantId).first<CalendarBookingRow>();
+    )
+    .bind(id, tenantId)
+    .first<CalendarBookingRow>();
 }
 
 export async function createCalendarBooking(
@@ -192,12 +198,15 @@ export async function updateCalendarBookingStatus(
   status: string,
   tenantId: string | null = null,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `UPDATE calendar_bookings SET status = ?, updated_at = ?
+  const result = await db
+    .prepare(
+      `UPDATE calendar_bookings SET status = ?, updated_at = ?
       WHERE id = ? AND connection_id IN (
         SELECT id FROM google_calendar_connections WHERE tenant_id IS ?
       )`,
-  ).bind(status, jstNow(), id, tenantId).run();
+    )
+    .bind(status, jstNow(), id, tenantId)
+    .run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -207,12 +216,15 @@ export async function updateCalendarBookingEventId(
   eventId: string,
   tenantId: string | null = null,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `UPDATE calendar_bookings SET event_id = ?, updated_at = ?
+  const result = await db
+    .prepare(
+      `UPDATE calendar_bookings SET event_id = ?, updated_at = ?
       WHERE id = ? AND connection_id IN (
         SELECT id FROM google_calendar_connections WHERE tenant_id IS ?
       )`,
-  ).bind(eventId, jstNow(), id, tenantId).run();
+    )
+    .bind(eventId, jstNow(), id, tenantId)
+    .run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -231,11 +243,12 @@ export async function getBookingsInRange(
          INNER JOIN google_calendar_connections AS connection
            ON connection.id = booking.connection_id
         WHERE booking.connection_id = ? AND connection.tenant_id IS ?
-          AND booking.start_at >= ? AND booking.end_at <= ?
+          AND julianday(booking.start_at) < julianday(?)
+          AND julianday(booking.end_at) > julianday(?)
           AND booking.status != 'cancelled'
         ORDER BY booking.start_at ASC`,
     )
-    .bind(connectionId, tenantId, startAt, endAt)
+    .bind(connectionId, tenantId, endAt, startAt)
     .all<CalendarBookingRow>();
   return result.results;
 }

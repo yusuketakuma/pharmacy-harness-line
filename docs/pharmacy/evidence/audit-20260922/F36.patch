@@ -1,0 +1,255 @@
+diff --git a/apps/worker/src/custom/pharmacy/data-subject-requests/repository.ts b/apps/worker/src/custom/pharmacy/data-subject-requests/repository.ts
+index df3e8da..3bc7382 100644
+--- a/apps/worker/src/custom/pharmacy/data-subject-requests/repository.ts
++++ b/apps/worker/src/custom/pharmacy/data-subject-requests/repository.ts
+@@ -141,6 +141,7 @@ function eventStatement(
+ }
+ 
+ type HoldEpochTransitionInput = {
++  transitionEventId?: string;
+   lineAccountId: string;
+   requestId: string;
+   expectedVersion: number;
+@@ -172,11 +173,14 @@ function holdEpochStatements(
+              AND epoch_hold.line_account_id = request.line_account_id
+              AND epoch_hold.owner_friend_id = request.owner_friend_id
+              AND epoch_hold.patient_key IN (request.patient_id, '*')
+-        ), 0) = ?`}`;
++        ), 0) = ?`}${input.transitionEventId === undefined ? '' : `
++        AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events AS event
++                     WHERE event.id = ? AND event.request_id = request.id
++                       AND event.line_account_id = request.line_account_id)`}`;
+   const nextEpoch = (input.expectedHoldEpoch ?? 0) + 1;
+   const binds = (keyValue: string | undefined, guardEpoch: number | undefined) => [
+     ...(keyValue === undefined ? [] : [keyValue]),
+-    nextEpoch,
++    ...(input.expectedHoldEpoch === undefined ? [] : [nextEpoch]),
+     input.status,
+     input.releaseAt,
+     input.reasonCode,
+@@ -186,24 +190,37 @@ function holdEpochStatements(
+     input.fromStatus,
+     input.expectedVersion,
+     ...(guardEpoch === undefined ? [] : [guardEpoch]),
++    ...(input.transitionEventId === undefined ? [] : [input.transitionEventId]),
+   ];
+-  const statement = (keyExpression: string, keyValue: string | undefined, guardEpoch: number | undefined) => db.prepare(
+-    `INSERT INTO pharmacy_retention_hold_epochs
++  const statement = (keyExpression: string, keyValue: string | undefined, guardEpoch: number | undefined) => {
++    // A new request must advance the existing generation inside the same batch.
++    // Its wildcard row reuses the generation just written to the exact row.
++    const epochValue = input.expectedHoldEpoch === undefined ? `(
++      SELECT COALESCE(MAX(epoch), 0)${keyValue === undefined ? ' + 1' : ''}
++        FROM pharmacy_retention_hold_epochs AS existing_hold
++       WHERE existing_hold.tenant_id = request.tenant_id
++         AND existing_hold.line_account_id = request.line_account_id
++         AND existing_hold.owner_friend_id = request.owner_friend_id
++         AND existing_hold.patient_key IN (request.patient_id, '*')
++    )` : '?';
++    return db.prepare(
++      `INSERT INTO pharmacy_retention_hold_epochs
+        (tenant_id, line_account_id, owner_friend_id, patient_key, epoch,
+         status, release_at, reason_code, updated_at)
+      SELECT request.tenant_id, request.line_account_id, request.owner_friend_id,
+-            ${keyExpression}, ?, ?, ?, ?, ?${source(guardEpoch)}
++            ${keyExpression}, ${epochValue}, ?, ?, ?, ?${source(guardEpoch)}
+      ON CONFLICT (tenant_id, line_account_id, owner_friend_id, patient_key)
+      DO UPDATE SET epoch = excluded.epoch,
+                    status = excluded.status,
+                    release_at = excluded.release_at,
+                    reason_code = excluded.reason_code,
+                    updated_at = excluded.updated_at`,
+-  ).bind(...binds(keyValue, guardEpoch));
++    ).bind(...binds(keyValue, guardEpoch));
++  };
+   return [
+     statement('request.patient_id', undefined, input.expectedHoldEpoch),
+-    // The exact row owns the old-epoch CAS. The owner-wide row accepts only the
+-    // resulting epoch, so a stale writer cannot leave a partial wildcard fence.
++    // Both rows require the event inserted by this transition. Checking only
++    // nextEpoch could accept a generation written by a concurrent request.
+     statement('?', '*', input.expectedHoldEpoch === undefined ? undefined : nextEpoch),
+   ];
+ }
+@@ -223,12 +240,12 @@ async function commitTransition(
+     expectedHoldEpoch?: number;
+   },
+   update: (eventId: string) => D1PreparedStatement,
+-  extras: D1PreparedStatement[] = [],
++  extras: (eventId: string) => D1PreparedStatement[] = () => [],
+ ): Promise<DataSubjectRequest> {
+   const eventId = crypto.randomUUID();
+   const results = await db.batch([
+     eventStatement(db, { ...input, eventId }),
+-    ...extras,
++    ...extras(eventId),
+     update(eventId),
+   ]);
+   if (results.some((result) => (result?.meta?.changes ?? 0) !== 1)) {
+@@ -341,7 +358,8 @@ export async function markDataSubjectIdentityVerified(
+     timestamp, timestamp, input.requestId, input.lineAccountId, input.expectedVersion,
+     current.hold_epoch + 1,
+     eventId, input.requestId, input.lineAccountId,
+-  ), holdEpochStatements(db, {
++  ), (eventId) => holdEpochStatements(db, {
++    transitionEventId: eventId,
+     lineAccountId: input.lineAccountId,
+     requestId: input.requestId,
+     expectedVersion: input.expectedVersion,
+@@ -405,7 +423,8 @@ export async function assessDataSubjectLegalHold(
+     input.requestId, input.lineAccountId, input.expectedVersion,
+     current.hold_epoch + 1,
+     eventId, input.requestId, input.lineAccountId,
+-  ), holdEpochStatements(db, {
++  ), (eventId) => holdEpochStatements(db, {
++    transitionEventId: eventId,
+     lineAccountId: input.lineAccountId,
+     requestId: input.requestId,
+     expectedVersion: input.expectedVersion,
+@@ -484,7 +503,8 @@ export async function resolveDataSubjectRequest(
+     // and increments the aggregate once; compare against that post-bump value.
+     input.requestId, input.lineAccountId, input.expectedVersion, current.hold_epoch + 1,
+     eventId, input.requestId, input.lineAccountId,
+-  ), holdEpochStatements(db, {
++  ), (eventId) => holdEpochStatements(db, {
++    transitionEventId: eventId,
+     lineAccountId: input.lineAccountId,
+     requestId: input.requestId,
+     expectedVersion: input.expectedVersion,
+diff --git a/packages/db/test/custom_038_pharmacy_data_subject_requests.test.ts b/packages/db/test/custom_038_pharmacy_data_subject_requests.test.ts
+index da7c6dd..7d6fbec 100644
+--- a/packages/db/test/custom_038_pharmacy_data_subject_requests.test.ts
++++ b/packages/db/test/custom_038_pharmacy_data_subject_requests.test.ts
+@@ -321,6 +321,132 @@ describe('custom_038 pharmacy data subject requests', () => {
+     })).rejects.toThrow(/not found/i);
+   });
+ 
++  it('advances an existing exact and owner fence when another request is received', async () => {
++    const first = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++      requestType: 'erasure', reason: '最初の請求', staffId: 'staff-a', now: NOW,
++    });
++    const verified = await markDataSubjectIdentityVerified(d1, {
++      lineAccountId: 'account-a', requestId: first.id,
++      expectedVersion: first.version, staffId: 'staff-a', now: NOW,
++    });
++    const second = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++      requestType: 'access', reason: '次の請求', staffId: 'staff-a', now: NOW,
++    });
++    expect(second.hold_epoch).toBeGreaterThan(verified.hold_epoch);
++    expect(db.prepare(`SELECT patient_key, epoch, status FROM pharmacy_retention_hold_epochs
++      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
++      { patient_key: '*', epoch: verified.hold_epoch + 1, status: 'unknown' },
++      { patient_key: 'patient-a', epoch: verified.hold_epoch + 1, status: 'unknown' },
++    ]);
++    expect(await listDataSubjectRequests(d1, 'account-b')).toEqual([]);
++  });
++
++  it.each([[4, 9], [9, 4]])('advances the highest exact/owner epoch (%i/%i) without changing another account', async (exact, owner) => {
++    const insert = db.prepare(`INSERT INTO pharmacy_retention_hold_epochs
++      (tenant_id, line_account_id, owner_friend_id, patient_key, epoch, status, updated_at)
++      VALUES (?, ?, ?, ?, ?, 'held', ?)`);
++    insert.run('tenant-a', 'account-a', 'friend-a', 'patient-a', exact, TS);
++    insert.run('tenant-a', 'account-a', 'friend-a', '*', owner, TS);
++    insert.run('tenant-b', 'account-b', 'friend-b', '*', 50, TS);
++    const created = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++      requestType: 'access', reason: '合成の請求', staffId: 'staff-a', now: NOW,
++    });
++    expect(created.hold_epoch).toBe(10);
++    expect(db.prepare(`SELECT line_account_id, patient_key, epoch, status
++      FROM pharmacy_retention_hold_epochs ORDER BY line_account_id, patient_key`).all()).toEqual([
++      { line_account_id: 'account-a', patient_key: '*', epoch: 10, status: 'unknown' },
++      { line_account_id: 'account-a', patient_key: 'patient-a', epoch: 10, status: 'unknown' },
++      { line_account_id: 'account-b', patient_key: '*', epoch: 50, status: 'held' },
++    ]);
++  });
++
++  it('advances the shared owner fence when a request belongs to another family member', async () => {
++    db.prepare(`INSERT INTO pharmacy_patients
++      (id, line_account_id, owner_friend_id, relationship, name, name_kana,
++       birth_date, created_at, updated_at)
++      SELECT 'patient-family', line_account_id, owner_friend_id, 'child',
++             name, name_kana, birth_date, created_at, updated_at
++        FROM pharmacy_patients WHERE id = 'patient-a'`).run();
++    const first = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++      requestType: 'access', reason: '合成の請求', staffId: 'staff-a', now: NOW,
++    });
++    expect(first.hold_epoch).toBe(1);
++    const second = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-family',
++      requestType: 'access', reason: '家族の合成請求', staffId: 'staff-a', now: NOW,
++    });
++    expect(second.hold_epoch).toBe(2);
++    expect(db.prepare(`SELECT patient_key, epoch FROM pharmacy_retention_hold_epochs
++      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
++      { patient_key: '*', epoch: 2 }, { patient_key: 'patient-a', epoch: 1 },
++      { patient_key: 'patient-family', epoch: 2 },
++    ]);
++  });
++
++  it.each(['receipt', 'assessment'] as const)('rejects an old resolution without changing a concurrent %s fence', async (stage) => {
++    const first = await createDataSubjectRequest(d1, {
++      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++      requestType: 'erasure', reason: '最初の請求', staffId: 'staff-a', now: NOW,
++    });
++    const verified = await markDataSubjectIdentityVerified(d1, {
++      lineAccountId: 'account-a', requestId: first.id,
++      expectedVersion: first.version, staffId: 'staff-a', now: NOW,
++    });
++    const assessed = await assessDataSubjectLegalHold(d1, {
++      lineAccountId: 'account-a', requestId: first.id,
++      expectedVersion: verified.version, staffId: 'staff-a', now: NOW,
++    });
++    expect(assessed.legal_hold).toBe(0);
++    let latestEpoch = 0;
++    let latestStatus = 'unknown';
++    const concurrentDb = {
++      prepare: d1.prepare.bind(d1),
++      batch: async <T>(statements: D1PreparedStatement[]) => {
++        // The first resolution already read its released assessment. A second
++        // request and new PHI arrive before its guarded transition commits.
++        seedPhi(db, 'a', NOW.toISOString());
++        const second = await createDataSubjectRequest(d1, {
++          lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
++          requestType: 'erasure', reason: '並行する請求', staffId: 'staff-a', now: NOW,
++        });
++        latestEpoch = second.hold_epoch;
++        latestStatus = 'unknown';
++        if (stage === 'assessment') {
++          const secondVerified = await markDataSubjectIdentityVerified(d1, {
++            lineAccountId: 'account-a', requestId: second.id,
++            expectedVersion: second.version, staffId: 'staff-a', now: NOW,
++          });
++          const secondAssessed = await assessDataSubjectLegalHold(d1, {
++            lineAccountId: 'account-a', requestId: second.id,
++            expectedVersion: secondVerified.version, staffId: 'staff-a', now: NOW,
++          });
++          expect(secondAssessed.legal_hold).toBe(1);
++          latestEpoch = secondAssessed.hold_epoch;
++          latestStatus = 'held';
++        }
++        return d1.batch<T>(statements);
++      },
++    } as D1Database;
++    await expect(resolveDataSubjectRequest(concurrentDb, {
++      lineAccountId: 'account-a', requestId: first.id,
++      expectedVersion: assessed.version, decision: 'resolved', outcomeNote: '対応済み',
++      staffId: 'staff-a', now: NOW,
++    })).rejects.toThrow(/conflict/i);
++    expect(db.prepare(`SELECT status, version FROM pharmacy_data_subject_requests WHERE id = ?`)
++      .get(first.id)).toEqual({ status: 'legal_hold_assessed', version: assessed.version });
++    expect(db.prepare(`SELECT count(*) AS count FROM pharmacy_data_subject_request_events
++      WHERE request_id = ? AND event_type = 'resolved'`).get(first.id)).toEqual({ count: 0 });
++    expect(db.prepare(`SELECT patient_key, epoch, status FROM pharmacy_retention_hold_epochs
++      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
++      { patient_key: '*', epoch: latestEpoch, status: latestStatus },
++      { patient_key: 'patient-a', epoch: latestEpoch, status: latestStatus },
++    ]);
++  });
++
+   /** 消去請求を出して legal hold 判定まで進める。 */
+   async function assessErasure(): Promise<{ legal_hold: number; legal_hold_release_at: string | null }> {
+     const created = await createDataSubjectRequest(d1, {

@@ -1,0 +1,41 @@
+[
+  {
+    "case": "safe",
+    "before": {
+      "exit": 0,
+      "stdout": "OK \u2014 1 migrations pass.\n",
+      "stderr": ""
+    },
+    "after": {
+      "exit": 0,
+      "stdout": "OK \u2014 1 migrations pass.\n",
+      "stderr": ""
+    }
+  },
+  {
+    "case": "unsafe",
+    "before": {
+      "exit": 1,
+      "stdout": "[FAIL] FIXTURE/unsafe.sql: DROP TABLE is forbidden (additive-only migrations) (matched: \"DROP TABLE\")\n\n1 of 1 migrations failed safety check.\n",
+      "stderr": ""
+    },
+    "after": {
+      "exit": 1,
+      "stdout": "[FAIL] FIXTURE/unsafe.sql: DROP TABLE is forbidden (additive-only migrations) (matched: \"DROP TABLE\")\n\n1 of 1 migrations failed safety check.\n",
+      "stderr": ""
+    }
+  },
+  {
+    "case": "hidden",
+    "before": {
+      "exit": 0,
+      "stdout": "OK \u2014 1 migrations pass.\n",
+      "stderr": ""
+    },
+    "after": {
+      "exit": 1,
+      "stdout": "[FAIL] FIXTURE/hidden.sql: DROP TABLE is forbidden (additive-only migrations) (matched: \"DROP TABLE\")\n\n1 of 1 migrations failed safety check.\n",
+      "stderr": ""
+    }
+  }
+]

@@ -1,12 +1,6 @@
 import type { EventBookingStatus } from './event-booking-types.js';
 
-export type EventBookingAction =
-  | 'confirm'
-  | 'reject'
-  | 'expire'
-  | 'cancel'
-  | 'mark_attended'
-  | 'mark_no_show';
+export type EventBookingAction = 'confirm' | 'reject' | 'expire' | 'cancel' | 'mark_attended' | 'mark_no_show';
 
 const TRANSITIONS: Record<EventBookingStatus, Partial<Record<EventBookingAction, EventBookingStatus>>> = {
   requested: { confirm: 'confirmed', reject: 'rejected', expire: 'expired', cancel: 'cancelled' },

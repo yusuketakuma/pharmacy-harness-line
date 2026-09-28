@@ -1,0 +1,7 @@
+{
+  "exit": 0,
+  "paths": 2,
+  "P_plus_patch_matches_W": true,
+  "isolated": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F35-apply-final-3gwwozk2",
+  "initial_failure": "Nested directory without own git root caused git apply to skip paths; final dedicated git root applies exact patch."
+}

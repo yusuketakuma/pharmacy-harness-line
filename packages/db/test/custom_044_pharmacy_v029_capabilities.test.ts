@@ -35,14 +35,14 @@ function seedAccount(db: Database.Database, id: string, enabled: boolean): void 
     VALUES (?, ?, 'REG', 'product', 'https://manufacturer.example/check',
             'https://pharmacy.example/privacy', 'privacy@example.test', 'purpose',
             'v1', 30, 30, 30, 1, 1, 'https://clinic.example',
-            'https://support.example', ?, ?, ?)`).run(
-    id, enabled ? 1 : 0, `staff-${id}`, NOW, NOW,
-  );
+            'https://support.example', ?, ?, ?)`).run(id, enabled ? 1 : 0, `staff-${id}`, NOW, NOW);
 }
 
 function capabilities(db: Database.Database, accountId: string): string[] {
-  const row = db.prepare(`SELECT capabilities_json FROM pharmacy_account_capabilities
-    WHERE line_account_id = ?`).get(accountId) as { capabilities_json: string };
+  const row = db
+    .prepare(`SELECT capabilities_json FROM pharmacy_account_capabilities
+    WHERE line_account_id = ?`)
+    .get(accountId) as { capabilities_json: string };
   return JSON.parse(row.capabilities_json) as string[];
 }
 
@@ -55,9 +55,9 @@ describe('custom_044 pharmacy v0.29 capabilities', () => {
       VALUES ('new-account', 'new-channel', 'New', 'token', 'secret')`).run();
 
     expect(capabilities(db, 'new-account')).toContain('pharmacy_info');
-    expect(capabilities(db, 'new-account')).not.toEqual(expect.arrayContaining([
-      'electronic_prescription', 'emergency_contraception',
-    ]));
+    expect(capabilities(db, 'new-account')).not.toEqual(
+      expect.arrayContaining(['electronic_prescription', 'emergency_contraception']),
+    );
   });
 
   it('does not let a newly inserted legacy setting override the capability', () => {

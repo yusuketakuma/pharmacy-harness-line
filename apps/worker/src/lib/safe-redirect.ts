@@ -41,12 +41,22 @@ export function safeRedirectTarget(
 /** Origins of the configured worker / LIFF / admin URLs (comma-separated values allowed). */
 export function redirectOriginAllowlist(env: Record<string, string | undefined>): Set<string> {
   const origins = new Set<string>();
-  for (const key of ['WORKER_URL', 'WORKER_PUBLIC_URL', 'LIFF_URL', 'LIFF_PUBLIC_URL', 'LIFF_ORIGIN', 'ADMIN_PUBLIC_URL', 'ADMIN_ORIGIN']) {
+  for (const key of [
+    'WORKER_URL',
+    'WORKER_PUBLIC_URL',
+    'LIFF_URL',
+    'LIFF_PUBLIC_URL',
+    'LIFF_ORIGIN',
+    'ADMIN_PUBLIC_URL',
+    'ADMIN_ORIGIN',
+  ]) {
     for (const part of (env[key] ?? '').split(',')) {
       try {
         const origin = new URL(part.trim()).origin;
         if (origin !== 'null') origins.add(origin);
-      } catch { /* unset / malformed: skip */ }
+      } catch {
+        /* unset / malformed: skip */
+      }
     }
   }
   return origins;

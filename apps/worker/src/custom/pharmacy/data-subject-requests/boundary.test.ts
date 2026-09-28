@@ -3,10 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const workerSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../../../index.ts'),
-  'utf8',
-);
+const workerSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../index.ts'), 'utf8');
 
 describe('data subject request router wiring', () => {
   it('is mounted behind the pharmacy tenant boundary guard', () => {

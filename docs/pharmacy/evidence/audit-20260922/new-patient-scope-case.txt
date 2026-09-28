@@ -1,0 +1,21 @@
+import { expect, test } from '@playwright/test';
+
+test('does not restore a different LINE subject new-patient draft', async ({ page }) => {
+  page.on('dialog', dialog => dialog.accept());
+  await page.route('**/api/liff/config?**', route => route.fulfill({ json: { success: true, data: { accountName: '合成薬局', enabledFeatures: ['patient_intake'] } } }));
+  await page.route('**/api/liff/pharmacy/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/feature-access')) return route.fulfill({ json: { data: { existingFeatures: [] } } });
+    if (path.endsWith('/patients')) return route.fulfill({ json: { patients: [] } });
+    if (path.endsWith('/privacy-policy')) return route.fulfill({ json: { policy: { purpose_text: '合成目的', purpose_url: '', contact_point: '合成薬局', entrustment_text: '', policy_version: 1, content_hash: 'a'.repeat(64) } } });
+    return route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto('http://127.0.0.1:4303/pharmacy/patient-intake?liffId=e2e-liff&syntheticSubject=A');
+  const name = page.locator('input[autocomplete="name"]');
+  await name.fill('合成利用者Aの未送信入力');
+  await expect.poll(() => page.evaluate(() => Object.values(localStorage).some(value => value.includes('合成利用者Aの未送信入力')))).toBe(true);
+  await page.goto('http://127.0.0.1:4303/pharmacy/patient-intake?liffId=e2e-liff&syntheticSubject=B');
+  await expect(name).toBeVisible();
+  await page.screenshot({ path: '/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/new-patient-scope-browser.png' });
+  await expect(name).toHaveValue('');
+});

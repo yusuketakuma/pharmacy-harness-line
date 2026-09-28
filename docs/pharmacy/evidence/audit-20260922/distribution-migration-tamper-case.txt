@@ -1,0 +1,28 @@
+import { expect, it } from 'vitest';
+import { pack } from 'tar-stream';
+import { createGzip } from 'node:zlib';
+import { parseBundleStream, verifyBundleHashes, verifyBundleIntegrity } from '../src/bundle.js';
+
+async function bundle(sql: string) {
+  const tar = pack();
+  const stream = tar.pipe(createGzip());
+  for (const [name, body] of Object.entries({
+    'worker/index.js': 'export default {};',
+    'worker-assets/index.html': 'synthetic worker asset',
+    'admin/index.html': 'synthetic admin',
+    'liff/index.html': 'synthetic liff',
+    'migrations/999_synthetic.sql': sql,
+  })) tar.entry({ name }, body);
+  tar.finalize();
+  return parseBundleStream(stream);
+}
+
+it('rejects migration-only tampering against an unchanged manifest', async () => {
+  const original = await bundle('CREATE TABLE synthetic_expected(id TEXT);');
+  const expected = verifyBundleHashes(original);
+  const entry = { version: '0.99.0', worker_bundle_hash: expected.worker,
+    worker_assets_hash: expected.workerAssets, admin_hash: expected.admin, liff_hash: expected.liff };
+  const changed = await bundle('CREATE TABLE synthetic_unexpected(id TEXT);');
+  expect(changed.migrations.get('999_synthetic.sql')).not.toEqual(original.migrations.get('999_synthetic.sql'));
+  expect(() => verifyBundleIntegrity(verifyBundleHashes(changed), entry)).toThrow();
+});

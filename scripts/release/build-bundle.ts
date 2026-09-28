@@ -69,10 +69,9 @@ export function buildBundle(args: BuildBundleArgs): void {
     mkdirSync(dirname(absOut), { recursive: true });
 
     // Build the tarball. -C makes paths inside the tar relative to staging.
-    execSync(
-      `tar czf ${shellQuote(absOut)} -C ${shellQuote(staging)} worker worker-assets admin liff migrations`,
-      { stdio: 'inherit' },
-    );
+    execSync(`tar czf ${shellQuote(absOut)} -C ${shellQuote(staging)} worker worker-assets admin liff migrations`, {
+      stdio: 'inherit',
+    });
 
     // Log final size (stat -> MB, two decimal places).
     const size = statSync(absOut).size;

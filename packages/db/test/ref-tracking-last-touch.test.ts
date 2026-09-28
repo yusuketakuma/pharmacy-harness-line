@@ -130,9 +130,10 @@ describe('recordRefTracking: last-touch update', () => {
       refCode: 'ccc333',
     });
 
-    const after = sqlite
-      .prepare(`SELECT last_ref_code, last_ref_at FROM friends WHERE id = 'friend-lt-002'`)
-      .get() as { last_ref_code: string | null; last_ref_at: string | null };
+    const after = sqlite.prepare(`SELECT last_ref_code, last_ref_at FROM friends WHERE id = 'friend-lt-002'`).get() as {
+      last_ref_code: string | null;
+      last_ref_at: string | null;
+    };
 
     expect(after.last_ref_code).toBe(before.last_ref_code);
     expect(after.last_ref_at).toBe(before.last_ref_at);

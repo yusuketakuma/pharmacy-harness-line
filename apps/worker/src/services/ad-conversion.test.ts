@@ -30,19 +30,26 @@ describe('sendAdConversions error privacy', () => {
   it.each([
     ['meta', { pixel_id: 'pixel', access_token: 'token' }, 'Meta CAPI error: 503', 'fb-click'],
     ['x', { pixel_id: 'pixel' }, 'X Conversion API error: 503', 'x-click'],
-    ['google', {
-      customer_id: 'customer', conversion_action_id: 'action', oauth_token: 'token',
-    }, 'Google Ads API error: 503', 'google-click'],
+    [
+      'google',
+      {
+        customer_id: 'customer',
+        conversion_action_id: 'action',
+        oauth_token: 'token',
+      },
+      'Google Ads API error: 503',
+      'google-click',
+    ],
     ['tiktok', { pixel_code: 'pixel', access_token: 'token' }, 'TikTok Events API error: 503', 'tiktok-click'],
   ])('%s failure does not persist the upstream response body', async (name, config, message, clickId) => {
-    db.getActiveAdPlatforms.mockResolvedValue([{
-      id: `platform-${name}`,
-      name,
-      config: JSON.stringify(config),
-    }]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response('sensitive-upstream-detail', { status: 503 }),
-    ));
+    db.getActiveAdPlatforms.mockResolvedValue([
+      {
+        id: `platform-${name}`,
+        name,
+        config: JSON.stringify(config),
+      },
+    ]);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('sensitive-upstream-detail', { status: 503 })));
 
     await sendAdConversions({} as D1Database, 'friend-a', 'conversion');
 
@@ -53,14 +60,14 @@ describe('sendAdConversions error privacy', () => {
   });
 
   it('does not persist arbitrary transport error details', async () => {
-    db.getActiveAdPlatforms.mockResolvedValue([{
-      id: 'platform-meta',
-      name: 'meta',
-      config: JSON.stringify({ pixel_id: 'pixel', access_token: 'token' }),
-    }]);
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(
-      new Error('sensitive-transport-detail'),
-    ));
+    db.getActiveAdPlatforms.mockResolvedValue([
+      {
+        id: 'platform-meta',
+        name: 'meta',
+        config: JSON.stringify({ pixel_id: 'pixel', access_token: 'token' }),
+      },
+    ]);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('sensitive-transport-detail')));
 
     await sendAdConversions({} as D1Database, 'friend-a', 'conversion');
 
@@ -76,21 +83,23 @@ describe('sendAdConversions error privacy', () => {
         id: 'platform-google',
         name: 'google',
         config: JSON.stringify({
-          customer_id: 'customer', conversion_action_id: 'action', oauth_token: 'token',
+          customer_id: 'customer',
+          conversion_action_id: 'action',
+          oauth_token: 'token',
         }),
       },
     ]);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
 
-    await expect(sendAdConversions(
-      {} as D1Database, 'friend-a', 'conversion',
-    )).resolves.toBeUndefined();
+    await expect(sendAdConversions({} as D1Database, 'friend-a', 'conversion')).resolves.toBeUndefined();
 
     expect(db.logAdConversion).toHaveBeenNthCalledWith(
       1,
       expect.anything(),
       expect.objectContaining({
-        platformId: 'platform-meta', status: 'failed', errorMessage: 'Ad conversion failed',
+        platformId: 'platform-meta',
+        status: 'failed',
+        errorMessage: 'Ad conversion failed',
       }),
     );
     expect(db.logAdConversion).toHaveBeenNthCalledWith(

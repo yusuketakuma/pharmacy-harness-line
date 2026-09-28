@@ -3,7 +3,12 @@ import { computeDedupBroadcastPreview } from './dedup-broadcast.js';
 
 interface CannedData {
   selectedCounts: Array<{ line_account_id: string; cnt: number }>;
-  rankedRows: Array<{ friend_id: string; line_user_id: string; line_account_id: string; ident_key?: string }>;
+  rankedRows: Array<{
+    friend_id: string;
+    line_user_id: string;
+    line_account_id: string;
+    ident_key?: string;
+  }>;
   accountMeta: Array<{ id: string; name: string; country: string | null }>;
 }
 
@@ -35,7 +40,9 @@ function fakeDb(canned: CannedData): D1Database {
           if (isAccountMeta) return { results: canned.accountMeta as unknown as T[] };
           return { results: [] };
         },
-        async first<T>(): Promise<T | null> { return null; },
+        async first<T>(): Promise<T | null> {
+          return null;
+        },
       };
     },
   } as unknown as D1Database;
@@ -51,13 +58,20 @@ describe('computeDedupBroadcastPreview', () => {
         const isSelectedCount = sql.includes('SELECT line_account_id, COUNT(*) AS cnt');
         const isRanked = sql.includes('ROW_NUMBER() OVER');
         return {
-          bind(..._args: unknown[]) { return this; },
+          bind(..._args: unknown[]) {
+            return this;
+          },
           async all<T>(): Promise<{ results: T[] }> {
             if (isSelectedCount) return { results: [{ line_account_id: 'acc1', cnt: 1 }] as unknown as T[] };
-            if (isRanked) return { results: [{ friend_id: 'f1', line_user_id: 'u1', line_account_id: 'acc1' }] as unknown as T[] };
+            if (isRanked)
+              return {
+                results: [{ friend_id: 'f1', line_user_id: 'u1', line_account_id: 'acc1' }] as unknown as T[],
+              };
             return { results: [{ id: 'acc1', name: 'A', country: null }] as unknown as T[] };
           },
-          async first<T>(): Promise<T | null> { return null; },
+          async first<T>(): Promise<T | null> {
+            return null;
+          },
         };
       },
     } as unknown as D1Database;
@@ -91,7 +105,8 @@ describe('computeDedupBroadcastPreview', () => {
         ],
         accountMeta: [{ id: 'acc1', name: 'Account 1', country: '日本' }],
       }),
-      ['acc1'], ['acc1'],
+      ['acc1'],
+      ['acc1'],
     );
     expect(result.totalSelected).toBe(2);
     expect(result.uniqueRecipients).toBe(2);
@@ -117,7 +132,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
     );
     expect(result.totalSelected).toBe(3);
     expect(result.uniqueRecipients).toBe(2);
@@ -145,7 +161,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc3', name: 'Account 3', country: '台湾' },
         ],
       }),
-      ['acc1', 'acc2', 'acc3'], ['acc1', 'acc2', 'acc3'],
+      ['acc1', 'acc2', 'acc3'],
+      ['acc1', 'acc2', 'acc3'],
     );
     expect(result.uniqueRecipients).toBe(1);
     expect(result.reduction).toBe(2);
@@ -171,7 +188,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
     );
     expect(result.reduction).toBe(0);
   });
@@ -191,7 +209,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc3', 'acc1', 'acc2'],
+      ['acc1', 'acc2'],
+      ['acc3', 'acc1', 'acc2'],
     );
     expect(result.uniqueRecipients).toBe(1);
     expect(result.perAccount.find((p) => p.accountId === 'acc1')!.sendCount).toBe(1);
@@ -211,7 +230,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc1'],
+      ['acc1', 'acc2'],
+      ['acc1'],
     );
     expect(result.uniqueRecipients).toBe(1);
     expect(result.perAccount.find((p) => p.accountId === 'acc1')!.sendCount).toBe(1);
@@ -232,7 +252,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], [],
+      ['acc1', 'acc2'],
+      [],
     );
     expect(result.uniqueRecipients).toBe(1);
     expect(result.perAccount.find((p) => p.accountId === 'acc2')!.sendCount).toBe(1);
@@ -252,7 +273,8 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
     );
     expect(result.uniqueRecipients).toBe(1);
     expect(result.reduction).toBe(4);
@@ -261,7 +283,8 @@ describe('computeDedupBroadcastPreview', () => {
   it('accountIds length 0 returns empty preview without DB calls', async () => {
     const result = await computeDedupBroadcastPreview(
       fakeDb({ selectedCounts: [], rankedRows: [], accountMeta: [] }),
-      [], [],
+      [],
+      [],
     );
     expect(result.totalSelected).toBe(0);
     expect(result.uniqueRecipients).toBe(0);
@@ -284,15 +307,18 @@ describe('computeDedupBroadcastPreview', () => {
           { id: 'acc2', name: 'Account 2', country: 'タイ' },
         ],
       }),
-      ['acc1', 'acc2'], ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
+      ['acc1', 'acc2'],
     );
     const acc1 = result.perAccount.find((p) => p.accountId === 'acc1')!;
-    expect(acc1.recipients).toEqual([{
-      friendId: 'f1',
-      lineUserId: 'u1',
-      identKey: 'f1',
-      displayName: null,
-    }]);
+    expect(acc1.recipients).toEqual([
+      {
+        friendId: 'f1',
+        lineUserId: 'u1',
+        identKey: 'f1',
+        displayName: null,
+      },
+    ]);
   });
 });
 
@@ -318,15 +344,10 @@ vi.mock('./stealth.js', () => ({
 vi.mock('./step-delivery.js', () => ({
   getActiveMappedAccountTenantId: vi.fn(),
   isPermanentLineDeliveryError: (error: unknown) => {
-    const status = error && typeof error === 'object'
-      ? (error as { status?: unknown }).status
-      : null;
-    return typeof status === 'number'
-      && status >= 400
-      && status < 500
-      && status !== 408
-      && status !== 409
-      && status !== 429;
+    const status = error && typeof error === 'object' ? (error as { status?: unknown }).status : null;
+    return (
+      typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429
+    );
   },
 }));
 
@@ -386,8 +407,7 @@ function makeSendDb(opts: {
   const progressUpdates: Array<{ progress: unknown; successCount: unknown }> = [];
   const planUpdates: string[] = [];
   const batches: unknown[][] = [];
-  const failProgressBatchAt = opts.failProgressBatchAt
-    ?? (opts.failProgressBatchOnce === true ? 1 : null);
+  const failProgressBatchAt = opts.failProgressBatchAt ?? (opts.failProgressBatchOnce === true ? 1 : null);
   let batchCallCount = 0;
   const db = {
     prepare(sql: string) {
@@ -395,12 +415,9 @@ function makeSendDb(opts: {
       const isRanked = sql.includes('ROW_NUMBER() OVER');
       const isAccountMetaList = sql.includes('FROM line_accounts WHERE id IN');
       const isFailedUpdate = sql.includes('UPDATE broadcasts SET failed_account_ids');
-      const isProgressUpdate =
-        sql.includes('UPDATE broadcasts SET dedup_progress') &&
-        sql.includes('success_count');
+      const isProgressUpdate = sql.includes('UPDATE broadcasts SET dedup_progress') && sql.includes('success_count');
       const isPlanUpdate =
-        sql.includes('UPDATE broadcasts SET dedup_progress = ? WHERE id = ?') &&
-        !sql.includes('success_count');
+        sql.includes('UPDATE broadcasts SET dedup_progress = ? WHERE id = ?') && !sql.includes('success_count');
       return {
         bind(...params: unknown[]) {
           if (isProgressUpdate) {
@@ -408,7 +425,9 @@ function makeSendDb(opts: {
           }
           if (isPlanUpdate && typeof params[0] === 'string') planUpdates.push(params[0]);
           return {
-            async first<T>(): Promise<T | null> { return null; },
+            async first<T>(): Promise<T | null> {
+              return null;
+            },
             async all<T>(): Promise<{ results: T[] }> {
               if (isSelectedCount) return { results: (opts.selectedCounts ?? []) as unknown as T[] };
               if (isRanked) return { results: withIdentKey(opts.rankedRows ?? []) as unknown as T[] };
@@ -440,8 +459,9 @@ const sampleMessage: Message = { type: 'text', text: 'hello' } as Message;
 describe('processMultiAccountDedupBroadcast', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getActiveMappedAccountTenantId)
-      .mockImplementation(async (_db, accountId) => accountId ? `tenant-${accountId}` : null);
+    vi.mocked(getActiveMappedAccountTenantId).mockImplementation(async (_db, accountId) =>
+      accountId ? `tenant-${accountId}` : null,
+    );
     vi.mocked(deliverTrackedLinePush).mockImplementation(async (params) => {
       await params.send(params.request, params.operationId);
       return 'sent';
@@ -552,18 +572,24 @@ describe('processMultiAccountDedupBroadcast', () => {
       accountMeta: [{ id: 'acc1', name: 'A1', country: null }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const client = new MockLineClient('tok1');
     client.throwOn = { method: 'multicast', status: 400 };
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-permanent-failure',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-permanent-failure',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result).toEqual({
       totalCount: 1,
@@ -721,18 +747,24 @@ describe('processMultiAccountDedupBroadcast', () => {
       accountMeta: [{ id: 'acc1', name: 'A1', country: null }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const client = new MockLineClient('tok1');
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-corrupt-empty-progress',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-      dedup_progress: '',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-corrupt-empty-progress',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+        dedup_progress: '',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result).toEqual({
       totalCount: 0,
@@ -806,7 +838,10 @@ describe('processMultiAccountDedupBroadcast', () => {
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1, liff_id: 'LIFF-1',
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
+      liff_id: 'LIFF-1',
     } as never);
     const client = new MockLineClient('tok1');
 
@@ -824,27 +859,38 @@ describe('processMultiAccountDedupBroadcast', () => {
 
     expect(result.successCount).toBe(2);
     expect(client.calls.map((call) => call.method)).toEqual(['push', 'push']);
-    expect(client.calls[0].args[1]).toEqual([{
-      type: 'text', text: 'Aliceさん https://liff.line.me/LIFF-1',
-    }]);
-    expect(client.calls[1].args[1]).toEqual([{
-      type: 'text', text: 'Bobさん https://liff.line.me/LIFF-1',
-    }]);
+    expect(client.calls[0].args[1]).toEqual([
+      {
+        type: 'text',
+        text: 'Aliceさん https://liff.line.me/LIFF-1',
+      },
+    ]);
+    expect(client.calls[1].args[1]).toEqual([
+      {
+        type: 'text',
+        text: 'Bobさん https://liff.line.me/LIFF-1',
+      },
+    ]);
     expect(client.calls[0].args[2]).toMatch(/^[0-9a-f-]{36}$/);
     expect(deliverTrackedLinePush).toHaveBeenCalledTimes(2);
-    expect(deliverTrackedLinePush).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      tenantId: 'tenant-acc1',
-      lineAccountId: 'acc1',
-      friendId: 'f1',
-      broadcastId: 'b-personalized',
-      source: 'broadcast',
-    }));
+    expect(deliverTrackedLinePush).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        tenantId: 'tenant-acc1',
+        lineAccountId: 'acc1',
+        friendId: 'f1',
+        broadcastId: 'b-personalized',
+        source: 'broadcast',
+      }),
+    );
     expect(batches.at(-1)).toHaveLength(1);
   });
 
   it('keeps the personalized operation identity stable when display name changes', async () => {
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const operationIds: string[] = [];
     vi.mocked(deliverTrackedLinePush).mockImplementation(async (params) => {
@@ -855,13 +901,15 @@ describe('processMultiAccountDedupBroadcast', () => {
     for (const displayName of ['Alice', 'Bob']) {
       const { db } = makeSendDb({
         selectedCounts: [{ line_account_id: 'acc1', cnt: 1 }],
-        rankedRows: [{
-          friend_id: 'f1',
-          line_user_id: 'u1',
-          line_account_id: 'acc1',
-          ident_key: 'uid:person-1',
-          display_name: displayName,
-        }],
+        rankedRows: [
+          {
+            friend_id: 'f1',
+            line_user_id: 'u1',
+            line_account_id: 'acc1',
+            ident_key: 'uid:person-1',
+            display_name: displayName,
+          },
+        ],
         accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
       });
       await processMultiAccountDedupBroadcast(db, {
@@ -878,12 +926,15 @@ describe('processMultiAccountDedupBroadcast', () => {
   });
 
   it('freezes the personalized winner and identity before provider I/O', async () => {
-    vi.mocked(getLineAccountById).mockImplementation(async (_db, id) => ({
-      id,
-      channel_access_token: `token-${id}`,
-      is_active: 1,
-      liff_id: null,
-    } as never));
+    vi.mocked(getLineAccountById).mockImplementation(
+      async (_db, id) =>
+        ({
+          id,
+          channel_access_token: `token-${id}`,
+          is_active: 1,
+          liff_id: null,
+        }) as never,
+    );
     const operationScopes: Array<{ id: string; accountId: string; friendId: string }> = [];
     vi.mocked(deliverTrackedLinePush)
       .mockImplementationOnce(async (params) => {
@@ -906,47 +957,59 @@ describe('processMultiAccountDedupBroadcast', () => {
 
     const first = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc-a', cnt: 1 }],
-      rankedRows: [{
-        friend_id: 'friend-a',
-        line_user_id: 'user-a',
-        line_account_id: 'acc-a',
-        ident_key: 'picture-token-a',
-        display_name: 'Alice',
-      }],
+      rankedRows: [
+        {
+          friend_id: 'friend-a',
+          line_user_id: 'user-a',
+          line_account_id: 'acc-a',
+          ident_key: 'picture-token-a',
+          display_name: 'Alice',
+        },
+      ],
       accountMeta: [{ id: 'acc-a', name: 'A', country: 'JP' }],
     });
     const firstClient = new MockLineClient('token-acc-a');
-    const failed = await processMultiAccountDedupBroadcast(first.db, {
-      id: 'b-frozen-personalized',
-      account_ids: '["acc-a","acc-b"]',
-      dedup_priority: '["acc-a","acc-b"]',
-      message_type: 'text',
-      message_content: '{{name}}さん',
-    }, () => firstClient as unknown as LineClient);
+    const failed = await processMultiAccountDedupBroadcast(
+      first.db,
+      {
+        id: 'b-frozen-personalized',
+        account_ids: '["acc-a","acc-b"]',
+        dedup_priority: '["acc-a","acc-b"]',
+        message_type: 'text',
+        message_content: '{{name}}さん',
+      },
+      () => firstClient as unknown as LineClient,
+    );
 
     expect(failed.complete).toBe(false);
     expect(first.planUpdates).toHaveLength(1);
 
     const replay = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc-b', cnt: 1 }],
-      rankedRows: [{
-        friend_id: 'friend-b',
-        line_user_id: 'user-b',
-        line_account_id: 'acc-b',
-        ident_key: 'picture-token-b',
-        display_name: 'Bob',
-      }],
+      rankedRows: [
+        {
+          friend_id: 'friend-b',
+          line_user_id: 'user-b',
+          line_account_id: 'acc-b',
+          ident_key: 'picture-token-b',
+          display_name: 'Bob',
+        },
+      ],
       accountMeta: [{ id: 'acc-b', name: 'B', country: 'JP' }],
     });
     const replayClient = new MockLineClient('token-acc-b');
-    const repaired = await processMultiAccountDedupBroadcast(replay.db, {
-      id: 'b-frozen-personalized',
-      account_ids: '["acc-a","acc-b"]',
-      dedup_priority: '["acc-a","acc-b"]',
-      message_type: 'text',
-      message_content: '{{name}}さん',
-      dedup_progress: first.planUpdates[0],
-    }, () => replayClient as unknown as LineClient);
+    const repaired = await processMultiAccountDedupBroadcast(
+      replay.db,
+      {
+        id: 'b-frozen-personalized',
+        account_ids: '["acc-a","acc-b"]',
+        dedup_priority: '["acc-a","acc-b"]',
+        message_type: 'text',
+        message_content: '{{name}}さん',
+        dedup_progress: first.planUpdates[0],
+      },
+      () => replayClient as unknown as LineClient,
+    );
 
     expect(repaired.complete).toBe(true);
     expect(operationScopes).toEqual([
@@ -960,7 +1023,9 @@ describe('processMultiAccountDedupBroadcast', () => {
 
   it('replays the frozen multicast batch after provider success and progress failure', async () => {
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const first = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: 2 }],
@@ -972,33 +1037,39 @@ describe('processMultiAccountDedupBroadcast', () => {
       failProgressBatchOnce: true,
     });
     const firstClient = new MockLineClient('tok1');
-    const failed = await processMultiAccountDedupBroadcast(first.db, {
-      id: 'b-frozen-multicast',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-    }, () => firstClient as unknown as LineClient);
+    const failed = await processMultiAccountDedupBroadcast(
+      first.db,
+      {
+        id: 'b-frozen-multicast',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
+      () => firstClient as unknown as LineClient,
+    );
 
     expect(failed.complete).toBe(false);
     expect(first.planUpdates).toHaveLength(1);
 
     const replay = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: 1 }],
-      rankedRows: [
-        { friend_id: 'f1', line_user_id: 'u1', line_account_id: 'acc1', ident_key: 'p1' },
-      ],
+      rankedRows: [{ friend_id: 'f1', line_user_id: 'u1', line_account_id: 'acc1', ident_key: 'p1' }],
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     const replayClient = new MockLineClient('tok1');
-    const repaired = await processMultiAccountDedupBroadcast(replay.db, {
-      id: 'b-frozen-multicast',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-      dedup_progress: first.planUpdates[0],
-    }, () => replayClient as unknown as LineClient);
+    const repaired = await processMultiAccountDedupBroadcast(
+      replay.db,
+      {
+        id: 'b-frozen-multicast',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+        dedup_progress: first.planUpdates[0],
+      },
+      () => replayClient as unknown as LineClient,
+    );
 
     expect(repaired.complete).toBe(true);
     expect(firstClient.calls[0].args[0]).toEqual(['u1', 'u2']);
@@ -1014,7 +1085,9 @@ describe('processMultiAccountDedupBroadcast', () => {
       ident_key: `p${index}`,
     }));
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const first = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: recipients.length }],
@@ -1023,13 +1096,17 @@ describe('processMultiAccountDedupBroadcast', () => {
       failProgressBatchAt: 2,
     });
     const firstClient = new MockLineClient('tok1');
-    const failed = await processMultiAccountDedupBroadcast(first.db, {
-      id: 'b-frozen-later-batch',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-    }, () => firstClient as unknown as LineClient);
+    const failed = await processMultiAccountDedupBroadcast(
+      first.db,
+      {
+        id: 'b-frozen-later-batch',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
+      () => firstClient as unknown as LineClient,
+    );
 
     expect(failed.complete).toBe(false);
     expect(first.progressUpdates).toHaveLength(2);
@@ -1041,14 +1118,18 @@ describe('processMultiAccountDedupBroadcast', () => {
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     const replayClient = new MockLineClient('tok1');
-    const repaired = await processMultiAccountDedupBroadcast(replay.db, {
-      id: 'b-frozen-later-batch',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-      dedup_progress: persistedAfterFirstBatch,
-    }, () => replayClient as unknown as LineClient);
+    const repaired = await processMultiAccountDedupBroadcast(
+      replay.db,
+      {
+        id: 'b-frozen-later-batch',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+        dedup_progress: persistedAfterFirstBatch,
+      },
+      () => replayClient as unknown as LineClient,
+    );
 
     expect(repaired.complete).toBe(true);
     expect(firstClient.calls[1].args[0]).toEqual(['u500']);
@@ -1061,26 +1142,34 @@ describe('processMultiAccountDedupBroadcast', () => {
     const oversizedIdentKey = 'x'.repeat(450_000);
     const { db, updates, planUpdates } = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: 1 }],
-      rankedRows: [{
-        friend_id: 'f1',
-        line_user_id: 'u1',
-        line_account_id: 'acc1',
-        ident_key: oversizedIdentKey,
-      }],
+      rankedRows: [
+        {
+          friend_id: 'f1',
+          line_user_id: 'u1',
+          line_account_id: 'acc1',
+          ident_key: oversizedIdentKey,
+        },
+      ],
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     const client = new MockLineClient('tok1');
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-plan-too-large-after-progress',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-plan-too-large-after-progress',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result).toEqual({
       totalCount: 1,
@@ -1096,27 +1185,35 @@ describe('processMultiAccountDedupBroadcast', () => {
   it('repairs personalized progress from an accepted ledger without sending again', async () => {
     const { db, progressUpdates } = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: 1 }],
-      rankedRows: [{
-        friend_id: 'f1',
-        line_user_id: 'u1',
-        line_account_id: 'acc1',
-        display_name: 'Alice',
-      }],
+      rankedRows: [
+        {
+          friend_id: 'f1',
+          line_user_id: 'u1',
+          line_account_id: 'acc1',
+          display_name: 'Alice',
+        },
+      ],
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     vi.mocked(deliverTrackedLinePush).mockResolvedValue('already_sent');
     const client = new MockLineClient('tok1');
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-replay',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: '{{name}}さん',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-replay',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: '{{name}}さん',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result.successCount).toBe(1);
     expect(client.calls).toHaveLength(0);
@@ -1126,24 +1223,35 @@ describe('processMultiAccountDedupBroadcast', () => {
   it('fails a personalized account before LINE when no active tenant mapping exists', async () => {
     const { db } = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: 1 }],
-      rankedRows: [{
-        friend_id: 'f1', line_user_id: 'u1', line_account_id: 'acc1', display_name: 'Alice',
-      }],
+      rankedRows: [
+        {
+          friend_id: 'f1',
+          line_user_id: 'u1',
+          line_account_id: 'acc1',
+          display_name: 'Alice',
+        },
+      ],
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     vi.mocked(getActiveMappedAccountTenantId).mockResolvedValue(null);
     const client = new MockLineClient('tok1');
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-unmapped',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: '{{name}}さん',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-unmapped',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: '{{name}}さん',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result.failedAccountIds).toEqual(['acc1']);
     expect(result.complete).toBe(true);
@@ -1158,18 +1266,24 @@ describe('processMultiAccountDedupBroadcast', () => {
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
     vi.mocked(getLineAccountById).mockResolvedValue({
-      id: 'acc1', channel_access_token: 'tok1', is_active: 1,
+      id: 'acc1',
+      channel_access_token: 'tok1',
+      is_active: 1,
     } as never);
     vi.mocked(getActiveMappedAccountTenantId).mockResolvedValue(null);
     const client = new MockLineClient('tok1');
 
-    const result = await processMultiAccountDedupBroadcast(db, {
-      id: 'b-unmapped-multicast',
-      account_ids: '["acc1"]',
-      dedup_priority: '["acc1"]',
-      message_type: 'text',
-      message_content: 'hello',
-    }, () => client as unknown as LineClient);
+    const result = await processMultiAccountDedupBroadcast(
+      db,
+      {
+        id: 'b-unmapped-multicast',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
+      () => client as unknown as LineClient,
+    );
 
     expect(result.failedAccountIds).toEqual(['acc1']);
     expect(result.complete).toBe(true);
@@ -1185,7 +1299,9 @@ describe('processMultiAccountDedupBroadcast', () => {
     const { db, progressUpdates } = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: N }],
       rankedRows: Array.from({ length: N }, (_, i) => ({
-        friend_id: `f${i}`, line_user_id: `u${i}`, line_account_id: 'acc1',
+        friend_id: `f${i}`,
+        line_user_id: `u${i}`,
+        line_account_id: 'acc1',
       })),
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
@@ -1209,7 +1325,13 @@ describe('processMultiAccountDedupBroadcast', () => {
 
     const result = await processMultiAccountDedupBroadcast(
       db,
-      { id: 'b-yield', account_ids: '["acc1"]', dedup_priority: '["acc1"]', message_type: 'text', message_content: 'hello' },
+      {
+        id: 'b-yield',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
       factory,
       { maxRunMs: 15_000, now },
     );
@@ -1227,7 +1349,9 @@ describe('processMultiAccountDedupBroadcast', () => {
     const { db } = makeSendDb({
       selectedCounts: [{ line_account_id: 'acc1', cnt: N }],
       rankedRows: Array.from({ length: N }, (_, i) => ({
-        friend_id: `f${i}`, line_user_id: `u${i}`, line_account_id: 'acc1',
+        friend_id: `f${i}`,
+        line_user_id: `u${i}`,
+        line_account_id: 'acc1',
       })),
       accountMeta: [{ id: 'acc1', name: 'A1', country: 'JP' }],
     });
@@ -1243,7 +1367,13 @@ describe('processMultiAccountDedupBroadcast', () => {
 
     const result = await processMultiAccountDedupBroadcast(
       db,
-      { id: 'b-complete', account_ids: '["acc1"]', dedup_priority: '["acc1"]', message_type: 'text', message_content: 'hello' },
+      {
+        id: 'b-complete',
+        account_ids: '["acc1"]',
+        dedup_priority: '["acc1"]',
+        message_type: 'text',
+        message_content: 'hello',
+      },
       factory,
       { now: () => 0 }, // clock が進まない → バジェット超過しない
     );

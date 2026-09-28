@@ -17,6 +17,27 @@ const MIGRATION_MANIFEST = [
   '006_custom_063_auth_disable_revocation.sql',
   '007_custom_064_legacy_access_grant_drain.sql',
   '008_custom_065_session_rotation_family.sql',
+  '009_custom_066_auth_session_activity.sql',
+  '010_custom_067_admin_login_throttles.sql',
+  '011_custom_068_patient_proxy_controls.sql',
+  '012_custom_069_patient_control_audit.sql',
+  '013_custom_070_patient_proxy_lifecycle.sql',
+  '014_custom_071_shared_pharmacy_auth.sql',
+  '015_custom_072_pharmacy_beta_memberships.sql',
+  '016_custom_073_pharmacy_medication_followup_closure.sql',
+  '017_custom_074_pharmacy_followup_operations.sql',
+  '018_custom_075_pharmacy_medication_followup_assignments.sql',
+  '019_custom_076_pharmacy_followup_operations_scope.sql',
+  '020_custom_077_pharmacy_beta_notification_bindings.sql',
+  '021_calendar_bookings_overlap_index.sql',
+  '022_booking_idempotency_scoped.sql',
+  '023_meet_reminder_delivery_id.sql',
+  '024_stripe_effect_completion.sql',
+  '025_friend_link_scope_triggers.sql',
+  '026_custom_078_pharmacy_chat_templates.sql',
+  '027_custom_079_pharmacy_followup_notification_queue.sql',
+  '028_custom_080_pharmacy_continuity_notification_queue.sql',
+  '029_custom_081_pharmacy_validity_notification_queue.sql',
 ] as const;
 const BASELINE = MIGRATION_MANIFEST[0];
 const baseline = readFileSync(join(MIGRATIONS_DIR, BASELINE));
@@ -54,9 +75,7 @@ describe('v0.33 migration epoch', () => {
 
   it('treats the full setup-created v0.33 checksum ledger as a no-op', async () => {
     const db = new Database(':memory:');
-    const migrations = new Map(
-      MIGRATION_MANIFEST.map((name) => [name, readFileSync(join(MIGRATIONS_DIR, name))]),
-    );
+    const migrations = new Map(MIGRATION_MANIFEST.map((name) => [name, readFileSync(join(MIGRATIONS_DIR, name))]));
     db.exec(baseline.toString('utf8'));
     db.exec(buildMigrationLedgerSql([...MIGRATION_MANIFEST], migrations));
 

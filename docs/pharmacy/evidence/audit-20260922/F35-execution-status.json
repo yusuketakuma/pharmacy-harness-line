@@ -1,0 +1,38 @@
+{
+  "reported_by": "primary, observed terminal tool results",
+  "environment": "env -i PATH/TMPDIR retained LANG=C.UTF-8 CI=true NO_COLOR=1; Node26.6.0/pnpm11.25.0",
+  "browser_green": {
+    "session": 71671,
+    "outer_exit": 0,
+    "playwright_exit": 0,
+    "pass": 6
+  },
+  "browser_old_P": {
+    "session": 3730,
+    "outer_exit": 0,
+    "playwright_exit": 1,
+    "pass": 1,
+    "fail": 5
+  },
+  "web_tests": {
+    "session": 52676,
+    "exit": 0,
+    "files_passed": 55,
+    "tests_passed": 267
+  },
+  "typecheck": {
+    "session": 94742,
+    "exit": 0,
+    "log": "F35-typecheck.log (empty on success)"
+  },
+  "diff_check": {
+    "exit": 0
+  },
+  "W": {
+    "P": "abda3847979e19b906ebe3f81c61cfac03cf901c",
+    "paths": {
+      "apps/web/src/app/chats/page.tsx": "65bde7302085aaf477647d9b6408be82ec3e6710bf71f64c5aedc30e98fc66e8",
+      "apps/web/e2e/chat-notes-race.e2e.ts": "be0d97b327f28fd2a49422394235df36d0325c4f6439169c4c8f69ea36ac5430"
+    }
+  }
+}

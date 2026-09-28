@@ -30,20 +30,12 @@ export interface ConversionEvent {
 // ── Conversion Points CRUD ──────────────────────────────────────────────────
 
 export async function getConversionPoints(db: D1Database): Promise<ConversionPoint[]> {
-  const result = await db
-    .prepare(`SELECT * FROM conversion_points ORDER BY created_at DESC`)
-    .all<ConversionPoint>();
+  const result = await db.prepare(`SELECT * FROM conversion_points ORDER BY created_at DESC`).all<ConversionPoint>();
   return result.results;
 }
 
-export async function getConversionPointById(
-  db: D1Database,
-  id: string,
-): Promise<ConversionPoint | null> {
-  return db
-    .prepare(`SELECT * FROM conversion_points WHERE id = ?`)
-    .bind(id)
-    .first<ConversionPoint>();
+export async function getConversionPointById(db: D1Database, id: string): Promise<ConversionPoint | null> {
+  return db.prepare(`SELECT * FROM conversion_points WHERE id = ?`).bind(id).first<ConversionPoint>();
 }
 
 export interface CreateConversionPointInput {
@@ -70,10 +62,7 @@ export async function createConversionPoint(
   return (await getConversionPointById(db, id))!;
 }
 
-export async function deleteConversionPoint(
-  db: D1Database,
-  id: string,
-): Promise<void> {
+export async function deleteConversionPoint(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM conversion_points WHERE id = ?`).bind(id).run();
 }
 
@@ -87,10 +76,7 @@ export interface TrackConversionInput {
   metadata?: string | null;
 }
 
-export async function trackConversion(
-  db: D1Database,
-  input: TrackConversionInput,
-): Promise<ConversionEvent> {
+export async function trackConversion(db: D1Database, input: TrackConversionInput): Promise<ConversionEvent> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -120,10 +106,7 @@ export async function trackConversion(
     )
     .run();
 
-  return (await db
-    .prepare(`SELECT * FROM conversion_events WHERE id = ?`)
-    .bind(id)
-    .first<ConversionEvent>())!;
+  return (await db.prepare(`SELECT * FROM conversion_events WHERE id = ?`).bind(id).first<ConversionEvent>())!;
 }
 
 export async function getConversionEvents(
@@ -169,9 +152,7 @@ export async function getConversionEvents(
   values.push(limit, offset);
 
   const result = await db
-    .prepare(
-      `SELECT * FROM conversion_events ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-    )
+    .prepare(`SELECT * FROM conversion_events ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .bind(...values)
     .all<ConversionEvent>();
   return result.results;
@@ -210,7 +191,7 @@ export async function getConversionReport(
          cp.name as conversion_point_name,
          cp.event_type,
          COUNT(ce.id) as total_count,
-         COALESCE(SUM(cp.value), 0) as total_value
+         COALESCE(SUM(CASE WHEN ce.id IS NOT NULL THEN cp.value END), 0) as total_value
        FROM conversion_points cp
        LEFT JOIN conversion_events ce ON ce.conversion_point_id = cp.id ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
        GROUP BY cp.id

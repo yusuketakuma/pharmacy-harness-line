@@ -1,0 +1,16 @@
+{
+  "P": "24c336a50466d0afd8190576efb5a4ca529a880e",
+  "existing": {
+    "apps/worker/src/custom/pharmacy/continuity/notifications.test.ts": "546dc32ecaa30e945c7ca89f993b377f2d478acf7cece9f2be0916cb5eeb77de",
+    "apps/worker/src/custom/pharmacy/growth-loop/sender.ts": "72da8e899de33062f0aadfc29584f2cddf232239c58b1d47e9591536a860a339"
+  },
+  "new": [
+    "apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts"
+  ],
+  "W": {
+    "apps/worker/src/custom/pharmacy/continuity/notifications.test.ts": "bee398a758b4d0c830f65f9a9ade39d088b2f61aeef0d47272c9081655d9ddab",
+    "apps/worker/src/custom/pharmacy/growth-loop/sender.ts": "deb7b05d3764d2b2caae02b6a47cfad9db1b0ce43b90d323b39b014eee559c79",
+    "apps/worker/src/custom/pharmacy/continuity/dispatch-state.test.ts": "71a98744489660e7da0c9345f1773e4b6ac11f160b64f3358d284641ede10498"
+  },
+  "patchReplay": "PASS all 3 paths"
+}

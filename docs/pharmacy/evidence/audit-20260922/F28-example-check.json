@@ -1,0 +1,21 @@
+{
+  "P": "3be2dbf1bed931fbf98cca4e40f934fce2058ba4",
+  "required": [
+    "EXTERNAL_API_KEY",
+    "LINE_HARNESS_API_KEY",
+    "LINE_HARNESS_API_URL",
+    "LINE_HARNESS_TENANT_ID"
+  ],
+  "before": {
+    "packages/plugin-template/README.md": [
+      "LINE_HARNESS_TENANT_ID"
+    ],
+    "packages/plugin-template/mcp-server/index.ts": [
+      "LINE_HARNESS_TENANT_ID"
+    ]
+  },
+  "after": {
+    "packages/plugin-template/README.md": [],
+    "packages/plugin-template/mcp-server/index.ts": []
+  }
+}

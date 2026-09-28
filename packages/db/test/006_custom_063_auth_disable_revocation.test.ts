@@ -21,13 +21,7 @@ function insertGrant(db: Database.Database, id: string, sessionTokenHash: string
        (id, platform_admin_id, tenant_id, scopes, reason, reauth_verified_at,
         issued_at, expires_at, session_token_hash)
      VALUES (?, 'staff-a', 'tenant-a', '["phi:read"]', 'support', ?, ?, ?, ?)`,
-  ).run(
-    id,
-    '2026-08-30T00:00:00.000Z',
-    '2026-08-30T00:00:00.000Z',
-    '2099-01-01T00:00:00.000Z',
-    sessionTokenHash,
-  );
+  ).run(id, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z', '2099-01-01T00:00:00.000Z', sessionTokenHash);
 }
 
 describe('006 custom_063 auth disable revocation', () => {
@@ -67,15 +61,19 @@ describe('006 custom_063 auth disable revocation', () => {
     `);
 
     db.prepare(`UPDATE tenants SET status = 'suspended' WHERE id = 'tenant-a'`).run();
-    expect(db.prepare(
-      `SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`,
-    ).get(TENANT_SESSION_A)).toMatchObject({ revoked_at: expect.any(String) });
-    expect(() => db.prepare(
-      `INSERT INTO tenant_admin_sessions
+    expect(
+      db.prepare(`SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`).get(TENANT_SESSION_A),
+    ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO tenant_admin_sessions
         (token_hash, tenant_id, staff_id, credential_version, session_kind, expires_at, created_at)
        VALUES (?, 'tenant-a', 'staff-a', 1, 'standard',
                '2099-01-01T00:00:00.000Z', '2026-08-30T00:00:30.000Z')`,
-    ).run('f'.repeat(64))).toThrow();
+        )
+        .run('f'.repeat(64)),
+    ).toThrow();
 
     db.exec(`
       UPDATE tenants SET status = 'active' WHERE id = 'tenant-a';
@@ -86,29 +84,37 @@ describe('006 custom_063 auth disable revocation', () => {
       UPDATE tenant_staff_memberships SET is_active = 0
        WHERE tenant_id = 'tenant-a' AND staff_id = 'staff-a';
     `);
-    expect(db.prepare(
-      `SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`,
-    ).get(TENANT_SESSION_B)).toMatchObject({ revoked_at: expect.any(String) });
-    expect(() => db.prepare(
-      `INSERT INTO tenant_admin_sessions
+    expect(
+      db.prepare(`SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`).get(TENANT_SESSION_B),
+    ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO tenant_admin_sessions
         (token_hash, tenant_id, staff_id, credential_version, session_kind, expires_at, created_at)
        VALUES (?, 'tenant-a', 'staff-a', 1, 'standard',
                '2099-01-01T00:00:00.000Z', '2026-08-30T00:01:30.000Z')`,
-    ).run('0'.repeat(64))).toThrow();
+        )
+        .run('0'.repeat(64)),
+    ).toThrow();
 
     db.prepare(`UPDATE platform_admins SET is_active = 0 WHERE staff_id = 'staff-a'`).run();
-    expect(db.prepare(
-      `SELECT revoked_at FROM platform_admin_sessions WHERE token_hash = ?`,
-    ).get(PLATFORM_SESSION_A)).toMatchObject({ revoked_at: expect.any(String) });
-    expect(db.prepare(
-      `SELECT revoked_at FROM platform_admin_access_grants WHERE id = 'grant-a'`,
-    ).get()).toMatchObject({ revoked_at: expect.any(String) });
-    expect(() => db.prepare(
-      `INSERT INTO platform_admin_sessions
+    expect(
+      db.prepare(`SELECT revoked_at FROM platform_admin_sessions WHERE token_hash = ?`).get(PLATFORM_SESSION_A),
+    ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(db.prepare(`SELECT revoked_at FROM platform_admin_access_grants WHERE id = 'grant-a'`).get()).toMatchObject({
+      revoked_at: expect.any(String),
+    });
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO platform_admin_sessions
         (token_hash, staff_id, credential_version, session_kind, expires_at, created_at)
        VALUES (?, 'staff-a', 1, 'standard',
                '2099-01-01T00:00:00.000Z', '2026-08-30T00:01:30.000Z')`,
-    ).run('1'.repeat(64))).toThrow();
+        )
+        .run('1'.repeat(64)),
+    ).toThrow();
 
     db.exec(`
       UPDATE tenant_staff_memberships SET is_active = 1
@@ -130,27 +136,35 @@ describe('006 custom_063 auth disable revocation', () => {
               '2099-01-01T00:00:00.000Z', '${PLATFORM_SESSION_B}');
       UPDATE staff_members SET is_active = 0 WHERE id = 'staff-a';
     `);
-    expect(db.prepare(
-      `SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`,
-    ).get(TENANT_SESSION_C)).toMatchObject({ revoked_at: expect.any(String) });
-    expect(db.prepare(
-      `SELECT revoked_at FROM platform_admin_sessions WHERE token_hash = ?`,
-    ).get(PLATFORM_SESSION_B)).toMatchObject({ revoked_at: expect.any(String) });
-    expect(db.prepare(
-      `SELECT revoked_at FROM platform_admin_access_grants WHERE id = 'grant-b'`,
-    ).get()).toMatchObject({ revoked_at: expect.any(String) });
-    expect(() => db.prepare(
-      `INSERT INTO tenant_admin_sessions
+    expect(
+      db.prepare(`SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`).get(TENANT_SESSION_C),
+    ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(
+      db.prepare(`SELECT revoked_at FROM platform_admin_sessions WHERE token_hash = ?`).get(PLATFORM_SESSION_B),
+    ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(db.prepare(`SELECT revoked_at FROM platform_admin_access_grants WHERE id = 'grant-b'`).get()).toMatchObject({
+      revoked_at: expect.any(String),
+    });
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO tenant_admin_sessions
         (token_hash, tenant_id, staff_id, credential_version, session_kind, expires_at, created_at)
        VALUES (?, 'tenant-a', 'staff-a', 1, 'standard',
                '2099-01-01T00:00:00.000Z', '2026-08-30T00:02:30.000Z')`,
-    ).run('2'.repeat(64))).toThrow();
-    expect(() => db.prepare(
-      `INSERT INTO platform_admin_sessions
+        )
+        .run('2'.repeat(64)),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO platform_admin_sessions
         (token_hash, staff_id, credential_version, session_kind, expires_at, created_at)
        VALUES (?, 'staff-a', 1, 'standard',
                '2099-01-01T00:00:00.000Z', '2026-08-30T00:02:30.000Z')`,
-    ).run('3'.repeat(64))).toThrow();
+        )
+        .run('3'.repeat(64)),
+    ).toThrow();
   });
 
   it('allows grants only from a live session with current platform-admin authority', () => {
@@ -188,18 +202,19 @@ describe('006 custom_063 auth disable revocation', () => {
       `UPDATE platform_admin_sessions SET revoked_at = '2026-08-30T00:01:00.000Z'
         WHERE token_hash = ?`,
     ).run(PLATFORM_SESSION_REVOKED);
-    expect(() => insertGrant(db, 'grant-revoked', PLATFORM_SESSION_REVOKED))
-      .toThrow(/platform admin session authority/i);
-    expect(() => insertGrant(db, 'grant-expired', PLATFORM_SESSION_EXPIRED))
-      .toThrow(/platform admin session authority/i);
+    expect(() => insertGrant(db, 'grant-revoked', PLATFORM_SESSION_REVOKED)).toThrow(
+      /platform admin session authority/i,
+    );
+    expect(() => insertGrant(db, 'grant-expired', PLATFORM_SESSION_EXPIRED)).toThrow(
+      /platform admin session authority/i,
+    );
 
     db.prepare(
       `UPDATE platform_admin_credentials
           SET credential_version = 2, updated_at = '2026-08-30T00:02:00.000Z'
         WHERE staff_id = 'staff-a'`,
     ).run();
-    expect(() => insertGrant(db, 'grant-stale', PLATFORM_SESSION_STALE))
-      .toThrow(/platform admin session authority/i);
+    expect(() => insertGrant(db, 'grant-stale', PLATFORM_SESSION_STALE)).toThrow(/platform admin session authority/i);
 
     db.prepare(
       `INSERT INTO platform_admin_sessions
@@ -208,7 +223,8 @@ describe('006 custom_063 auth disable revocation', () => {
                '2026-08-30T00:02:00.000Z')`,
     ).run(PLATFORM_SESSION_DISABLED);
     db.prepare(`UPDATE platform_admins SET is_active = 0 WHERE staff_id = 'staff-a'`).run();
-    expect(() => insertGrant(db, 'grant-disabled-admin', PLATFORM_SESSION_DISABLED))
-      .toThrow(/platform admin session authority/i);
+    expect(() => insertGrant(db, 'grant-disabled-admin', PLATFORM_SESSION_DISABLED)).toThrow(
+      /platform admin session authority/i,
+    );
   });
 });

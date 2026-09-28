@@ -42,15 +42,11 @@ describe('resolveLinkBaseUrl', () => {
     });
 
     it('throws when WORKER_URL is empty and no DB setting exists', async () => {
-      await expect(resolveLinkBaseUrl(DB, { WORKER_URL: '' })).rejects.toThrow(
-        'WORKER_URL is not configured',
-      );
+      await expect(resolveLinkBaseUrl(DB, { WORKER_URL: '' })).rejects.toThrow('WORKER_URL is not configured');
     });
 
     it('throws when WORKER_URL is undefined and no DB setting exists', async () => {
-      await expect(resolveLinkBaseUrl(DB, {})).rejects.toThrow(
-        'WORKER_URL is not configured',
-      );
+      await expect(resolveLinkBaseUrl(DB, {})).rejects.toThrow('WORKER_URL is not configured');
     });
   });
 

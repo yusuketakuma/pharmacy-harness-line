@@ -15,12 +15,7 @@ export type CancelledBy = 'friend' | 'admin' | 'system';
 
 export type EventReminderKind = 'day_before' | 'hours_before';
 
-export type EventReminderStatus =
-  | 'pending'
-  | 'sent'
-  | 'failed'
-  | 'failed_permanent'
-  | 'cancelled';
+export type EventReminderStatus = 'pending' | 'sent' | 'failed' | 'failed_permanent' | 'cancelled';
 
 export type EventTargetType = 'single' | 'multi-account-dedup';
 
@@ -105,7 +100,4 @@ export const REQUESTED_EXPIRE_HOURS = 24;
 export const REMINDER_MAX_RETRY = 3;
 export const EVENT_IDEMPOTENCY_TTL_MINUTES = 60 * 24;
 
-export const ACTIVE_BOOKING_STATUSES: ReadonlyArray<EventBookingStatus> = [
-  'requested',
-  'confirmed',
-];
+export const ACTIVE_BOOKING_STATUSES: ReadonlyArray<EventBookingStatus> = ['requested', 'confirmed'];

@@ -7,13 +7,13 @@
  * versa). The real boundary is the separate HttpOnly cookie server-side; these
  * distinct names just keep the two portals from being confused client-side.
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-export const PLATFORM_ADMIN_CSRF_STORAGE_KEY = 'lh_platform_admin_csrf'
-export const PLATFORM_ADMIN_NAME_STORAGE_KEY = 'lh_platform_admin_name'
-export const PLATFORM_ADMIN_CSRF_HEADER = 'x-platform-admin-csrf-token'
+export const PLATFORM_ADMIN_CSRF_STORAGE_KEY = 'lh_platform_admin_csrf';
+export const PLATFORM_ADMIN_NAME_STORAGE_KEY = 'lh_platform_admin_name';
+export const PLATFORM_ADMIN_CSRF_HEADER = 'x-platform-admin-csrf-token';
 
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export type PlatformAdminReasonCode =
   | 'UNAUTHENTICATED'
@@ -23,7 +23,7 @@ export type PlatformAdminReasonCode =
   | 'CONFLICT'
   | 'RATE_LIMITED'
   | 'UNAVAILABLE'
-  | 'REQUEST_FAILED'
+  | 'REQUEST_FAILED';
 
 const PLATFORM_ADMIN_REASON_LABELS: Record<PlatformAdminReasonCode, string> = {
   UNAUTHENTICATED: 'ログイン状態を確認してください。',
@@ -34,34 +34,34 @@ const PLATFORM_ADMIN_REASON_LABELS: Record<PlatformAdminReasonCode, string> = {
   RATE_LIMITED: '操作が集中しています。時間を置いて再試行してください。',
   UNAVAILABLE: 'サービスを確認できません。時間を置いて再試行してください。',
   REQUEST_FAILED: '操作を完了できませんでした。再試行または運用担当へ確認してください。',
-}
+};
 
 function reasonCodeForStatus(status: number, apiReason?: string): PlatformAdminReasonCode {
-  const normalizedReason = apiReason?.trim().toUpperCase() as PlatformAdminReasonCode | undefined
+  const normalizedReason = apiReason?.trim().toUpperCase() as PlatformAdminReasonCode | undefined;
   if (normalizedReason && Object.prototype.hasOwnProperty.call(PLATFORM_ADMIN_REASON_LABELS, normalizedReason)) {
-    return normalizedReason
+    return normalizedReason;
   }
-  if (status === 401) return 'UNAUTHENTICATED'
-  if (status === 403) return 'FORBIDDEN'
-  if (status === 404) return 'NOT_FOUND'
-  if (status === 409) return 'CONFLICT'
-  if (status === 429) return 'RATE_LIMITED'
-  if (status >= 400 && status < 500) return 'INVALID_REQUEST'
-  if (status >= 500) return 'UNAVAILABLE'
-  return 'REQUEST_FAILED'
+  if (status === 401) return 'UNAUTHENTICATED';
+  if (status === 403) return 'FORBIDDEN';
+  if (status === 404) return 'NOT_FOUND';
+  if (status === 409) return 'CONFLICT';
+  if (status === 429) return 'RATE_LIMITED';
+  if (status >= 400 && status < 500) return 'INVALID_REQUEST';
+  if (status >= 500) return 'UNAVAILABLE';
+  return 'REQUEST_FAILED';
 }
 
 /** Non-2xx response. Only a safe reason code is exposed to the UI. */
 export class PlatformAdminApiError extends Error {
-  readonly status: number
-  readonly reasonCode: PlatformAdminReasonCode
+  readonly status: number;
+  readonly reasonCode: PlatformAdminReasonCode;
 
   constructor(status: number, _apiReason?: string) {
-    const reasonCode = reasonCodeForStatus(status, _apiReason)
-    super(PLATFORM_ADMIN_REASON_LABELS[reasonCode])
-    this.name = 'PlatformAdminApiError'
-    this.status = status
-    this.reasonCode = reasonCode
+    const reasonCode = reasonCodeForStatus(status, _apiReason);
+    super(PLATFORM_ADMIN_REASON_LABELS[reasonCode]);
+    this.name = 'PlatformAdminApiError';
+    this.status = status;
+    this.reasonCode = reasonCode;
   }
 }
 
@@ -69,33 +69,33 @@ export class PlatformAdminApiError extends Error {
 export function platformAdminErrorMessage(error: unknown): string {
   return error instanceof PlatformAdminApiError
     ? PLATFORM_ADMIN_REASON_LABELS[error.reasonCode]
-    : PLATFORM_ADMIN_REASON_LABELS.REQUEST_FAILED
+    : PLATFORM_ADMIN_REASON_LABELS.REQUEST_FAILED;
 }
 
 export function setPlatformAdminCsrfToken(token: unknown): void {
-  if (typeof window === 'undefined' || typeof token !== 'string' || !token) return
-  localStorage.setItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY, token)
+  if (typeof window === 'undefined' || typeof token !== 'string' || !token) return;
+  localStorage.setItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY, token);
 }
 
 export function setPlatformAdminName(name: unknown): void {
-  if (typeof window === 'undefined' || typeof name !== 'string' || !name) return
-  localStorage.setItem(PLATFORM_ADMIN_NAME_STORAGE_KEY, name)
+  if (typeof window === 'undefined' || typeof name !== 'string' || !name) return;
+  localStorage.setItem(PLATFORM_ADMIN_NAME_STORAGE_KEY, name);
 }
 
 export function clearPlatformAdminLocalState(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY)
-  localStorage.removeItem(PLATFORM_ADMIN_NAME_STORAGE_KEY)
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY);
+  localStorage.removeItem(PLATFORM_ADMIN_NAME_STORAGE_KEY);
 }
 
 /** `path` is relative to /api/platform-admin (e.g. '/tenants'). */
 export async function platformAdminFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  if (!API_URL) throw new PlatformAdminApiError(0, 'NEXT_PUBLIC_API_URL is not set in build env')
-  const method = (options?.method ?? 'GET').toUpperCase()
-  const csrfHeaders: Record<string, string> = {}
+  if (!API_URL) throw new PlatformAdminApiError(0, 'NEXT_PUBLIC_API_URL is not set in build env');
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const csrfHeaders: Record<string, string> = {};
   if (MUTATING_METHODS.has(method) && typeof window !== 'undefined') {
-    const token = localStorage.getItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY)
-    if (token) csrfHeaders[PLATFORM_ADMIN_CSRF_HEADER] = token
+    const token = localStorage.getItem(PLATFORM_ADMIN_CSRF_STORAGE_KEY);
+    if (token) csrfHeaders[PLATFORM_ADMIN_CSRF_HEADER] = token;
   }
   const res = await fetch(`${API_URL}/api/platform-admin${path}`, {
     ...options,
@@ -105,191 +105,205 @@ export async function platformAdminFetch<T>(path: string, options?: RequestInit)
       ...csrfHeaders,
       ...options?.headers,
     },
-  })
-  const body = (await res.json().catch(() => null)) as
-    | { success?: boolean; error?: string; reasonCode?: string; csrfToken?: string }
-    | null
-  if (!res.ok) throw new PlatformAdminApiError(res.status, body?.reasonCode)
+  });
+  const body = (await res.json().catch(() => null)) as {
+    success?: boolean;
+    error?: string;
+    reasonCode?: string;
+    csrfToken?: string;
+  } | null;
+  if (!res.ok) throw new PlatformAdminApiError(res.status, body?.reasonCode);
   // /login, /session and /change-password all reissue the token; keep the
   // stored copy fresh so the next mutating request double-submits the right one.
-  setPlatformAdminCsrfToken(body?.csrfToken)
-  return body as T
+  setPlatformAdminCsrfToken(body?.csrfToken);
+  return body as T;
 }
 
-export type PlatformAdminSession = { id: string; name: string; mustChangePassword: boolean }
+export type PlatformAdminSession = { id: string; name: string; mustChangePassword: boolean };
 
 export type PlatformTenant = {
-  id: string
-  tenantCode: string
-  displayName: string
-  status: string
-  outboundMessagingPausedAt: string | null
-  lineAccountCount: number
-  staffCount: number
-  webhookFailureCount: number
-  lineConfigIssueCount: number
-}
+  id: string;
+  tenantCode: string;
+  displayName: string;
+  status: string;
+  outboundMessagingPausedAt: string | null;
+  lineAccountCount: number;
+  staffCount: number;
+  webhookFailureCount: number;
+  lineConfigIssueCount: number;
+};
 
 export type PlatformTenantLineAccount = {
-  id: string
-  name: string
-  channel_id: string
-  is_active: number
-}
+  id: string;
+  name: string;
+  channel_id: string;
+  is_active: number;
+};
 
-export type PlatformTenantDetail = PlatformTenant & { lineAccounts: PlatformTenantLineAccount[] }
+export type PlatformTenantDetail = PlatformTenant & { lineAccounts: PlatformTenantLineAccount[] };
 
 /** Row from listAdminPharmacyPatients, plus the tenant's line account it came from. */
 export type PlatformPatient = {
-  lineAccountId: string
-  id: string
-  relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other'
-  name: string
-  name_kana: string
-  birth_date: string
-  sex: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null
-  contact_phone: string | null
-  postal_code: string | null
-  prefecture: string | null
-  city: string | null
-  address_line1: string | null
-  address_line2: string | null
-  archived_at: string | null
-  created_at?: string
-  updated_at?: string
-}
+  lineAccountId: string;
+  id: string;
+  relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other';
+  name: string;
+  name_kana: string;
+  birth_date: string;
+  sex: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
+  contact_phone: string | null;
+  postal_code: string | null;
+  prefecture: string | null;
+  city: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  archived_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
 
 export type PlatformIntakeSummary = {
-  id: string
-  patient_id: string
-  revision: number
-  schema_version: number
-  representative_consent_at: string
-  privacy_consent_at: string
-  created_at: string
-}
+  id: string;
+  patient_id: string;
+  revision: number;
+  schema_version: number;
+  representative_consent_at: string;
+  privacy_consent_at: string;
+  created_at: string;
+};
 
 /** getAdminPharmacyPatientHistory + the route's expectation/handoff joins. */
 export type PlatformPatientDetail = {
-  lineAccountId: string
-  patient: Omit<PlatformPatient, 'lineAccountId'>
-  intakes: PlatformIntakeSummary[]
-  latestIntake: (PlatformIntakeSummary & { answers: Record<string, unknown> }) | null
+  lineAccountId: string;
+  patient: Omit<PlatformPatient, 'lineAccountId'>;
+  intakes: PlatformIntakeSummary[];
+  latestIntake: (PlatformIntakeSummary & { answers: Record<string, unknown> }) | null;
   prescriptions: Array<{
-    id: string
-    status: string
-    active_revision: number | null
-    desired_pickup_at: string | null
-    requested_at: string | null
-    closed_at: string | null
-    created_at: string
-    updated_at: string
-  }>
+    id: string;
+    status: string;
+    active_revision: number | null;
+    desired_pickup_at: string | null;
+    requested_at: string | null;
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
   quotes: Array<{
-    id: string
-    submission_id: string
-    decision: string
-    estimated_ready_at: string | null
-    status: string | null
-    fulfillment_method: string | null
-    created_at: string
-  }>
+    id: string;
+    submission_id: string;
+    decision: string;
+    estimated_ready_at: string | null;
+    status: string | null;
+    fulfillment_method: string | null;
+    created_at: string;
+  }>;
   continuity: Array<{
-    id: string
-    status: string
-    expected_next_from: string
-    expected_next_to: string
-    next_contact_at: string
-    reminder_count: number
-    created_at: string
-    updated_at: string
-  }>
+    id: string;
+    status: string;
+    expected_next_from: string;
+    expected_next_to: string;
+    next_contact_at: string;
+    reminder_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
   medicationFollowUps: Array<{
-    id: string
-    source_submission_id: string
-    status: string
-    due_at: string
-    delivered_at: string | null
-    responded_at: string | null
-    closed_at: string | null
-    version: number
-    created_at: string
-    updated_at: string
-  }>
+    id: string;
+    source_submission_id: string;
+    status: string;
+    due_at: string;
+    delivered_at: string | null;
+    responded_at: string | null;
+    closed_at: string | null;
+    version: number;
+    created_at: string;
+    updated_at: string;
+  }>;
   timeline: Array<{
-    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna'
-    occurred_at: string
-    label: string
-    status?: string | null
-  }>
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna';
+    occurred_at: string;
+    label: string;
+    status?: string | null;
+  }>;
   nextIntakeExpectations: Array<{
-    id: string
-    obligation_id: string
-    patient_id: string
-    status: string
-    timing_source: string
-    supply_days: number | null
-    expected_from: string
-    expected_to: string
-    reminder_at: string
-    reminded_at: string | null
-    version: number
-    created_at: string
-    updated_at: string
-  }>
+    id: string;
+    obligation_id: string;
+    patient_id: string;
+    status: string;
+    timing_source: string;
+    supply_days: number | null;
+    expected_from: string;
+    expected_to: string;
+    reminder_at: string;
+    reminded_at: string | null;
+    version: number;
+    created_at: string;
+    updated_at: string;
+  }>;
   mynaHandoffs: Array<{
-    id: string
-    patient_id: string | null
-    expectation_id: string | null
-    method: string
-    status: string
-    source: string
-    correlation_id: string
-    launched_at: string | null
-    patient_reported_at: string | null
-    expires_at: string
-    closed_at: string | null
-    created_at: string
-    updated_at: string
-  }>
-}
+    id: string;
+    patient_id: string | null;
+    expectation_id: string | null;
+    method: string;
+    status: string;
+    source: string;
+    correlation_id: string;
+    launched_at: string | null;
+    patient_reported_at: string | null;
+    expires_at: string;
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+};
 
-export type PlatformLogType = 'prescription_events' | 'webhook_receipts' | 'platform_admin_access'
+export type PlatformLogType = 'prescription_events' | 'webhook_receipts' | 'platform_admin_access' | 'pharmacy_auth';
 
 export type PlatformAccessEvent = {
-  id: string
-  platform_admin_id: string
-  tenant_id: string | null
-  action: string
-  resource_type: string | null
-  resource_id: string | null
-  detail_json: string | null
-  created_at: string
-}
+  id: string;
+  platform_admin_id: string;
+  tenant_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  detail_json: string | null;
+  created_at: string;
+};
 
 export type PlatformLogs = {
   prescriptionEvents?: Array<{
-    id: string
-    submission_id: string
-    event_type: string
-    actor_type: string | null
-    from_status: string | null
-    to_status: string | null
-    created_at: string
-    tenant_id: string
-    line_account_id: string
-  }>
+    id: string;
+    submission_id: string;
+    event_type: string;
+    actor_type: string | null;
+    from_status: string | null;
+    to_status: string | null;
+    created_at: string;
+    tenant_id: string;
+    line_account_id: string;
+  }>;
   webhookReceipts?: Array<{
-    tenant_id: string | null
-    line_account_id: string | null
-    webhook_event_id: string
-    received_at: string
-    status: string
-    retry_count: number
-    dead_lettered_at: string | null
-  }>
-  platformAdminAccess?: PlatformAccessEvent[]
-}
+    tenant_id: string | null;
+    line_account_id: string | null;
+    webhook_event_id: string;
+    received_at: string;
+    status: string;
+    retry_count: number;
+    dead_lettered_at: string | null;
+  }>;
+  platformAdminAccess?: PlatformAccessEvent[];
+  pharmacyAuth?: Array<{
+    id: string;
+    actor_kind: string;
+    actor_staff_id: string | null;
+    tenant_id: string | null;
+    target_staff_id: string | null;
+    action: string;
+    outcome: string;
+    reason_code: string;
+    created_at: string;
+  }>;
+};
 
 /**
  * A support-mode grant, exactly as the API returns it.
@@ -299,27 +313,27 @@ export type PlatformLogs = {
  * with `grantScopes()` rather than assuming a shape.
  */
 export type PlatformSupportGrant = {
-  id: string
-  platform_admin_id: string
-  tenant_id: string
-  scopes: string
-  reason: string
-  ticket_reference: string | null
-  issued_at: string
-  expires_at: string
-  revoked_at: string | null
-}
+  id: string;
+  platform_admin_id: string;
+  tenant_id: string;
+  scopes: string;
+  reason: string;
+  ticket_reference: string | null;
+  issued_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+};
 
-export const PHI_READ_SCOPE = 'phi:read'
-export const DEFAULT_GRANT_MINUTES = 15
-export const MAX_GRANT_MINUTES = 60
+export const PHI_READ_SCOPE = 'phi:read';
+export const DEFAULT_GRANT_MINUTES = 15;
+export const MAX_GRANT_MINUTES = 60;
 
 export function grantScopes(grant: PlatformSupportGrant): string[] {
   try {
-    const parsed: unknown = JSON.parse(grant.scopes)
-    return Array.isArray(parsed) ? parsed.map(String) : []
+    const parsed: unknown = JSON.parse(grant.scopes);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
   } catch {
-    return []
+    return [];
   }
 }
 
@@ -329,184 +343,205 @@ export function grantScopes(grant: PlatformSupportGrant): string[] {
  * or 404 (unknown tenant/patient), so status alone identifies the case.
  */
 export function isSupportModeRequired(error: unknown): boolean {
-  return error instanceof PlatformAdminApiError && error.status === 403
+  return error instanceof PlatformAdminApiError && error.status === 403;
 }
 
 export type PlatformDashboard = {
-  totalTenants: number
-  activeTenants: number
-  suspendedTenants: number
-  webhookFailures24h: number
-  webhookPending: number
-  activeSupportGrants: number
-  tenantsWithStaleActivity: number
+  totalTenants: number;
+  activeTenants: number;
+  suspendedTenants: number;
+  webhookFailures24h: number;
+  webhookPending: number;
+  activeSupportGrants: number;
+  tenantsWithStaleActivity: number;
   pharmacyReadiness: {
-    checkedAt: string
-    statusCounts: PlatformReadinessStatusCounts
+    checkedAt: string;
+    statusCounts: PlatformReadinessStatusCounts;
     tenants: Array<{
-      tenantId: string
-      statusCounts: PlatformReadinessStatusCounts
+      tenantId: string;
+      statusCounts: PlatformReadinessStatusCounts;
       accounts: Array<{
-        accountId: string
-        checkedAt: string
-        statusCounts: PlatformReadinessStatusCounts
-      }>
-    }>
-  }
+        accountId: string;
+        checkedAt: string;
+        statusCounts: PlatformReadinessStatusCounts;
+      }>;
+    }>;
+  };
   versions: {
-    sellerRelease: string | null
-    liffPackageVersion: string
-    liffArtifactHash: string
-    webRuntime: PlatformRuntimeVersion
-    workerRuntime: PlatformRuntimeVersion
-  }
-}
+    sellerRelease: string | null;
+    liffPackageVersion: string;
+    liffArtifactHash: string;
+    webRuntime: PlatformRuntimeVersion;
+    workerRuntime: PlatformRuntimeVersion;
+  };
+};
 
-export type PlatformReadinessStatus = 'READY' | 'BLOCKED' | 'UNVERIFIED'
-export type PlatformReadinessStatusCounts = Record<PlatformReadinessStatus, number>
+export type PlatformReadinessStatus = 'READY' | 'BLOCKED' | 'UNVERIFIED';
+export type PlatformReadinessStatusCounts = Record<PlatformReadinessStatus, number>;
 export type PlatformRuntimeVersion = {
-  packageVersion: string
-  bundleVersion: string
-  artifactHash: string
-  releasedAt: string
-}
+  packageVersion: string;
+  bundleVersion: string;
+  artifactHash: string;
+  releasedAt: string;
+};
 
 export type PlatformReadinessReasonCode =
-  | 'LIFF_ID_MISSING' | 'LIFF_PUBLIC_ORIGIN_INVALID' | 'LIFF_ENDPOINT_UNVERIFIED'
-  | 'ELECTRONIC_CAPABILITY_DISABLED' | 'ELECTRONIC_ENDPOINT_MISSING' | 'ELECTRONIC_ENDPOINT_UNVERIFIED'
-  | 'EMERGENCY_CAPABILITY_DISABLED' | 'EMERGENCY_REQUIREMENTS_INCOMPLETE'
-  | 'EMERGENCY_TRAINED_PHARMACIST_MISSING' | 'EMERGENCY_INVENTORY_UNAVAILABLE'
-  | 'EMERGENCY_FUTURE_SLOT_UNAVAILABLE' | 'RICH_MENU_CAPABILITY_DISABLED'
-  | 'RICH_MENU_LAYOUT_MISSING' | 'RICH_MENU_SAVED_VERSION_MISSING'
-  | 'RICH_MENU_CAPABILITY_REVISION_STALE' | 'RICH_MENU_CATALOG_STALE'
-  | 'RICH_MENU_UPLOAD_UNVERIFIED' | 'RICH_MENU_PUBLISHED_VERSION_MISSING'
-  | 'RICH_MENU_DEFAULT_NOT_RECORDED' | 'RICH_MENU_DEFAULT_READBACK_UNVERIFIED'
+  | 'LIFF_ID_MISSING'
+  | 'LIFF_PUBLIC_ORIGIN_INVALID'
+  | 'LIFF_ENDPOINT_UNVERIFIED'
+  | 'ELECTRONIC_CAPABILITY_DISABLED'
+  | 'ELECTRONIC_ENDPOINT_MISSING'
+  | 'ELECTRONIC_ENDPOINT_UNVERIFIED'
+  | 'EMERGENCY_CAPABILITY_DISABLED'
+  | 'EMERGENCY_REQUIREMENTS_INCOMPLETE'
+  | 'EMERGENCY_TRAINED_PHARMACIST_MISSING'
+  | 'EMERGENCY_INVENTORY_UNAVAILABLE'
+  | 'EMERGENCY_FUTURE_SLOT_UNAVAILABLE'
+  | 'RICH_MENU_CAPABILITY_DISABLED'
+  | 'RICH_MENU_LAYOUT_MISSING'
+  | 'RICH_MENU_SAVED_VERSION_MISSING'
+  | 'RICH_MENU_CAPABILITY_REVISION_STALE'
+  | 'RICH_MENU_CATALOG_STALE'
+  | 'RICH_MENU_UPLOAD_UNVERIFIED'
+  | 'RICH_MENU_PUBLISHED_VERSION_MISSING'
+  | 'RICH_MENU_DEFAULT_NOT_RECORDED'
+  | 'RICH_MENU_DEFAULT_READBACK_UNVERIFIED';
 
 export type PlatformConfigurationDoctor = {
-  accountId: string
-  checkedAt: string
-  status: PlatformReadinessStatus
-  reasonCodes: string[]
+  accountId: string;
+  checkedAt: string;
+  status: PlatformReadinessStatus;
+  reasonCodes: string[];
   checks: Array<{
-    key: string
-    required: boolean
-    status: PlatformReadinessStatus
-    reasonCodes: string[]
-    impact: string
-    fixHref: string
-  }>
-}
+    key: string;
+    required: boolean;
+    status: PlatformReadinessStatus;
+    reasonCodes: string[];
+    impact: string;
+    fixHref: string;
+  }>;
+};
 
 export type PlatformTenantHealth = {
-  tenantId: string
+  tenantId: string;
   lineAccounts: Array<{
-    id: string
-    name: string
-    isActive: boolean
-    hasChannelIdentity: boolean
-    lastWebhookAt: string | null
-  }>
-  webhook24h: { success: number; failed: number }
-  activeStaffCount: number
-  activeSessionCount: number
-  lastAdminLoginAt: string | null
-}
+    id: string;
+    name: string;
+    isActive: boolean;
+    hasChannelIdentity: boolean;
+    lastWebhookAt: string | null;
+  }>;
+  webhook24h: { success: number; failed: number };
+  activeStaffCount: number;
+  activeSessionCount: number;
+  lastAdminLoginAt: string | null;
+};
 
 export type PlatformIntegrityCheck = {
-  name: string
-  status: 'ok' | 'warn' | 'critical'
-  affectedCount: number
-}
+  name: string;
+  status: 'ok' | 'warn' | 'critical';
+  affectedCount: number;
+};
 
 export type PlatformStaffMember = {
-  staffId: string
-  name: string
-  email: string | null
-  role: string
-  isActive: boolean
-  membershipActive: boolean
-  activeSessionCount: number
-}
+  staffId: string;
+  name: string;
+  email: string | null;
+  role: string;
+  isActive: boolean;
+  membershipActive: boolean;
+  activeSessionCount: number;
+};
 
 export type PlatformLineStatus = {
-  id: string
-  name: string
-  channelId: string
-  isActive: boolean
-  hasBotIdentity: boolean
-  hasEncryptedCredential: boolean
-  liffIdConfigured: boolean
-  loginChannelConfigured: boolean
-  messagingCredentialsReady: boolean
-  loginCredentialReady: boolean
-  expectedLiffEndpoint: string | null
-  liffEndpointEvidence: { status: 'UNVERIFIED'; source: 'manual_console'; checkedAt: string | null }
-  liffReasonCodes: PlatformReadinessReasonCode[]
-  lastWebhookReceivedAt: string | null
-  configurationDoctor: PlatformConfigurationDoctor
+  id: string;
+  name: string;
+  channelId: string;
+  isActive: boolean;
+  hasBotIdentity: boolean;
+  hasEncryptedCredential: boolean;
+  liffIdConfigured: boolean;
+  loginChannelConfigured: boolean;
+  messagingCredentialsReady: boolean;
+  loginCredentialReady: boolean;
+  expectedLiffEndpoint: string | null;
+  liffEndpointEvidence: {
+    status: 'UNVERIFIED';
+    source: 'manual_console';
+    checkedAt: string | null;
+  };
+  liffReasonCodes: PlatformReadinessReasonCode[];
+  lastWebhookReceivedAt: string | null;
+  configurationDoctor: PlatformConfigurationDoctor;
   readiness: {
-    accountId: string
-    checkedAt: string
-    electronicPrescription: { status: PlatformReadinessStatus; reasonCodes: PlatformReadinessReasonCode[] }
-    emergencyContraception: { status: 'READY' | 'BLOCKED'; reasonCodes: PlatformReadinessReasonCode[] }
+    accountId: string;
+    checkedAt: string;
+    electronicPrescription: {
+      status: PlatformReadinessStatus;
+      reasonCodes: PlatformReadinessReasonCode[];
+    };
+    emergencyContraception: {
+      status: 'READY' | 'BLOCKED';
+      reasonCodes: PlatformReadinessReasonCode[];
+    };
     richMenu: {
-      status: PlatformReadinessStatus
-      syncStatus: 'CURRENT' | 'STALE' | 'UNVERIFIED'
-      layoutConfigured: boolean
-      savedVersionAvailable: boolean
-      capabilityRevisionCurrent: boolean
-      uploadVerified: boolean
-      publishedVersionAvailable: boolean
-      currentDefaultRecorded: boolean
-      defaultReadbackVerified: boolean
-      reasonCodes: PlatformReadinessReasonCode[]
-    }
-  } | null
-}
+      status: PlatformReadinessStatus;
+      syncStatus: 'CURRENT' | 'STALE' | 'UNVERIFIED';
+      layoutConfigured: boolean;
+      savedVersionAvailable: boolean;
+      capabilityRevisionCurrent: boolean;
+      uploadVerified: boolean;
+      publishedVersionAvailable: boolean;
+      currentDefaultRecorded: boolean;
+      defaultReadbackVerified: boolean;
+      reasonCodes: PlatformReadinessReasonCode[];
+    };
+  } | null;
+};
 
 /** A failed probe is a normal diagnostic result, so it arrives at HTTP 200. */
 export type PlatformLineProbe =
   | { ok: true; botUserId: string; displayName: string | null }
-  | { ok: false; error: string }
+  | { ok: false; error: string };
 
 export type PlatformTenantProvisioningInput = {
-  tenantName: string
+  tenantName: string;
   admin: {
-    loginId: string
-    displayName: string
-    email: string | null
-    temporaryPassword: string
-  }
+    displayName: string;
+    email: string | null;
+  };
   line: {
-    channelId: string
-    displayName: string
-    channelAccessToken: string
-    channelSecret: string
-    loginChannelId: string
-    loginChannelSecret: string
-    liffId: string
-  }
-}
+    channelId: string;
+    displayName: string;
+    channelAccessToken: string;
+    channelSecret: string;
+    loginChannelId: string;
+    loginChannelSecret: string;
+    liffId: string;
+  };
+};
 
 export type PlatformTenantProvisioningResult = {
-  tenantId: string
-  tenantCode: string
-  tenantName: string
-  lineAccountId: string
-  lineAccountName: string
-  staffId: string
-  adminLoginId: string
-  replayed: boolean
-  urls: { admin: string; webhook: string; liffEndpoint: string }
+  tenantId: string;
+  tenantCode: string;
+  tenantName: string;
+  lineAccountId: string;
+  lineAccountName: string;
+  staffId: string;
+  adminLoginId: null;
+  sharedLoginIssued: boolean;
+  sharedLoginTemporaryPassword?: string;
+  replayed: boolean;
+  urls: { admin: string; webhook: string; liffEndpoint: string };
   line: {
-    tokenValidated: boolean
-    webhookConfigured: boolean | null
-    channelSecretVerification?: 'pending_first_webhook'
-  }
-  manualSteps?: string[]
-}
+    tokenValidated: boolean;
+    webhookConfigured: boolean | null;
+    channelSecretVerification?: 'pending_first_webhook';
+  };
+  manualSteps?: string[];
+};
 
-type Envelope<T> = { success: boolean; data: T; csrfToken?: string }
+type Envelope<T> = { success: boolean; data: T; csrfToken?: string };
 
 export const platformAdminApi = {
   login: (loginId: string, password: string) =>
@@ -523,44 +558,58 @@ export const platformAdminApi = {
     }),
   tenants: () => platformAdminFetch<Envelope<PlatformTenant[]>>('/tenants'),
   provisionTenant: (input: PlatformTenantProvisioningInput, idempotencyKey: string) =>
-    platformAdminFetch<Envelope<PlatformTenantProvisioningResult>>(
-      '/tenants',
-      {
-        method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: JSON.stringify(input),
-      },
-    ),
-  tenant: (id: string) =>
-    platformAdminFetch<Envelope<PlatformTenantDetail>>(`/tenants/${encodeURIComponent(id)}`),
+    platformAdminFetch<Envelope<PlatformTenantProvisioningResult>>('/tenants', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(input),
+    }),
+  issueSharedLogin: (tenantId: string) =>
+    platformAdminFetch<
+      Envelope<{
+        tenantId: string;
+        pharmacyCode: string;
+        staffId: string;
+        temporaryPassword: string;
+        mustChangePassword: true;
+      }>
+    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/issue`, { method: 'POST' }),
+  resetSharedLoginPassword: (tenantId: string) =>
+    platformAdminFetch<
+      Envelope<{
+        tenantId: string;
+        pharmacyCode: string;
+        staffId: string;
+        temporaryPassword: string;
+        mustChangePassword: true;
+      }>
+    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/reset-password`, { method: 'POST' }),
+  tenant: (id: string) => platformAdminFetch<Envelope<PlatformTenantDetail>>(`/tenants/${encodeURIComponent(id)}`),
   updateTenant: (id: string, changes: { displayName?: string; status?: string }) =>
     platformAdminFetch<Envelope<{ id: string; displayName: string; status: string }>>(
       `/tenants/${encodeURIComponent(id)}`,
       { method: 'PATCH', body: JSON.stringify(changes) },
     ),
   patients: (tenantId: string) =>
-    platformAdminFetch<Envelope<PlatformPatient[]>>(
-      `/tenants/${encodeURIComponent(tenantId)}/patients`,
-    ),
+    platformAdminFetch<Envelope<PlatformPatient[]>>(`/tenants/${encodeURIComponent(tenantId)}/patients`),
   patient: (tenantId: string, patientId: string) =>
     platformAdminFetch<Envelope<PlatformPatientDetail>>(
       `/tenants/${encodeURIComponent(tenantId)}/patients/${encodeURIComponent(patientId)}`,
     ),
   logs: (params: { tenantId?: string; type?: PlatformLogType; since?: string; limit?: number }) => {
-    const query = new URLSearchParams()
-    if (params.tenantId) query.set('tenantId', params.tenantId)
-    if (params.type) query.set('type', params.type)
-    if (params.since) query.set('since', params.since)
-    if (params.limit) query.set('limit', String(params.limit))
-    const suffix = query.toString()
-    return platformAdminFetch<Envelope<PlatformLogs>>(`/logs${suffix ? `?${suffix}` : ''}`)
+    const query = new URLSearchParams();
+    if (params.tenantId) query.set('tenantId', params.tenantId);
+    if (params.type) query.set('type', params.type);
+    if (params.since) query.set('since', params.since);
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return platformAdminFetch<Envelope<PlatformLogs>>(`/logs${suffix ? `?${suffix}` : ''}`);
   },
   audit: (params: { all?: boolean; limit?: number }) => {
-    const query = new URLSearchParams()
-    if (params.all) query.set('all', 'true')
-    if (params.limit) query.set('limit', String(params.limit))
-    const suffix = query.toString()
-    return platformAdminFetch<Envelope<PlatformAccessEvent[]>>(`/audit${suffix ? `?${suffix}` : ''}`)
+    const query = new URLSearchParams();
+    if (params.all) query.set('all', 'true');
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return platformAdminFetch<Envelope<PlatformAccessEvent[]>>(`/audit${suffix ? `?${suffix}` : ''}`);
   },
 
   // --- support mode (期限付きPHIアクセス) ---
@@ -569,52 +618,43 @@ export const platformAdminApi = {
   startSupportGrant: (
     tenantId: string,
     input: {
-      reason: string
-      ticketReference?: string
-      scopes: string[]
-      currentPassword: string
-      durationMinutes?: number
+      reason: string;
+      ticketReference?: string;
+      scopes: string[];
+      currentPassword: string;
+      durationMinutes?: number;
     },
   ) =>
-    platformAdminFetch<Envelope<PlatformSupportGrant>>(
-      `/tenants/${encodeURIComponent(tenantId)}/support-grants`,
-      { method: 'POST', body: JSON.stringify(input) },
-    ),
+    platformAdminFetch<Envelope<PlatformSupportGrant>>(`/tenants/${encodeURIComponent(tenantId)}/support-grants`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   endSupportGrant: (grantId: string) =>
-    platformAdminFetch<Envelope<null>>(
-      `/support-grants/${encodeURIComponent(grantId)}/end`,
-      { method: 'POST' },
-    ),
-  activeSupportGrants: () =>
-    platformAdminFetch<Envelope<PlatformSupportGrant[]>>('/support-grants/active'),
+    platformAdminFetch<Envelope<null>>(`/support-grants/${encodeURIComponent(grantId)}/end`, {
+      method: 'POST',
+    }),
+  activeSupportGrants: () => platformAdminFetch<Envelope<PlatformSupportGrant[]>>('/support-grants/active'),
 
   // --- dashboard / health ---
   dashboard: () => platformAdminFetch<Envelope<PlatformDashboard>>('/dashboard'),
   tenantHealth: (tenantId: string) =>
-    platformAdminFetch<Envelope<PlatformTenantHealth>>(
-      `/tenants/${encodeURIComponent(tenantId)}/health`,
-    ),
+    platformAdminFetch<Envelope<PlatformTenantHealth>>(`/tenants/${encodeURIComponent(tenantId)}/health`),
   integrity: () => platformAdminFetch<Envelope<PlatformIntegrityCheck[]>>('/integrity'),
 
   // --- tenant operations ---
   staff: (tenantId: string) =>
-    platformAdminFetch<Envelope<PlatformStaffMember[]>>(
-      `/tenants/${encodeURIComponent(tenantId)}/staff`,
-    ),
+    platformAdminFetch<Envelope<PlatformStaffMember[]>>(`/tenants/${encodeURIComponent(tenantId)}/staff`),
   disableStaff: (tenantId: string, staffId: string) =>
     platformAdminFetch<Envelope<{ staffId: string; sessionsRevoked: number }>>(
       `/tenants/${encodeURIComponent(tenantId)}/staff/${encodeURIComponent(staffId)}/disable`,
       { method: 'POST' },
     ),
   revokeTenantSessions: (tenantId: string) =>
-    platformAdminFetch<Envelope<{ revoked: number }>>(
-      `/tenants/${encodeURIComponent(tenantId)}/revoke-sessions`,
-      { method: 'POST' },
-    ),
+    platformAdminFetch<Envelope<{ revoked: number }>>(`/tenants/${encodeURIComponent(tenantId)}/revoke-sessions`, {
+      method: 'POST',
+    }),
   lineStatus: (tenantId: string) =>
-    platformAdminFetch<Envelope<PlatformLineStatus[]>>(
-      `/tenants/${encodeURIComponent(tenantId)}/line-status`,
-    ),
+    platformAdminFetch<Envelope<PlatformLineStatus[]>>(`/tenants/${encodeURIComponent(tenantId)}/line-status`),
   testLineConnection: (tenantId: string, lineAccountId: string) =>
     platformAdminFetch<Envelope<PlatformLineProbe>>(
       `/tenants/${encodeURIComponent(tenantId)}/line-accounts/${encodeURIComponent(lineAccountId)}/test-connection`,
@@ -630,4 +670,4 @@ export const platformAdminApi = {
       `/tenants/${encodeURIComponent(tenantId)}/webhook-events/${encodeURIComponent(webhookEventId)}/retry`,
       { method: 'POST' },
     ),
-}
+};

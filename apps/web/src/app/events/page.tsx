@@ -1,45 +1,49 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { eventsApi, type EventListItem } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { eventsApi, type EventListItem } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
 
 function formatJpDate(iso: string | null): string {
-  if (!iso) return '日時未設定'
+  if (!iso) return '日時未設定';
   return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default function EventsListPage() {
-  const { selectedAccountId } = useAccount()
-  const [items, setItems] = useState<EventListItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { selectedAccountId } = useAccount();
+  const [items, setItems] = useState<EventListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!selectedAccountId) return
-    setLoading(true)
-    setError(null)
+    if (!selectedAccountId) return;
+    setLoading(true);
+    setError(null);
     try {
-      const res = await eventsApi.listEvents(selectedAccountId)
-      setItems(res.items)
+      const res = await eventsApi.listEvents(selectedAccountId);
+      setItems(res.items);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refresh();
+  }, [refresh]);
 
   return (
     <>
-      <Header title="イベント予約" />
+      <Header title="イベント予約" description="日時を指定したイベントを作成し、友だちに予約してもらいます。" />
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
           <div>
@@ -57,9 +61,7 @@ export default function EventsListPage() {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
         )}
 
         {loading ? (
@@ -88,11 +90,7 @@ export default function EventsListPage() {
                 className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
               >
                 {e.image_url ? (
-                  <img
-                    src={e.image_url}
-                    alt={e.name}
-                    className="w-full h-32 object-cover bg-gray-100"
-                  />
+                  <img src={e.image_url} alt={e.name} className="w-full h-32 object-cover bg-gray-100" />
                 ) : (
                   <div className="w-full h-32 bg-gradient-to-br from-blue-100 to-blue-200" />
                 )}
@@ -101,31 +99,32 @@ export default function EventsListPage() {
                     <div className="font-semibold text-gray-900 line-clamp-2 flex-1">{e.name}</div>
                     <div className="flex flex-col gap-1 shrink-0 items-end">
                       {e.is_published === 1 ? (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                          公開中
-                        </span>
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">公開中</span>
                       ) : (
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                          下書き
-                        </span>
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">下書き</span>
                       )}
-                      {e.target_type === 'multi-account-dedup' && (() => {
-                        const ids: string[] = Array.isArray(e.account_ids)
-                          ? e.account_ids
-                          : typeof e.account_ids === 'string'
-                            ? (() => { try { return JSON.parse(e.account_ids) as string[] } catch { return [] } })()
-                            : []
-                        return (
-                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                            横断 {ids.length} アカ
-                          </span>
-                        )
-                      })()}
+                      {e.target_type === 'multi-account-dedup' &&
+                        (() => {
+                          const ids: string[] = Array.isArray(e.account_ids)
+                            ? e.account_ids
+                            : typeof e.account_ids === 'string'
+                              ? (() => {
+                                  try {
+                                    return JSON.parse(e.account_ids) as string[];
+                                  } catch {
+                                    return [];
+                                  }
+                                })()
+                              : [];
+                          return (
+                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                              横断 {ids.length} アカ
+                            </span>
+                          );
+                        })()}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mb-3">
-                    {formatJpDate(e.next_slot_starts_at)}
-                  </div>
+                  <div className="text-xs text-gray-500 mb-3">{formatJpDate(e.next_slot_starts_at)}</div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-700">
                       予約 <span className="font-semibold">{e.total_active}</span>
@@ -144,5 +143,5 @@ export default function EventsListPage() {
         )}
       </div>
     </>
-  )
+  );
 }

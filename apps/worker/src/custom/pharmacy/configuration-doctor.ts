@@ -2,16 +2,24 @@ import { PHARMACY_READINESS_REASON_CODES } from './readiness.js';
 import { readLineCredential } from './provisioning/line-credential-store.js';
 
 export const PHARMACY_CONFIGURATION_REASON_CODES = [
-  'TENANT_MAPPING_MISSING', 'TENANT_INACTIVE', 'ACCOUNT_INACTIVE',
-  'STAFF_ASSIGNMENT_MISSING', 'CAPABILITY_CONFIG_MISSING', 'BOT_IDENTITY_MISSING',
-  'LIFF_ID_MISSING', 'LIFF_PUBLIC_ORIGIN_INVALID', 'LIFF_ENDPOINT_UNVERIFIED',
-  'LOGIN_CHANNEL_MISSING', 'MESSAGING_CREDENTIAL_MISSING', 'LOGIN_CREDENTIAL_MISSING',
-  'LINE_CREDENTIAL_UNVERIFIED', 'READINESS_UNAVAILABLE',
+  'TENANT_MAPPING_MISSING',
+  'TENANT_INACTIVE',
+  'ACCOUNT_INACTIVE',
+  'STAFF_ASSIGNMENT_MISSING',
+  'CAPABILITY_CONFIG_MISSING',
+  'BOT_IDENTITY_MISSING',
+  'LIFF_ID_MISSING',
+  'LIFF_PUBLIC_ORIGIN_INVALID',
+  'LIFF_ENDPOINT_UNVERIFIED',
+  'LOGIN_CHANNEL_MISSING',
+  'MESSAGING_CREDENTIAL_MISSING',
+  'LOGIN_CREDENTIAL_MISSING',
+  'LINE_CREDENTIAL_UNVERIFIED',
+  'READINESS_UNAVAILABLE',
   ...PHARMACY_READINESS_REASON_CODES,
 ] as const;
 
-export type PharmacyConfigurationReasonCode =
-  (typeof PHARMACY_CONFIGURATION_REASON_CODES)[number];
+export type PharmacyConfigurationReasonCode = (typeof PHARMACY_CONFIGURATION_REASON_CODES)[number];
 export type PharmacyConfigurationStatus = 'READY' | 'BLOCKED' | 'UNVERIFIED';
 
 type FeatureReadiness = {
@@ -77,8 +85,12 @@ function check(
   fixHref: string,
 ): PharmacyConfigurationCheck {
   return {
-    key, required: true, status: ready ? 'READY' : 'BLOCKED',
-    reasonCodes: ready ? [] : [reasonCode], impact, fixHref,
+    key,
+    required: true,
+    status: ready ? 'READY' : 'BLOCKED',
+    reasonCodes: ready ? [] : [reasonCode],
+    impact,
+    fixHref,
   };
 }
 
@@ -92,19 +104,47 @@ function featureCheck(
     return { key, required: false, status: 'READY', reasonCodes: [], impact, fixHref };
   }
   return {
-    key, required: true, status: value.status,
-    reasonCodes: [...value.reasonCodes], impact, fixHref,
+    key,
+    required: true,
+    status: value.status,
+    reasonCodes: [...value.reasonCodes],
+    impact,
+    fixHref,
   };
 }
 
 export function buildPharmacyConfigurationDoctor(input: PharmacyConfigurationDoctorInput) {
   const checks: PharmacyConfigurationCheck[] = [
-    check('tenantMapping', input.tenantMapped, 'TENANT_MAPPING_MISSING', '薬局accountをtenantから利用できません。', '/accounts'),
+    check(
+      'tenantMapping',
+      input.tenantMapped,
+      'TENANT_MAPPING_MISSING',
+      '薬局accountをtenantから利用できません。',
+      '/accounts',
+    ),
     check('tenant', input.tenantActive, 'TENANT_INACTIVE', 'tenantが停止中です。', '/accounts'),
     check('account', input.accountActive, 'ACCOUNT_INACTIVE', 'LINE accountが停止中です。', '/accounts'),
-    check('staffAssignment', input.staffAssigned, 'STAFF_ASSIGNMENT_MISSING', '担当staffが薬局accountを操作できません。', '/staff'),
-    check('capabilityConfig', input.capabilityConfigured, 'CAPABILITY_CONFIG_MISSING', '機能ON/OFF設定が未作成です。', '/pharmacy-features'),
-    check('botIdentity', input.botIdentityConfigured, 'BOT_IDENTITY_MISSING', 'Messaging APIのbot identityが未確認です。', '/accounts'),
+    check(
+      'staffAssignment',
+      input.staffAssigned,
+      'STAFF_ASSIGNMENT_MISSING',
+      '担当staffが薬局accountを操作できません。',
+      '/staff',
+    ),
+    check(
+      'capabilityConfig',
+      input.capabilityConfigured,
+      'CAPABILITY_CONFIG_MISSING',
+      '機能ON/OFF設定が未作成です。',
+      '/pharmacy-features',
+    ),
+    check(
+      'botIdentity',
+      input.botIdentityConfigured,
+      'BOT_IDENTITY_MISSING',
+      'Messaging APIのbot identityが未確認です。',
+      '/accounts',
+    ),
   ];
 
   const liffReasons: PharmacyConfigurationReasonCode[] = [];
@@ -120,8 +160,12 @@ export function buildPharmacyConfigurationDoctor(input: PharmacyConfigurationDoc
     liffStatus = 'UNVERIFIED';
   }
   checks.push({
-    key: 'liffEndpoint', required: true, status: liffStatus, reasonCodes: liffReasons,
-    impact: 'LIFFの薬局画面を安全に起動できません。', fixHref: '/accounts',
+    key: 'liffEndpoint',
+    required: true,
+    status: liffStatus,
+    reasonCodes: liffReasons,
+    impact: 'LIFFの薬局画面を安全に起動できません。',
+    fixHref: '/accounts',
   });
 
   const credentialReasons: PharmacyConfigurationReasonCode[] = [];
@@ -133,22 +177,37 @@ export function buildPharmacyConfigurationDoctor(input: PharmacyConfigurationDoc
     credentialReasons.push('LINE_CREDENTIAL_UNVERIFIED');
   }
   checks.push({
-    key: 'lineCredentials', required: true,
+    key: 'lineCredentials',
+    required: true,
     status: credentialsBlocked ? 'BLOCKED' : credentialReasons.length ? 'UNVERIFIED' : 'READY',
     reasonCodes: credentialReasons,
-    impact: 'LINE連携またはrich-menu反映を実行できません。', fixHref: '/accounts',
+    impact: 'LINE連携またはrich-menu反映を実行できません。',
+    fixHref: '/accounts',
   });
 
   if (!input.readiness) {
     checks.push({
-      key: 'readiness', required: true, status: 'UNVERIFIED',
-      reasonCodes: ['READINESS_UNAVAILABLE'], impact: '機能別の準備状態を確認できません。',
+      key: 'readiness',
+      required: true,
+      status: 'UNVERIFIED',
+      reasonCodes: ['READINESS_UNAVAILABLE'],
+      impact: '機能別の準備状態を確認できません。',
       fixHref: '/pharmacy-features',
     });
   } else {
     checks.push(
-      featureCheck('electronicPrescription', input.readiness.electronicPrescription, '電子処方箋受付を開始できません。', '/myna'),
-      featureCheck('emergencyContraception', input.readiness.emergencyContraception, '緊急避妊薬受付を開始できません。', '/emergency-contraception'),
+      featureCheck(
+        'electronicPrescription',
+        input.readiness.electronicPrescription,
+        '電子処方箋受付を開始できません。',
+        '/myna',
+      ),
+      featureCheck(
+        'emergencyContraception',
+        input.readiness.emergencyContraception,
+        '緊急避妊薬受付を開始できません。',
+        '/emergency-contraception',
+      ),
       featureCheck('richMenu', input.readiness.richMenu, 'rich-menuを現在の設定として確認できません。', '/rich-menus'),
     );
   }
@@ -159,8 +218,10 @@ export function buildPharmacyConfigurationDoctor(input: PharmacyConfigurationDoc
     accountId: input.accountId,
     checkedAt: input.checkedAt,
     status: requiredFailures.some((item) => item.status === 'BLOCKED')
-      ? 'BLOCKED' as const
-      : requiredFailures.length > 0 ? 'UNVERIFIED' as const : 'READY' as const,
+      ? ('BLOCKED' as const)
+      : requiredFailures.length > 0
+        ? ('UNVERIFIED' as const)
+        : ('READY' as const),
     reasonCodes,
     checks,
   };
@@ -174,8 +235,9 @@ export async function getPharmacyConfigurationDoctor(input: {
   credentialKey?: string;
   readiness: CanonicalReadiness | null;
 }) {
-  const row = await input.db.prepare(
-    `SELECT mapping.tenant_id, tenant.status AS tenant_status, account.is_active,
+  const row = await input.db
+    .prepare(
+      `SELECT mapping.tenant_id, tenant.status AS tenant_status, account.is_active,
             account.liff_id, account.login_channel_id,
             (SELECT COUNT(*) FROM pharmacy_staff_accounts AS assignment
               INNER JOIN staff_members AS staff ON staff.id = assignment.staff_id
@@ -201,7 +263,9 @@ export async function getPharmacyConfigurationDoctor(input: {
               ON mapping.line_account_id = account.id AND mapping.tenant_id = ?
        LEFT JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
       WHERE account.id = ? LIMIT 1`,
-  ).bind(input.tenantId, input.accountId).first<PharmacyConfigurationSnapshot>();
+    )
+    .bind(input.tenantId, input.accountId)
+    .first<PharmacyConfigurationSnapshot>();
 
   let liffOriginValid = false;
   if (row?.liff_id && input.liffPublicUrl) {
@@ -214,22 +278,33 @@ export async function getPharmacyConfigurationDoctor(input: {
   }
 
   let credentialStatus: 'READY' | 'UNVERIFIED' = 'UNVERIFIED';
-  if (row?.tenant_id === input.tenantId && row.messaging_credential_count === 2 &&
-      row.login_credential_count === 1 && input.credentialKey) {
+  if (
+    row?.tenant_id === input.tenantId &&
+    row.messaging_credential_count === 2 &&
+    row.login_credential_count === 1 &&
+    input.credentialKey
+  ) {
     try {
       const values = await Promise.all([
         readLineCredential(input.db, input.credentialKey, {
-          tenantId: input.tenantId, lineAccountId: input.accountId, kind: 'channel_access_token',
+          tenantId: input.tenantId,
+          lineAccountId: input.accountId,
+          kind: 'channel_access_token',
         }),
         readLineCredential(input.db, input.credentialKey, {
-          tenantId: input.tenantId, lineAccountId: input.accountId, kind: 'channel_secret',
+          tenantId: input.tenantId,
+          lineAccountId: input.accountId,
+          kind: 'channel_secret',
         }),
         readLineCredential(input.db, input.credentialKey, {
-          tenantId: input.tenantId, lineAccountId: input.accountId, kind: 'login_channel_secret',
+          tenantId: input.tenantId,
+          lineAccountId: input.accountId,
+          kind: 'login_channel_secret',
         }),
       ]);
       credentialStatus = values.every((value) => typeof value === 'string' && value.length > 0)
-        ? 'READY' : 'UNVERIFIED';
+        ? 'READY'
+        : 'UNVERIFIED';
     } catch {
       credentialStatus = 'UNVERIFIED';
     }

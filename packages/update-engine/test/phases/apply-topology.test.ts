@@ -97,9 +97,7 @@ describe('runApply — install topologies', () => {
     const { ev } = emitter();
     await runApply(ctx(), bundle(), ev);
 
-    const adminCall = vi
-      .mocked(deployPagesProject)
-      .mock.calls.find(([args]) => args.projectName === 'admin-proj');
+    const adminCall = vi.mocked(deployPagesProject).mock.calls.find(([args]) => args.projectName === 'admin-proj');
     expect(adminCall).toBeDefined();
     const files = adminCall![0].files as Map<string, Buffer>;
     expect(files.get('chunk.js')!.toString('utf8')).toBe(`fetch("${WORKER_URL}/api")`);
@@ -111,9 +109,7 @@ describe('runApply — install topologies', () => {
     const { ev } = emitter();
     await runApply(ctx({ workerPublicUrl: undefined }), bundle(), ev);
 
-    const adminCall = vi
-      .mocked(deployPagesProject)
-      .mock.calls.find(([args]) => args.projectName === 'admin-proj');
+    const adminCall = vi.mocked(deployPagesProject).mock.calls.find(([args]) => args.projectName === 'admin-proj');
     const files = adminCall![0].files as Map<string, Buffer>;
     expect(files.get('chunk.js')!.toString('utf8')).toContain(ADMIN_URL_PLACEHOLDER);
   });
@@ -142,13 +138,9 @@ describe('runApply — install topologies', () => {
 
   it('blocks a worker-assets install when the release omitted worker-assets/', async () => {
     const { ev } = emitter();
-    await expect(
-      runApply(
-        ctx({ liffPagesProject: '' }),
-        bundle({ workerAssetFiles: new Map() }),
-        ev,
-      ),
-    ).rejects.toThrow(/cannot be updated safely/);
+    await expect(runApply(ctx({ liffPagesProject: '' }), bundle({ workerAssetFiles: new Map() }), ev)).rejects.toThrow(
+      /cannot be updated safely/,
+    );
     expect(putWorkerScript).not.toHaveBeenCalled();
   });
 

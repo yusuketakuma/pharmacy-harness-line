@@ -2,15 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { runTenantSetup } from './setup-tenant.js';
 
 const args = [
-  '--worker-url', 'https://api.example.test',
-  '--tenant-name', 'Pharmacy A',
-  '--admin-id', 'admin-a',
-  '--admin-name', 'Owner A',
-  '--admin-email', 'owner@example.test',
-  '--line-channel-id', '2001234567',
-  '--line-name', 'Pharmacy A LINE',
-  '--line-login-channel-id', '2007654321',
-  '--liff-id', '2007654321-AbCdEfGh',
+  '--worker-url',
+  'https://api.example.test',
+  '--tenant-name',
+  'Pharmacy A',
+  '--admin-name',
+  'Owner A',
+  '--admin-email',
+  'owner@example.test',
+  '--line-channel-id',
+  '2001234567',
+  '--line-name',
+  'Pharmacy A LINE',
+  '--line-login-channel-id',
+  '2007654321',
+  '--liff-id',
+  '2007654321-AbCdEfGh',
 ];
 
 const secrets = {
@@ -24,12 +31,7 @@ describe('tenant setup CLI', () => {
   it('dry-runs without sending or printing secrets', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
-    const exitCode = await runTenantSetup(
-      [...args, '--dry-run'],
-      secrets,
-      fetcher,
-      (line) => output.push(line),
-    );
+    const exitCode = await runTenantSetup([...args, '--dry-run'], secrets, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(0);
     expect(fetcher).not.toHaveBeenCalled();
@@ -44,8 +46,7 @@ describe('tenant setup CLI', () => {
   it('rejects a LIFF ID from another login channel before sending', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
-    const mismatched = args.map((value) =>
-      value === '2007654321-AbCdEfGh' ? '2999999999-AbCdEfGh' : value);
+    const mismatched = args.map((value) => (value === '2007654321-AbCdEfGh' ? '2999999999-AbCdEfGh' : value));
 
     const exitCode = await runTenantSetup(mismatched, secrets, fetcher, (line) => output.push(line));
 
@@ -57,11 +58,13 @@ describe('tenant setup CLI', () => {
   it('requires the LINE Login channel and LIFF identifiers for a pharmacy tenant', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
-    const withoutLogin = args.filter((value) =>
-      value !== '--line-login-channel-id' &&
-      value !== '2007654321' &&
-      value !== '2007654321-AbCdEfGh' &&
-      value !== '--liff-id');
+    const withoutLogin = args.filter(
+      (value) =>
+        value !== '--line-login-channel-id' &&
+        value !== '2007654321' &&
+        value !== '2007654321-AbCdEfGh' &&
+        value !== '--liff-id',
+    );
 
     const exitCode = await runTenantSetup(withoutLogin, secrets, fetcher, (line) => output.push(line));
 
@@ -72,23 +75,27 @@ describe('tenant setup CLI', () => {
 
   it('provisions once and displays the issued login details without echoing LINE secrets', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      data: {
-        tenantCode: '004821',
-        adminLoginId: 'admin-a',
-        urls: {
-          admin: 'https://admin.example.test',
-          webhook: 'https://api.example.test/webhook',
-          liffEndpoint: 'https://liff.example.test/?liffId=2007654321-AbCdEfGh',
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            tenantCode: '004821',
+            urls: {
+              admin: 'https://admin.example.test',
+              webhook: 'https://api.example.test/webhook',
+              liffEndpoint: 'https://liff.example.test/?liffId=2007654321-AbCdEfGh',
+            },
+            line: { tokenValidated: true, webhookConfigured: true },
+            manualSteps: ['Enable webhook use in LINE Developers if it is disabled.'],
+          },
+        }),
+        {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
         },
-        line: { tokenValidated: true, webhookConfigured: true },
-        manualSteps: ['Enable webhook use in LINE Developers if it is disabled.'],
-      },
-    }), {
-      status: 201,
-      headers: { 'content-type': 'application/json' },
-    }));
+      ),
+    );
 
     const exitCode = await runTenantSetup(args, secrets, fetcher, (line) => output.push(line));
 
@@ -97,19 +104,19 @@ describe('tenant setup CLI', () => {
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe('https://api.example.test/api/platform/pharmacy/tenants');
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' });
-    expect((init?.headers as Record<string, string>).Authorization)
-      .toBe(`Bearer ${secrets.PHARMACY_PLATFORM_ADMIN_KEY}`);
-    expect((init?.headers as Record<string, string>)['Idempotency-Key'])
-      .toMatch(/^[0-9a-f-]{36}$/);
+    expect((init?.headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${secrets.PHARMACY_PLATFORM_ADMIN_KEY}`,
+    );
+    expect((init?.headers as Record<string, string>)['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
     const body = JSON.parse(String(init?.body)) as {
-      admin: { temporaryPassword: string };
+      admin: Record<string, unknown>;
       line: {
         channelAccessToken: string;
         channelSecret: string;
         loginChannelSecret: string | null;
       };
     };
-    expect(body.admin.temporaryPassword).toMatch(/^Tmp-[A-Za-z0-9_-]{32}$/);
+    expect(body.admin).toEqual({ displayName: 'Owner A', email: 'owner@example.test' });
     expect(body.line).toMatchObject({
       channelAccessToken: secrets.PHARMACY_LINE_CHANNEL_ACCESS_TOKEN,
       channelSecret: secrets.PHARMACY_LINE_CHANNEL_SECRET,
@@ -118,8 +125,7 @@ describe('tenant setup CLI', () => {
 
     const rendered = output.join('\n');
     expect(rendered).toContain('薬局コード: 004821');
-    expect(rendered).toContain('管理者ID: admin-a');
-    expect(rendered).toContain(`仮パスワード（初回のみ表示）: ${body.admin.temporaryPassword}`);
+    expect(rendered).toContain('初回パスワードは全体管理画面から発行してください');
     expect(rendered).not.toContain('LINE Callback URL');
     expect(rendered).not.toContain(secrets.PHARMACY_PLATFORM_ADMIN_KEY);
     expect(rendered).not.toContain(secrets.PHARMACY_LINE_CHANNEL_ACCESS_TOKEN);
@@ -142,17 +148,21 @@ describe('tenant setup CLI', () => {
     expect(output.join('\n')).toContain('PHARMACY_LINE_LOGIN_CHANNEL_SECRET');
   });
 
-  it('reuses a supplied idempotency key but never reproduces a temporary password', async () => {
+  it('reuses a supplied idempotency key without putting tenant credentials in the request', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      data: {
-        tenantCode: '004821',
-        adminLoginId: 'admin-a',
-        urls: {},
-        line: {},
-      },
-    }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            tenantCode: '004821',
+            urls: {},
+            line: {},
+          },
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
     const retryArgs = [...args, '--idempotency-key', 'setup-retry-20260819'];
 
     await runTenantSetup(retryArgs, secrets, fetcher, (line) => output.push(line));
@@ -160,42 +170,54 @@ describe('tenant setup CLI', () => {
 
     const first = fetcher.mock.calls[0][1]!;
     const second = fetcher.mock.calls[1][1]!;
-    expect((first.headers as Record<string, string>)['Idempotency-Key'])
-      .toBe('setup-retry-20260819');
-    expect((second.headers as Record<string, string>)['Idempotency-Key'])
-      .toBe('setup-retry-20260819');
-    expect(JSON.parse(String(first.body)).admin.temporaryPassword)
-      .not.toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
+    expect((first.headers as Record<string, string>)['Idempotency-Key']).toBe('setup-retry-20260819');
+    expect((second.headers as Record<string, string>)['Idempotency-Key']).toBe('setup-retry-20260819');
+    const firstBody = JSON.parse(String(first.body)) as { admin: Record<string, unknown> };
+    const secondBody = JSON.parse(String(second.body)) as { admin: Record<string, unknown> };
+    expect(firstBody.admin).toEqual(secondBody.admin);
+    expect(firstBody.admin).not.toHaveProperty('loginId');
+    expect(firstBody.admin).not.toHaveProperty('temporaryPassword');
     expect(output.filter((line) => line.includes('再実行キー')).length).toBe(2);
   });
 
   it('does not print the locally generated password when the server replayed', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      data: { tenantCode: '004821', adminLoginId: 'admin-a', replayed: true, urls: {}, line: {} },
-    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { tenantCode: '004821', replayed: true, urls: {}, line: {} },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
 
     const exitCode = await runTenantSetup(args, secrets, fetcher, (line) => output.push(line));
 
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as {
-      admin: { temporaryPassword: string };
+      admin: Record<string, unknown>;
     };
     expect(exitCode).toBe(0);
     expect(output.join('\n')).toContain('薬局コード: 004821');
-    expect(output.join('\n')).not.toContain(body.admin.temporaryPassword);
+    expect(body.admin).not.toHaveProperty('temporaryPassword');
     expect(output.join('\n')).toContain('再実行');
   });
 
-  it('derives a different temporary password for a different tenant reusing the same idempotency key', async () => {
+  it('does not add tenant credentials when different tenant setup requests reuse an idempotency key', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      data: { tenantCode: '004821', adminLoginId: 'admin-a', urls: {}, line: {} },
-    }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { tenantCode: '004821', urls: {}, line: {} },
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
     const sharedIdempotencyKey = ['--idempotency-key', 'shared-lost-response-key'];
     const tenantAArgs = [...args, ...sharedIdempotencyKey];
-    const tenantBArgs = args.map((value) => (value === '2001234567' ? '2009999999' : value))
+    const tenantBArgs = args
+      .map((value) => (value === '2001234567' ? '2009999999' : value))
       .concat(sharedIdempotencyKey);
 
     await runTenantSetup(tenantAArgs, secrets, fetcher, (line) => output.push(line));
@@ -203,8 +225,17 @@ describe('tenant setup CLI', () => {
 
     const first = fetcher.mock.calls[0][1]!;
     const second = fetcher.mock.calls[1][1]!;
-    expect(JSON.parse(String(first.body)).admin.temporaryPassword)
-      .not.toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
+    const firstBody = JSON.parse(String(first.body)) as {
+      admin: Record<string, unknown>;
+      line: { channelId: string };
+    };
+    const secondBody = JSON.parse(String(second.body)) as {
+      admin: Record<string, unknown>;
+      line: { channelId: string };
+    };
+    expect(firstBody.admin).not.toHaveProperty('temporaryPassword');
+    expect(secondBody.admin).not.toHaveProperty('temporaryPassword');
+    expect(firstBody.line.channelId).not.toBe(secondBody.line.channelId);
   });
 
   it('fails before the request when required configuration is missing', async () => {
@@ -224,13 +255,18 @@ describe('tenant setup CLI', () => {
 
   it('reports a safe server error without echoing submitted credentials', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      success: false,
-      error: 'LINE access token validation failed',
-    }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' },
-    }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: 'LINE access token validation failed',
+        }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
 
     const exitCode = await runTenantSetup(args, secrets, fetcher, (line) => output.push(line));
 

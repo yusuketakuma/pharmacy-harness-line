@@ -13,16 +13,11 @@ import PrescriptionPage, {
   pendingRequirementLabels,
   mynaStatusLabel,
   prescriptionUnmetReasons,
+  prescriptionUploadPositions,
 } from './PrescriptionPage.js';
 
-const source = readFileSync(
-  fileURLToPath(new URL('./PrescriptionPage.tsx', import.meta.url).href),
-  'utf8',
-);
-const appSource = readFileSync(
-  fileURLToPath(new URL('../../../App.tsx', import.meta.url).href),
-  'utf8',
-);
+const source = readFileSync(fileURLToPath(new URL('./PrescriptionPage.tsx', import.meta.url).href), 'utf8');
+const appSource = readFileSync(fileURLToPath(new URL('../../../App.tsx', import.meta.url).href), 'utf8');
 
 describe('prescription upload UI contract', () => {
   it('requires 1-4 images, both consents, and an idle request', () => {
@@ -35,12 +30,8 @@ describe('prescription upload UI contract', () => {
   });
 
   it('rejects unsupported or oversized local files before upload', () => {
-    expect(validatePrescriptionImages([
-      { type: 'image/gif', size: 10 },
-    ])).toMatch(/JPEGまたはPNG/);
-    expect(validatePrescriptionImages([
-      { type: 'image/png', size: 10 * 1024 * 1024 + 1 },
-    ])).toMatch(/10MB/);
+    expect(validatePrescriptionImages([{ type: 'image/gif', size: 10 }])).toMatch(/JPEGまたはPNG/);
+    expect(validatePrescriptionImages([{ type: 'image/png', size: 10 * 1024 * 1024 + 1 }])).toMatch(/10MB/);
   });
 
   it('adds later camera selections instead of replacing earlier pages', () => {
@@ -65,17 +56,21 @@ describe('prescription upload UI contract', () => {
 
   it('routes every tab change back through the feature gate', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}>
+        <PrescriptionPage />
+      </MemoryRouter>,
     );
     expect(html).toContain('href="/prescriptions?view=send"');
     expect(html).toContain('href="/prescriptions?view=electronic"');
     expect(html).toContain('href="/prescriptions?view=history"');
-    expect(appSource).toContain('<PharmacyPage screenTitle={screenTitle} capability={capability} allowExisting={allowExisting}>');
+    expect(appSource).toContain(
+      '<PharmacyPage screenTitle={screenTitle} capability={capability} allowExisting={allowExisting}>',
+    );
   });
 
   it('reuses Myna handoffs for start, resume, patient report, cancel, and paper fallback', () => {
     expect(source).toContain('mynaApi.active()');
-    expect(source).toMatch(/mynaApi\.create\(\s*'E_PRESCRIPTION'/)
+    expect(source).toMatch(/mynaApi\.create\(\s*'E_PRESCRIPTION'/);
     expect(source).toContain('mynaApi.launch(');
     expect(source).toContain('mynaApi.report(mynaHandoff.id, result)');
     expect(source).toContain('MYNA_PATIENT_REPORT_OPTIONS');
@@ -88,16 +83,22 @@ describe('prescription upload UI contract', () => {
     expect(canLaunchMynaPatientHandoff('LAUNCH_REQUESTED')).toBe(true);
     expect(canLaunchMynaPatientHandoff('PATIENT_REPORTED_COMPLETE')).toBe(false);
     expect(mynaPatientReportOptions('CREATED').map(([result]) => result)).toEqual([
-      'COMPLETED', 'NO_PRESCRIPTION_FOUND', 'FAILED', 'SWITCH_TO_PAPER',
+      'COMPLETED',
+      'NO_PRESCRIPTION_FOUND',
+      'FAILED',
+      'SWITCH_TO_PAPER',
     ]);
-    expect(mynaPatientReportOptions('PATIENT_REPORTED_COMPLETE').map(([result]) => result))
-      .toEqual(['SWITCH_TO_PAPER']);
+    expect(mynaPatientReportOptions('PATIENT_REPORTED_COMPLETE').map(([result]) => result)).toEqual([
+      'SWITCH_TO_PAPER',
+    ]);
     expect(mynaPatientReportOptions('CLOSED')).toEqual([]);
   });
 
   it('renders mobile labels, native controls, and an initially disabled submit', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}>
+        <PrescriptionPage />
+      </MemoryRouter>,
     );
     expect(html).toContain('処方せん受付');
     expect(html).toContain('accept="image/jpeg,image/png"');
@@ -121,7 +122,9 @@ describe('prescription upload UI contract', () => {
   });
 
   it('shows a re-confirmation hint next to the consent checkboxes during resubmission', () => {
-    expect(source).toMatch(/\{replacement\s*&&\s*<p[^>]*>[^<]*再度[^<]*<\/p>\}/);
+    expect(source).toMatch(
+      /\{\(replacement \|\| recoveredSubmission\)\s*&&\s*\(\s*<p[^>]*>[^<]*再度[^<]*<\/p>\s*\)\s*\}/,
+    );
   });
 
   it('keeps submission blocked until both consents are re-checked, even with images attached', () => {
@@ -143,11 +146,15 @@ describe('prescription upload UI contract', () => {
   });
 
   it('shows the pharmacy preparation estimate and safe pending checks', () => {
-    expect(pendingRequirementLabels(JSON.stringify([
-      { code: 'stock_check', status: 'pending' },
-      { code: 'original_required', status: 'satisfied' },
-      { code: 'unknown_internal_code', status: 'pending' },
-    ]))).toEqual(['在庫を確認しています', '薬局から確認があります']);
+    expect(
+      pendingRequirementLabels(
+        JSON.stringify([
+          { code: 'stock_check', status: 'pending' },
+          { code: 'original_required', status: 'satisfied' },
+          { code: 'unknown_internal_code', status: 'pending' },
+        ]),
+      ),
+    ).toEqual(['在庫を確認しています', '薬局から確認があります']);
     expect(pendingRequirementLabels('invalid')).toEqual([]);
     expect(source).toContain('item.estimated_ready_at');
     expect(source).toContain('pendingRequirementLabels(item.requirements_json)');
@@ -165,7 +172,9 @@ describe('prescription upload UI contract', () => {
 describe('prescription quick wins (WP-11)', () => {
   it('uses menu-matching tab labels and plain 処方せん wording', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}>
+        <PrescriptionPage />
+      </MemoryRouter>,
     );
     expect(html).toContain('処方せんを送る');
     expect(html).toContain('電子処方箋');
@@ -183,7 +192,9 @@ describe('prescription quick wins (WP-11)', () => {
   });
 
   it('gives the cancel action a tappable bordered button with plain wording', () => {
-    expect(source).toMatch(/onClick=\{\(\) => void cancel\(item\)\} className="min-h-11[^"]*border[^"]*"[^>]*>送信を取り消す</);
+    expect(source).toMatch(
+      /onClick=\{\(\) => void cancel\(item\)\}\s*className="min-h-11[^"]*border[^"]*"\s*>\s*送信を取り消す\s*<\//,
+    );
   });
 
   it('limits pickup time to the future and shows the requested time in history', () => {
@@ -195,26 +206,46 @@ describe('prescription quick wins (WP-11)', () => {
 
 describe('prescription submit flow (WP-12)', () => {
   it('lists every unmet requirement in plain Japanese', () => {
-    expect(prescriptionUnmetReasons({
-      imageCount: 0, originalConsent: false, noticeConsent: false, patientSelected: false, intakeDone: false,
-    })).toEqual([
+    expect(
+      prescriptionUnmetReasons({
+        imageCount: 0,
+        originalConsent: false,
+        noticeConsent: false,
+        patientSelected: false,
+        intakeDone: false,
+      }),
+    ).toEqual([
       '患者を選んでください',
       '患者アンケートに回答してください',
       '処方せんの写真を1枚以上選んでください',
       '「処方せん原本を持参します」にチェックしてください',
       '「準備完了通知をLINEで受け取ります」にチェックしてください',
     ]);
-    expect(prescriptionUnmetReasons({
-      imageCount: 5, originalConsent: true, noticeConsent: true, patientSelected: true, intakeDone: true,
-    })).toEqual(['処方せんの写真は4枚までにしてください']);
-    expect(prescriptionUnmetReasons({
-      imageCount: 2, originalConsent: true, noticeConsent: true, patientSelected: true, intakeDone: true,
-    })).toEqual([]);
+    expect(
+      prescriptionUnmetReasons({
+        imageCount: 5,
+        originalConsent: true,
+        noticeConsent: true,
+        patientSelected: true,
+        intakeDone: true,
+      }),
+    ).toEqual(['処方せんの写真は4枚までにしてください']);
+    expect(
+      prescriptionUnmetReasons({
+        imageCount: 2,
+        originalConsent: true,
+        noticeConsent: true,
+        patientSelected: true,
+        intakeDone: true,
+      }),
+    ).toEqual([]);
   });
 
   it('shows the unmet list next to the submit button and focuses errors', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}>
+        <PrescriptionPage />
+      </MemoryRouter>,
     );
     expect(html).toContain('送信するには');
     expect(html).toContain('処方せんの写真を1枚以上選んでください');
@@ -225,8 +256,84 @@ describe('prescription submit flow (WP-12)', () => {
     expect(source).toContain('送信内容の確認');
     expect(source).toContain('この内容で送信する');
     expect(source).toContain('修正する');
-    expect(source).toContain("setConfirming(true)");
+    expect(source).toContain('setConfirming(true)');
     expect(source).toContain('window.scrollTo(0, 0)');
     expect(source).toContain('次にすること');
+  });
+});
+
+describe('prescription upload recovery (V034-3)', () => {
+  it('fills pending positions before missing positions and never overwrites ready slots', () => {
+    expect(prescriptionUploadPositions([1], [2], 2)).toEqual([2, 3]);
+    expect(prescriptionUploadPositions([1, 3], [], 2)).toEqual([2, 4]);
+    expect(prescriptionUploadPositions([1, 2, 3, 4], [], 1)).toEqual([]);
+  });
+
+  it('blocks confirmation until startup reconciliation and connectivity are known', () => {
+    expect(
+      prescriptionUnmetReasons({
+        imageCount: 1,
+        originalConsent: true,
+        noticeConsent: true,
+        patientSelected: true,
+        intakeDone: true,
+        recoveryResolved: false,
+        online: true,
+      }),
+    ).toContain('未送信の状態を確認しています');
+    expect(
+      prescriptionUnmetReasons({
+        imageCount: 1,
+        originalConsent: true,
+        noticeConsent: true,
+        patientSelected: true,
+        intakeDone: true,
+        recoveryResolved: true,
+        online: false,
+      }),
+    ).toContain('通信に接続してから送信してください');
+  });
+
+  it('reconciles before reserve and after an unknown mutation outcome', () => {
+    const startupRecovery = source.slice(
+      source.indexOf('const refreshRecovery'),
+      source.indexOf('useEffect(', source.indexOf('const refreshRecovery')),
+    );
+    const postErrorRecovery = source.slice(
+      source.indexOf('async function reconcileAfterSendError'),
+      source.indexOf('async function send()'),
+    );
+    expect(startupRecovery).toContain('prescriptionApi.recovery()');
+    expect(startupRecovery).not.toContain('attemptedSubmissionId');
+    expect(postErrorRecovery).toContain('? { submissionId: attemptedSubmissionId }');
+    expect(postErrorRecovery).toContain(': { idempotencyKey }');
+    // The reconcile read writes history directly, so it must claim the epoch —
+    // a stale quiet refresh in flight must not overwrite the reconciled list.
+    expect(postErrorRecovery).toContain('historyEpochRef.current += 1');
+    expect(source).toContain('reconcileAfterSendError');
+    expect(source).toContain('isUnsupportedPharmacyFeature(error)');
+    expect(source).not.toContain('error.status === 404');
+    expect(source).toContain("item.status === 'received'");
+    expect(source).toContain('sendingRef.current');
+  });
+
+  it('binds a recovered patient, exposes ready and pending slots, and rechecks consent', () => {
+    expect(source).toContain('setSelectedPatientId(submission.patientId)');
+    expect(source).toContain('readyPositions');
+    expect(source).toContain('pendingPositions');
+    expect(source).toContain('薬局に届いている画像');
+    expect(source).toContain('同じ画像をもう一度選択');
+    expect(source).toContain('disabled={busy || Boolean(recoveredSubmission)}');
+    expect(source).not.toMatch(/setOriginalConsent\(true\)|setNoticeConsent\(true\)/);
+    expect(source.match(/setOriginalConsent\(false\)/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(source.match(/setNoticeConsent\(false\)/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('warns on navigation, tracks offline state natively, and persists no recovery data', () => {
+    expect(source).toContain("addEventListener('beforeunload'");
+    // Offline tracking lives in usePharmacyOnline (offline/online events with
+    // a read-only reconnect callback).
+    expect(source).toContain('usePharmacyOnline(reconnectReads)');
+    expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB|caches\./);
   });
 });

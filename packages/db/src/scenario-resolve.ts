@@ -26,10 +26,7 @@ function normalizeMessageType(type: string): string {
  * step.template_id がセットされていれば templates テーブルから内容を resolve。
  * テンプレが見つからない (削除直後のレース等) は step 側にフォールバックして配信を止めない。
  */
-export async function resolveStepContent(
-  db: D1Database,
-  step: StepLike,
-): Promise<ResolvedContent> {
+export async function resolveStepContent(db: D1Database, step: StepLike): Promise<ResolvedContent> {
   if (!step.template_id) {
     return {
       messageType: step.message_type,

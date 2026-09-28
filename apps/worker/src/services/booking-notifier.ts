@@ -1,13 +1,7 @@
 import { LineClient } from '@line-crm/line-sdk';
 import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 
-export type NotificationKind =
-  | 'requested'
-  | 'approved'
-  | 'rejected'
-  | 'expired'
-  | 'day_before'
-  | 'hours_before';
+export type NotificationKind = 'requested' | 'approved' | 'rejected' | 'expired' | 'day_before' | 'hours_before';
 
 export interface NotificationContext {
   menuName: string;
@@ -16,10 +10,7 @@ export interface NotificationContext {
   hoursBefore: number;
 }
 
-export function renderNotificationText(
-  kind: NotificationKind,
-  ctx: NotificationContext,
-): string {
+export function renderNotificationText(kind: NotificationKind, ctx: NotificationContext): string {
   const detail = `\nメニュー: ${ctx.menuName}\n担当: ${ctx.staffName}\n日時: ${ctx.startsAtJst}`;
   switch (kind) {
     case 'requested':

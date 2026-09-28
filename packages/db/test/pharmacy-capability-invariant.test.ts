@@ -26,10 +26,18 @@ describe('pharmacy_account_capabilities invariant', () => {
       (id, channel_id, name, channel_access_token, channel_secret)
       VALUES ('new-account', 'channel-new', 'New Account', 'token', 'secret')`).run();
 
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_account_capabilities
-      WHERE line_account_id = 'new-account'`).get()).toEqual({ count: 1 });
-    expect(db.prepare(`SELECT mode FROM pharmacy_account_capabilities
-      WHERE line_account_id = 'new-account'`).get()).toEqual({ mode: 'pharmacy' });
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM pharmacy_account_capabilities
+      WHERE line_account_id = 'new-account'`)
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      db
+        .prepare(`SELECT mode FROM pharmacy_account_capabilities
+      WHERE line_account_id = 'new-account'`)
+        .get(),
+    ).toEqual({ mode: 'pharmacy' });
   });
 
   it('does not duplicate the capability row if one is explicitly inserted first', () => {
@@ -50,7 +58,11 @@ describe('pharmacy_account_capabilities invariant', () => {
                 '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z');
     `);
 
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_account_capabilities
-      WHERE line_account_id = 'explicit-account'`).get()).toEqual({ count: 1 });
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM pharmacy_account_capabilities
+      WHERE line_account_id = 'explicit-account'`)
+        .get(),
+    ).toEqual({ count: 1 });
   });
 });

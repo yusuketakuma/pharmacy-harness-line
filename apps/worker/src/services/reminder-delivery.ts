@@ -7,12 +7,7 @@ import { extractFlexAltText } from '../utils/flex-alt-text.js';
  * まだ配信されていないステップを配信する
  */
 
-import {
-  getDueReminderDeliveries,
-  completeReminderIfDone,
-  getFriendById,
-  jstNow,
-} from '@line-crm/db';
+import { getDueReminderDeliveries, completeReminderIfDone, getFriendById, jstNow } from '@line-crm/db';
 import type { LineClient, Message } from '@line-crm/line-sdk';
 import { addJitter, sleep } from './stealth.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
@@ -20,10 +15,7 @@ import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 import { getActiveMappedAccountTenantId } from './step-delivery.js';
 
-export async function processReminderDeliveries(
-  db: D1Database,
-  _lineClient: LineClient,
-): Promise<void> {
+export async function processReminderDeliveries(db: D1Database, _lineClient: LineClient): Promise<void> {
   const now = jstNow();
   const dueReminders = await getDueReminderDeliveries(db, now);
 
@@ -66,11 +58,7 @@ export async function processReminderDeliveries(
           source: 'reminder',
           request: { to: friend.line_user_id, messages: [message] },
           send: async (request, providerRetryKey) => {
-            await deliveryClient.pushMessage(
-              request.to,
-              request.messages,
-              providerRetryKey,
-            );
+            await deliveryClient.pushMessage(request.to, request.messages, providerRetryKey);
           },
         });
         if (result !== 'sent' && result !== 'already_sent') {
@@ -82,10 +70,11 @@ export async function processReminderDeliveries(
         // Prefer possible duplicate send over silent message loss on crash.
         const lockId = crypto.randomUUID();
         await db
-          .prepare(`INSERT OR IGNORE INTO friend_reminder_deliveries (id, friend_reminder_id, reminder_step_id) VALUES (?, ?, ?)`)
+          .prepare(
+            `INSERT OR IGNORE INTO friend_reminder_deliveries (id, friend_reminder_id, reminder_step_id) VALUES (?, ?, ?)`,
+          )
           .bind(lockId, fr.id, step.id)
           .run();
-
       }
 
       // 全ステップ配信済みかチェック
@@ -102,8 +91,15 @@ function buildMessage(messageType: string, messageContent: string, altText?: str
   }
   if (messageType === 'image') {
     try {
-      const parsed = JSON.parse(messageContent) as { originalContentUrl: string; previewImageUrl: string };
-      return { type: 'image', originalContentUrl: parsed.originalContentUrl, previewImageUrl: parsed.previewImageUrl };
+      const parsed = JSON.parse(messageContent) as {
+        originalContentUrl: string;
+        previewImageUrl: string;
+      };
+      return {
+        type: 'image',
+        originalContentUrl: parsed.originalContentUrl,
+        previewImageUrl: parsed.previewImageUrl,
+      };
     } catch {
       return { type: 'text', text: messageContent };
     }

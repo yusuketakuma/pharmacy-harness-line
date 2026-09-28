@@ -22,9 +22,8 @@ async function authorize(c: Context<PrintEnv>): Promise<string | Response> {
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
     return c.json({ error: 'Prescription intake is not enabled' }, 403);
   }

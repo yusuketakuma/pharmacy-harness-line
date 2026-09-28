@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import type { Tag } from '@line-crm/shared'
-import { api } from '@/lib/api'
-import type { FriendListItem } from '@/lib/api'
-import Header from '@/components/layout/header'
-import FriendListTable from '@/components/friends/friend-list-table'
-import CcPromptButton from '@/components/cc-prompt-button'
-import { useAccount } from '@/contexts/account-context'
+import { useState, useEffect, useCallback } from 'react';
+import type { Tag } from '@line-crm/shared';
+import { api } from '@/lib/api';
+import type { FriendListItem } from '@/lib/api';
+import Header from '@/components/layout/header';
+import FriendListTable from '@/components/friends/friend-list-table';
+import CcPromptButton from '@/components/cc-prompt-button';
+import { useAccount } from '@/contexts/account-context';
 
 const ccPrompts = [
   {
@@ -26,40 +26,40 @@ const ccPrompts = [
 3. 不要タグの整理
 作業手順を示してください。`,
   },
-]
+];
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 20;
 
-type SortMode = 'recent' | 'oldest'
-type ResponseFilter = 'all' | 'unhandled'
+type SortMode = 'recent' | 'oldest';
+type ResponseFilter = 'all' | 'unhandled';
 
 export default function FriendsPage() {
-  const { selectedAccountId } = useAccount()
-  const [friends, setFriends] = useState<FriendListItem[]>([])
-  const [allTags, setAllTags] = useState<Tag[]>([])
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [hasNextPage, setHasNextPage] = useState(false)
-  const [selectedTagId, setSelectedTagId] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [searchSubmitted, setSearchSubmitted] = useState('')
-  const [sortMode, setSortMode] = useState<SortMode>('recent')
-  const [responseFilter, setResponseFilter] = useState<ResponseFilter>('all')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const { selectedAccountId } = useAccount();
+  const [friends, setFriends] = useState<FriendListItem[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [selectedTagId, setSelectedTagId] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchSubmitted, setSearchSubmitted] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [responseFilter, setResponseFilter] = useState<ResponseFilter>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const loadTags = useCallback(async () => {
     try {
-      const res = await api.tags.list()
-      if (res.success) setAllTags(res.data)
+      const res = await api.tags.list();
+      if (res.success) setAllTags(res.data);
     } catch {
       // Non-blocking — tags used for filter
     }
-  }, [])
+  }, []);
 
   const loadFriends = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
       const res = await api.friends.list({
         offset: String((page - 1) * PAGE_SIZE),
@@ -70,24 +70,24 @@ export default function FriendsPage() {
         includeChatStatus: true,
         sort: sortMode,
         handled: responseFilter === 'unhandled' ? 'unhandled' : undefined,
-      })
+      });
       if (res.success) {
-        setFriends(res.data.items)
-        setTotal(res.data.total)
-        setHasNextPage(res.data.hasNextPage)
+        setFriends(res.data.items);
+        setTotal(res.data.total);
+        setHasNextPage(res.data.hasNextPage);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('友だちの読み込みに失敗しました。もう一度お試しください。')
+      setError('友だちの読み込みに失敗しました。もう一度お試しください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [page, selectedTagId, selectedAccountId, searchSubmitted, sortMode, responseFilter])
+  }, [page, selectedTagId, selectedAccountId, searchSubmitted, sortMode, responseFilter]);
 
   useEffect(() => {
-    loadTags()
-  }, [loadTags])
+    loadTags();
+  }, [loadTags]);
 
   // Reset the URL-style account context to page 1 in a separate effect.
   // For user-driven filter changes (search/sort/handled/tag) we reset
@@ -95,45 +95,42 @@ export default function FriendsPage() {
   // double-fetch race where the old `page` request resolves after the
   // new `page=1` request and overwrites the correct page-1 rows.
   useEffect(() => {
-    setPage(1)
-  }, [selectedAccountId])
+    setPage(1);
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    loadFriends()
-  }, [loadFriends])
+    loadFriends();
+  }, [loadFriends]);
 
   // Fan-out helpers: changing a filter also resets pagination synchronously,
   // so React batches both state updates into one re-render and `loadFriends`
   // fires exactly once with the new filter + page=1.
   const updateAndResetPage = (cb: () => void) => {
-    cb()
-    setPage(1)
-  }
+    cb();
+    setPage(1);
+  };
   const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    updateAndResetPage(() => setSearchSubmitted(searchInput.trim()))
-  }
+    e.preventDefault();
+    updateAndResetPage(() => setSearchSubmitted(searchInput.trim()));
+  };
   // Clearing the input clears the active search even if the user doesn't
   // press 検索 again. Without this, "search Alice → clear input → change
   // tag" would keep filtering by Alice while the input box looks empty —
   // see codex feedback. Keeping a non-empty input that doesn't match
   // searchSubmitted is fine: the user is mid-edit, hasn't applied yet.
   const handleSearchInputChange = (v: string) => {
-    setSearchInput(v)
+    setSearchInput(v);
     if (v.trim() === '' && searchSubmitted !== '') {
-      updateAndResetPage(() => setSearchSubmitted(''))
+      updateAndResetPage(() => setSearchSubmitted(''));
     }
-  }
-  const handleSortChange = (v: SortMode) => updateAndResetPage(() => setSortMode(v))
-  const handleResponseFilterChange = (v: ResponseFilter) => updateAndResetPage(() => setResponseFilter(v))
-  const handleTagFilterChange = (v: string) => updateAndResetPage(() => setSelectedTagId(v))
+  };
+  const handleSortChange = (v: SortMode) => updateAndResetPage(() => setSortMode(v));
+  const handleResponseFilterChange = (v: ResponseFilter) => updateAndResetPage(() => setResponseFilter(v));
+  const handleTagFilterChange = (v: string) => updateAndResetPage(() => setSelectedTagId(v));
 
   return (
     <div>
-      <Header
-        title="友だちリスト"
-        description="友だちの検索や、詳細情報の確認ができます。"
-      />
+      <Header title="友だち管理" description="友だちの検索や、詳細情報の確認ができます。" />
 
       {/* Search + sort bar — L-step style */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
@@ -165,7 +162,9 @@ export default function FriendsPage() {
         {/* Secondary filters — タグ + 対応マーク */}
         <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-gray-100">
           <div className="flex items-center gap-2">
-            <label htmlFor="friend-tag-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">タグ:</label>
+            <label htmlFor="friend-tag-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">
+              タグ:
+            </label>
             <select
               id="friend-tag-filter"
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -174,12 +173,16 @@ export default function FriendsPage() {
             >
               <option value="">すべて</option>
               {allTags.map((tag) => (
-                <option key={tag.id} value={tag.id}>{tag.name}</option>
+                <option key={tag.id} value={tag.id}>
+                  {tag.name}
+                </option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <label htmlFor="friend-response-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">対応マーク:</label>
+            <label htmlFor="friend-response-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">
+              対応マーク:
+            </label>
             <select
               id="friend-response-filter"
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -196,16 +199,15 @@ export default function FriendsPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {loading ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="px-4 py-4 border-b border-gray-100 grid grid-cols-[80px_220px_120px_1fr_280px] gap-3 animate-pulse">
+            <div
+              key={i}
+              className="px-4 py-4 border-b border-gray-100 grid grid-cols-[80px_220px_120px_1fr_280px] gap-3 animate-pulse"
+            >
               <div className="h-5 bg-gray-100 rounded w-16" />
               <div className="flex items-center gap-2">
                 <div className="w-9 h-9 rounded-full bg-gray-200" />
@@ -227,7 +229,7 @@ export default function FriendsPage() {
       {!loading && total > 0 && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mt-4">
           <p className="text-sm text-gray-500">
-            {((page - 1) * PAGE_SIZE) + 1}〜{Math.min(page * PAGE_SIZE, total)} 件 / 全{total.toLocaleString('ja-JP')}件
+            {(page - 1) * PAGE_SIZE + 1}〜{Math.min(page * PAGE_SIZE, total)} 件 / 全{total.toLocaleString('ja-JP')}件
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -251,5 +253,5 @@ export default function FriendsPage() {
 
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

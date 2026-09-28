@@ -10,6 +10,29 @@ import { prescriptionApi } from './api.js';
 afterEach(() => vi.restoreAllMocks());
 
 describe('prescriptionApi', () => {
+  it('loads server-authoritative recovery state before a new reserve', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ recovery: { state: 'none' } }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    await expect(prescriptionApi.recovery()).resolves.toEqual({ recovery: { state: 'none' } });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/liff/pharmacy/prescriptions/recovery?liffId=liff-1');
+  });
+
+  it('correlates recovery with the current reserve attempt', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ recovery: { state: 'none' } }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await prescriptionApi.recovery({ idempotencyKey: 'attempt-123' });
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      '/api/liff/pharmacy/prescriptions/recovery?idempotencyKey=attempt-123&liffId=liff-1',
+    );
+  });
+
   it('reports arrival with the current version', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
     await prescriptionApi.arrive('submission-1', '2026-08-17T00:00:00.000Z');
@@ -46,9 +69,7 @@ describe('prescriptionApi', () => {
     await prescriptionApi.upload('submission-1', 2, image);
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain(
-      '/api/liff/pharmacy/prescriptions/submission-1/files/2?liffId=liff-1',
-    );
+    expect(String(url)).toContain('/api/liff/pharmacy/prescriptions/submission-1/files/2?liffId=liff-1');
     expect(init).toMatchObject({
       method: 'PUT',
       body: image,

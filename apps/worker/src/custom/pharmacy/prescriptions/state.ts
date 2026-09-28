@@ -37,10 +37,7 @@ const transitions: Record<PrescriptionAction, Partial<Record<PrescriptionStatus,
   },
 };
 
-export function nextPrescriptionStatus(
-  current: PrescriptionStatus,
-  action: PrescriptionAction,
-): PrescriptionStatus {
+export function nextPrescriptionStatus(current: PrescriptionStatus, action: PrescriptionAction): PrescriptionStatus {
   const next = transitions[action][current];
   if (!next) throw new Error(`invalid prescription transition: ${action} from ${current}`);
   return next;

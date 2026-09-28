@@ -20,10 +20,7 @@ export interface CreateUserInput {
   displayName?: string | null;
 }
 
-export async function createUser(
-  db: D1Database,
-  input: CreateUserInput,
-): Promise<User> {
+export async function createUser(db: D1Database, input: CreateUserInput): Promise<User> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -32,63 +29,32 @@ export async function createUser(
       `INSERT INTO users (id, email, phone, external_id, display_name, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(
-      id,
-      input.email ?? null,
-      input.phone ?? null,
-      input.externalId ?? null,
-      input.displayName ?? null,
-      now,
-      now,
-    )
+    .bind(id, input.email ?? null, input.phone ?? null, input.externalId ?? null, input.displayName ?? null, now, now)
     .run();
 
   return (await getUserById(db, id))!;
 }
 
-export async function getUserById(
-  db: D1Database,
-  id: string,
-): Promise<User | null> {
+export async function getUserById(db: D1Database, id: string): Promise<User | null> {
   return db.prepare(`SELECT * FROM users WHERE id = ?`).bind(id).first<User>();
 }
 
 export async function getUsers(db: D1Database): Promise<User[]> {
-  const result = await db
-    .prepare(`SELECT * FROM users ORDER BY created_at DESC`)
-    .all<User>();
+  const result = await db.prepare(`SELECT * FROM users ORDER BY created_at DESC`).all<User>();
   return result.results;
 }
 
-export async function getUserByEmail(
-  db: D1Database,
-  email: string,
-): Promise<User | null> {
-  return db
-    .prepare(`SELECT * FROM users WHERE email = ?`)
-    .bind(email)
-    .first<User>();
+export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
+  return db.prepare(`SELECT * FROM users WHERE email = ?`).bind(email).first<User>();
 }
 
-export async function getUserByPhone(
-  db: D1Database,
-  phone: string,
-): Promise<User | null> {
-  return db
-    .prepare(`SELECT * FROM users WHERE phone = ?`)
-    .bind(phone)
-    .first<User>();
+export async function getUserByPhone(db: D1Database, phone: string): Promise<User | null> {
+  return db.prepare(`SELECT * FROM users WHERE phone = ?`).bind(phone).first<User>();
 }
 
-export type UpdateUserInput = Partial<
-  Pick<User, 'email' | 'phone' | 'external_id' | 'display_name'>
->;
+export type UpdateUserInput = Partial<Pick<User, 'email' | 'phone' | 'external_id' | 'display_name'>>;
 
-export async function updateUser(
-  db: D1Database,
-  id: string,
-  updates: UpdateUserInput,
-): Promise<User | null> {
+export async function updateUser(db: D1Database, id: string, updates: UpdateUserInput): Promise<User | null> {
   const fields: string[] = [];
   const values: unknown[] = [];
 
@@ -127,11 +93,7 @@ export async function deleteUser(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM users WHERE id = ?`).bind(id).run();
 }
 
-export async function linkFriendToUser(
-  db: D1Database,
-  friendId: string,
-  userId: string,
-): Promise<void> {
+export async function linkFriendToUser(db: D1Database, friendId: string, userId: string): Promise<void> {
   await db
     .prepare(`UPDATE friends SET user_id = ?, updated_at = ? WHERE id = ?`)
     .bind(userId, jstNow(), friendId)

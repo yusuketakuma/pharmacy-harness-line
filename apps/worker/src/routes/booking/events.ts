@@ -21,26 +21,17 @@ import {
 import { getSlotsWithRemaining } from '../../services/event-availability.js';
 import { verifyCallerLineUserId } from '../../services/liff-auth.js';
 import { computeIdentityKey } from '../../lib/identity-key.js';
-import {
-  reserveEventIdempotency,
-  finalizeEventIdempotencyResponse,
-} from '../../services/event-booking-idempotency.js';
+import { reserveEventIdempotency, finalizeEventIdempotencyResponse } from '../../services/event-booking-idempotency.js';
 import {
   computeRemindersForBooking,
   insertRemindersForBooking,
   cancelPendingRemindersFor,
 } from '../../services/event-booking-reminders.js';
-import {
-  sendEventBookingNotification,
-  type EventNotificationKind,
-} from '../../services/event-booking-notifier.js';
-import {
-  canTransition,
-  nextStatus,
-  type EventBookingAction,
-} from '../../services/event-booking-state.js';
+import { sendEventBookingNotification, type EventNotificationKind } from '../../services/event-booking-notifier.js';
+import { canTransition, nextStatus, type EventBookingAction } from '../../services/event-booking-state.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { resolveActiveLineAccountIdByLiffId } from './liff-account.js';
 
 const events = new Hono<Env>();
 
@@ -53,16 +44,6 @@ function bad(c: Context<Env>, code: string, status = 422): Response {
 
 function getAccountId(c: Context<Env>): string | null {
   return c.req.query('account_id') ?? null;
-}
-
-async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null> {
-  const liffId = c.req.query('liffId');
-  if (!liffId) return null;
-  const acc = await c.env.DB
-    .prepare(`SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1`)
-    .bind(liffId)
-    .first<{ id: string }>();
-  return acc?.id ?? null;
 }
 
 interface EventInput {
@@ -116,7 +97,12 @@ function validateEventInput(
       }
     }
   }
-  for (const key of ['description_centered', 'requires_approval', 'reminder_day_before_enabled', 'is_published'] as const) {
+  for (const key of [
+    'description_centered',
+    'requires_approval',
+    'reminder_day_before_enabled',
+    'is_published',
+  ] as const) {
     if (has(key) && body[key] != null) {
       const v = body[key];
       if (v !== 0 && v !== 1) return { ok: false, code: `invalid_${key}` };
@@ -167,9 +153,8 @@ events.post('/api/events/admin/events', async (c) => {
   // line_account_id sentinel: multi では account_ids[0] を保存 (NOT NULL 制約回避)
   const lineAccountIdToWrite = targetType === 'multi-account-dedup' ? accountIds![0] : account_id;
 
-  await c.env.DB
-    .prepare(
-      `INSERT INTO events (
+  await c.env.DB.prepare(
+    `INSERT INTO events (
          id, line_account_id, name, venue_name, venue_url, image_url,
          description, description_centered,
          max_bookings_per_friend, requires_approval, cancel_deadline_hours_before,
@@ -179,7 +164,7 @@ events.post('/api/events/admin/events', async (c) => {
          confirmation_message_extra, reminder_message_extra,
          og_title, og_description, og_image_url
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+  )
     .bind(
       id,
       lineAccountIdToWrite,
@@ -206,19 +191,15 @@ events.post('/api/events/admin/events', async (c) => {
       (body.og_image_url as string | null | undefined) ?? null,
     )
     .run();
-  const row = await c.env.DB
-    .prepare(`SELECT * FROM events WHERE id = ?`)
-    .bind(id)
-    .first();
+  const row = await c.env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(id).first();
   return c.json(row, 201);
 });
 
 events.get('/api/events/admin/events', async (c) => {
   const account_id = getAccountId(c);
   if (!account_id) return bad(c, 'account_id_required', 400);
-  const { results } = await c.env.DB
-    .prepare(
-      `SELECT
+  const { results } = await c.env.DB.prepare(
+    `SELECT
          e.*,
          (SELECT MIN(s.starts_at)
             FROM event_slots s
@@ -246,7 +227,7 @@ events.get('/api/events/admin/events', async (c) => {
              AND EXISTS (SELECT 1 FROM json_each(e.account_ids) WHERE value = ?))
        )
        ORDER BY e.sort_order ASC, e.created_at DESC`,
-    )
+  )
     .bind(account_id, account_id)
     .all();
   return c.json({ items: results ?? [] });
@@ -255,15 +236,14 @@ events.get('/api/events/admin/events', async (c) => {
 events.get('/api/events/admin/events/:id', async (c) => {
   const account_id = getAccountId(c);
   if (!account_id) return bad(c, 'account_id_required', 400);
-  const row = await c.env.DB
-    .prepare(
-      `SELECT * FROM events
+  const row = await c.env.DB.prepare(
+    `SELECT * FROM events
         WHERE id = ? AND deleted_at IS NULL AND (
           (target_type = 'single' AND line_account_id = ?)
           OR (target_type = 'multi-account-dedup'
               AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
         )`,
-    )
+  )
     .bind(c.req.param('id'), account_id, account_id)
     .first();
   if (!row) return bad(c, 'not_found', 404);
@@ -274,15 +254,14 @@ events.put('/api/events/admin/events/:id', async (c) => {
   const account_id = getAccountId(c);
   if (!account_id) return bad(c, 'account_id_required', 400);
   const id = c.req.param('id');
-  const exists = await c.env.DB
-    .prepare(
-      `SELECT id FROM events
+  const exists = await c.env.DB.prepare(
+    `SELECT id FROM events
         WHERE id = ? AND deleted_at IS NULL AND (
           (target_type = 'single' AND line_account_id = ?)
           OR (target_type = 'multi-account-dedup'
               AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
         )`,
-    )
+  )
     .bind(id, account_id, account_id)
     .first();
   if (!exists) return bad(c, 'not_found', 404);
@@ -330,7 +309,11 @@ events.put('/api/events/admin/events/:id', async (c) => {
     setValues.push(body.dedup_priority == null ? null : JSON.stringify(body.dedup_priority));
   }
   // multi-account-dedup に切り替わったら line_account_id sentinel を account_ids[0] に合わせる
-  if (body.target_type === 'multi-account-dedup' && Array.isArray(body.account_ids) && (body.account_ids as string[]).length > 0) {
+  if (
+    body.target_type === 'multi-account-dedup' &&
+    Array.isArray(body.account_ids) &&
+    (body.account_ids as string[]).length > 0
+  ) {
     setClauses.push('line_account_id = ?');
     setValues.push((body.account_ids as string[])[0]);
   }
@@ -348,8 +331,7 @@ events.put('/api/events/admin/events/:id', async (c) => {
   }
   setClauses.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`);
   setValues.push(id);
-  await c.env.DB
-    .prepare(`UPDATE events SET ${setClauses.join(', ')} WHERE id = ?`)
+  await c.env.DB.prepare(`UPDATE events SET ${setClauses.join(', ')} WHERE id = ?`)
     .bind(...setValues)
     .run();
   // If reminder settings changed, rebuild pending reminders for confirmed
@@ -437,20 +419,18 @@ events.delete('/api/events/admin/events/:id', async (c) => {
   // Block deletion while live bookings exist — once the event row is
   // soft-deleted ownsEvent() hides it from admin endpoints, leaving any
   // requested/confirmed bookings unmanageable but still firing reminders.
-  const active = await c.env.DB
-    .prepare(
-      `SELECT COUNT(*) AS c FROM event_bookings
+  const active = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM event_bookings
         WHERE event_id = ? AND status IN ('requested','confirmed')`,
-    )
+  )
     .bind(id)
     .first<{ c: number }>();
   if ((active?.c ?? 0) > 0) return bad(c, 'event_has_active_bookings', 409);
   const now = new Date().toISOString();
-  const result = await c.env.DB
-    .prepare(
-      `UPDATE events SET deleted_at = ?, updated_at = ?
+  const result = await c.env.DB.prepare(
+    `UPDATE events SET deleted_at = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL`,
-    )
+  )
     .bind(now, now, id)
     .run();
   if ((result.meta?.changes ?? 0) === 0) return bad(c, 'not_found', 404);
@@ -461,11 +441,7 @@ events.delete('/api/events/admin/events/:id', async (c) => {
 // Admin: event_slots CRUD
 // ============================================================
 
-async function ownsEvent(
-  db: D1Database,
-  event_id: string,
-  account_id: string,
-): Promise<boolean> {
+async function ownsEvent(db: D1Database, event_id: string, account_id: string): Promise<boolean> {
   const row = await db
     .prepare(
       `SELECT id FROM events
@@ -517,15 +493,14 @@ events.get('/api/events/admin/events/:id/slots', async (c) => {
   const account_id = getAccountId(c);
   if (!account_id) return bad(c, 'account_id_required', 400);
   if (!(await ownsEvent(c.env.DB, c.req.param('id'), account_id))) return bad(c, 'not_found', 404);
-  const { results } = await c.env.DB
-    .prepare(
-      `SELECT
+  const { results } = await c.env.DB.prepare(
+    `SELECT
          s.*,
          (SELECT COUNT(*) FROM event_bookings b WHERE b.slot_id = s.id AND b.status IN ('requested','confirmed')) AS active_count
        FROM event_slots s
        WHERE s.event_id = ? AND s.deleted_at IS NULL
        ORDER BY s.sort_order ASC, s.starts_at ASC`,
-    )
+  )
     .bind(c.req.param('id'))
     .all();
   return c.json({ items: results ?? [] });
@@ -545,12 +520,11 @@ events.post('/api/events/admin/events/:id/slots', async (c) => {
     const v = validateSlotInput(s, true);
     if (!v.ok) return bad(c, v.code, 422);
     const id = crypto.randomUUID();
-    await c.env.DB
-      .prepare(
-        `INSERT INTO event_slots
+    await c.env.DB.prepare(
+      `INSERT INTO event_slots
            (id, event_id, starts_at, ends_at, capacity, is_active, sort_order)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
+    )
       .bind(
         id,
         event_id,
@@ -573,8 +547,7 @@ events.put('/api/events/admin/events/:id/slots/:slotId', async (c) => {
   const event_id = c.req.param('id');
   const slot_id = c.req.param('slotId');
   if (!(await ownsEvent(c.env.DB, event_id, account_id))) return bad(c, 'not_found', 404);
-  const slot = await c.env.DB
-    .prepare(`SELECT * FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL`)
+  const slot = await c.env.DB.prepare(`SELECT * FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL`)
     .bind(slot_id, event_id)
     .first<Record<string, unknown>>();
   if (!slot) return bad(c, 'not_found', 404);
@@ -604,8 +577,7 @@ events.put('/api/events/admin/events/:id/slots/:slotId', async (c) => {
   }
   setClauses.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`);
   setValues.push(slot_id);
-  await c.env.DB
-    .prepare(`UPDATE event_slots SET ${setClauses.join(', ')} WHERE id = ?`)
+  await c.env.DB.prepare(`UPDATE event_slots SET ${setClauses.join(', ')} WHERE id = ?`)
     .bind(...setValues)
     .run();
   // If the slot time moved, reminders for the slot's confirmed bookings are
@@ -623,12 +595,13 @@ events.put('/api/events/admin/events/:id/slots/:slotId', async (c) => {
 // ============================================================
 
 events.get('/api/liff/events/me', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
-  const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
+  const friend = await c.env.DB.prepare(
+    `SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`,
+  )
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return c.json({ items: [] });
@@ -660,27 +633,24 @@ events.get('/api/liff/events/me', async (c) => {
             AND b.line_account_id = ?
             AND (b.status NOT IN ('requested','confirmed') OR s.starts_at < ?)
           ORDER BY s.starts_at DESC`;
-  const { results } = await c.env.DB
-    .prepare(sql)
-    .bind(friend.id, account_id, nowIso)
-    .all();
+  const { results } = await c.env.DB.prepare(sql).bind(friend.id, account_id, nowIso).all();
   return c.json({ items: results ?? [] });
 });
 
 events.get('/api/liff/events/me/:bookingId', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
-  const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
+  const friend = await c.env.DB.prepare(
+    `SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`,
+  )
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return bad(c, 'not_found', 404);
 
-  const row = await c.env.DB
-    .prepare(
-      `SELECT b.id, b.event_id, b.status, b.customer_note, b.requested_at, b.decided_at, b.cancelled_at,
+  const row = await c.env.DB.prepare(
+    `SELECT b.id, b.event_id, b.status, b.customer_note, b.requested_at, b.decided_at, b.cancelled_at,
               e.name AS event_name, e.image_url AS event_image_url,
               e.venue_name, e.venue_url, e.cancel_deadline_hours_before,
               e.description AS event_description,
@@ -692,7 +662,7 @@ events.get('/api/liff/events/me/:bookingId', async (c) => {
         WHERE b.id = ?
           AND b.friend_id = ?
           AND b.line_account_id = ?`,
-    )
+  )
     .bind(c.req.param('bookingId'), friend.id, account_id)
     .first();
   if (!row) return bad(c, 'not_found', 404);
@@ -700,40 +670,43 @@ events.get('/api/liff/events/me/:bookingId', async (c) => {
 });
 
 events.post('/api/liff/events/me/:bookingId/cancel', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
-  const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
+  const friend = await c.env.DB.prepare(
+    `SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`,
+  )
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return bad(c, 'friend_not_found', 404);
 
-  const row = await c.env.DB
-    .prepare(
-      `SELECT b.id, b.status, e.cancel_deadline_hours_before, s.starts_at AS slot_starts_at
+  const row = await c.env.DB.prepare(
+    `SELECT b.id, b.status, e.cancel_deadline_hours_before, s.starts_at AS slot_starts_at
          FROM event_bookings b
          JOIN events e ON e.id = b.event_id
          JOIN event_slots s ON s.id = b.slot_id
         WHERE b.id = ? AND b.friend_id = ? AND b.line_account_id = ?`,
-    )
+  )
     .bind(c.req.param('bookingId'), friend.id, account_id)
-    .first<{ id: string; status: string; cancel_deadline_hours_before: number | null; slot_starts_at: string }>();
+    .first<{
+      id: string;
+      status: string;
+      cancel_deadline_hours_before: number | null;
+      slot_starts_at: string;
+    }>();
   if (!row) return bad(c, 'not_found', 404);
   if (row.status !== 'requested' && row.status !== 'confirmed') return bad(c, 'invalid_state', 409);
   if (row.cancel_deadline_hours_before == null) return bad(c, 'cancel_not_allowed', 403);
-  const deadlineMs =
-    new Date(row.slot_starts_at).getTime() - row.cancel_deadline_hours_before * 3600_000;
+  const deadlineMs = new Date(row.slot_starts_at).getTime() - row.cancel_deadline_hours_before * 3600_000;
   if (deadlineMs <= Date.now()) return bad(c, 'cancel_deadline_passed', 409);
 
   const nowIso = new Date().toISOString();
-  await c.env.DB
-    .prepare(
-      `UPDATE event_bookings
+  await c.env.DB.prepare(
+    `UPDATE event_bookings
           SET status = 'cancelled', cancelled_at = ?, cancelled_by = 'friend', updated_at = ?
         WHERE id = ?`,
-    )
+  )
     .bind(nowIso, nowIso, row.id)
     .run();
   await cancelPendingRemindersFor(c.env.DB, row.id);
@@ -745,17 +718,16 @@ events.post('/api/liff/events/me/:bookingId/cancel', async (c) => {
 // ============================================================
 
 events.get('/api/liff/events/:id', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
-  const row = await c.env.DB
-    .prepare(
-      `SELECT * FROM events
+  const row = await c.env.DB.prepare(
+    `SELECT * FROM events
         WHERE id = ? AND deleted_at IS NULL AND is_published = 1 AND (
           (target_type = 'single' AND line_account_id = ?)
           OR (target_type = 'multi-account-dedup'
               AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
         )`,
-    )
+  )
     .bind(c.req.param('id'), account_id, account_id)
     .first<Record<string, unknown>>();
   if (!row) return bad(c, 'not_found', 404);
@@ -763,9 +735,12 @@ events.get('/api/liff/events/:id', async (c) => {
   // 既存予約検出: caller が認証済 + friend が存在するなら identity_key で
   // active 予約を引いて my_existing_booking としてレスポンスに含める。
   // LIFF 詳細画面が「予約済」表示に分岐できるよう、POST 前に検出する。
-  let myExistingBooking:
-    | { id: string; status: string; slot_starts_at: string; line_account_id: string }
-    | null = null;
+  let myExistingBooking: {
+    id: string;
+    status: string;
+    slot_starts_at: string;
+    line_account_id: string;
+  } | null = null;
   let caller: string | null = null;
   try {
     caller = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
@@ -773,8 +748,9 @@ events.get('/api/liff/events/:id', async (c) => {
     caller = null;
   }
   if (caller) {
-    const friend = await c.env.DB
-      .prepare(`SELECT id, user_id, picture_url FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
+    const friend = await c.env.DB.prepare(
+      `SELECT id, user_id, picture_url FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`,
+    )
       .bind(caller, account_id)
       .first<{ id: string; user_id: string | null; picture_url: string | null }>();
     if (friend) {
@@ -782,16 +758,15 @@ events.get('/api/liff/events/:id', async (c) => {
       // と同じ識別ロジック)。picture_url 経由の url_token を加えることで、
       // url_token が一致する複数アカ友だち間でも既予約を検出できる。
       const idKey = computeIdentityKey(friend);
-      const existing = await c.env.DB
-        .prepare(
-          `SELECT b.id, b.status, b.line_account_id, s.starts_at AS slot_starts_at
+      const existing = await c.env.DB.prepare(
+        `SELECT b.id, b.status, b.line_account_id, s.starts_at AS slot_starts_at
              FROM event_bookings b
              JOIN event_slots s ON s.id = b.slot_id
             WHERE b.event_id = ?
               AND b.identity_key = ?
               AND b.status IN ('requested','confirmed')
             LIMIT 1`,
-        )
+      )
         .bind(c.req.param('id'), idKey)
         .first<{ id: string; status: string; slot_starts_at: string; line_account_id: string }>();
       if (existing) myExistingBooking = existing;
@@ -802,17 +777,16 @@ events.get('/api/liff/events/:id', async (c) => {
 });
 
 events.get('/api/liff/events/:id/slots', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
-  const ev = await c.env.DB
-    .prepare(
-      `SELECT id FROM events
+  const ev = await c.env.DB.prepare(
+    `SELECT id FROM events
         WHERE id = ? AND deleted_at IS NULL AND is_published = 1 AND (
           (target_type = 'single' AND line_account_id = ?)
           OR (target_type = 'multi-account-dedup'
               AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
         )`,
-    )
+  )
     .bind(c.req.param('id'), account_id, account_id)
     .first<{ id: string }>();
   if (!ev) return bad(c, 'not_found', 404);
@@ -854,7 +828,7 @@ function startsAtJst(utcIso: string): string {
 }
 
 events.post('/api/liff/events/:id/bookings', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const idemKey = c.req.header('Idempotency-Key');
   if (!idemKey) return bad(c, 'idempotency_key_required', 400);
@@ -864,11 +838,10 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
   // is_following=1 必須: フォロー解除した友だちは push が届かない。
   // Salon booking と同じ防御を入れる。user_id / picture_url は identity_key
   // 算出に必要 (broadcasts dedup と同じ識別ロジック)。
-  const friend = await c.env.DB
-    .prepare(
-      `SELECT id, user_id, picture_url FROM friends
+  const friend = await c.env.DB.prepare(
+    `SELECT id, user_id, picture_url FROM friends
         WHERE provider_line_user_id = ? AND line_account_id = ? AND is_following = 1`,
-    )
+  )
     .bind(callerLineUserId, account_id)
     .first<{ id: string; user_id: string | null; picture_url: string | null }>();
   if (!friend) return bad(c, 'friend_not_found', 404);
@@ -883,10 +856,7 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
     now: new Date(),
   });
   if (reservation.kind === 'cached') {
-    return c.json(
-      reservation.body as Record<string, unknown>,
-      reservation.status as 200 | 201 | 400 | 409 | 410 | 422,
-    );
+    return c.json(reservation.body as Record<string, unknown>, reservation.status as 200 | 201 | 400 | 409 | 410 | 422);
   }
   if (reservation.kind === 'in_progress') {
     return bad(c, 'idempotent_in_progress', 429);
@@ -914,15 +884,14 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
   }
 
   async function runBookingFlow(): Promise<Response> {
-  // Hoisted function declarations lose narrowing of outer-scope `const`
-  // captures; re-assert here to keep `friend` / `callerLineUserId` non-null.
-  // The outer scope already returned on null, so these throws are unreachable.
-  if (account_id == null) throw new Error('runBookingFlow: account missing');
-  if (friend == null) throw new Error('runBookingFlow: friend missing');
-  if (callerLineUserId == null) throw new Error('runBookingFlow: callerLineUserId missing');
+    // Hoisted function declarations lose narrowing of outer-scope `const`
+    // captures; re-assert here to keep `friend` / `callerLineUserId` non-null.
+    // The outer scope already returned on null, so these throws are unreachable.
+    if (account_id == null) throw new Error('runBookingFlow: account missing');
+    if (friend == null) throw new Error('runBookingFlow: friend missing');
+    if (callerLineUserId == null) throw new Error('runBookingFlow: callerLineUserId missing');
 
-  const event = await c.env.DB
-    .prepare(
+    const event = await c.env.DB.prepare(
       `SELECT id, name, venue_name, venue_url, requires_approval, max_bookings_per_friend,
               reminder_day_before_enabled, reminder_hours_before
          FROM events
@@ -932,63 +901,62 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
               AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
         )`,
     )
-    .bind(c.req.param('id'), account_id, account_id)
-    .first<EventDbRow>();
-  if (!event) return finalize(409, { error: 'event_unpublished' });
+      .bind(c.req.param('id'), account_id, account_id)
+      .first<EventDbRow>();
+    if (!event) return finalize(409, { error: 'event_unpublished' });
 
-  const body = (await c.req.json().catch(() => ({}))) as { slot_id?: string; customer_note?: string | null };
-  if (typeof body.slot_id !== 'string' || body.slot_id.length === 0) {
-    return finalize(422, { error: 'invalid_slot_id' });
-  }
-  if (body.customer_note != null) {
-    if (typeof body.customer_note !== 'string' || body.customer_note.length > CUSTOMER_NOTE_MAX) {
-      return finalize(422, { error: 'invalid_customer_note' });
+    const body = (await c.req.json().catch(() => ({}))) as {
+      slot_id?: string;
+      customer_note?: string | null;
+    };
+    if (typeof body.slot_id !== 'string' || body.slot_id.length === 0) {
+      return finalize(422, { error: 'invalid_slot_id' });
     }
-  }
+    if (body.customer_note != null) {
+      if (typeof body.customer_note !== 'string' || body.customer_note.length > CUSTOMER_NOTE_MAX) {
+        return finalize(422, { error: 'invalid_customer_note' });
+      }
+    }
 
-  const slot = await c.env.DB
-    .prepare(
+    const slot = await c.env.DB.prepare(
       `SELECT id, event_id, starts_at, is_active, deleted_at
          FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL`,
     )
-    .bind(body.slot_id, event.id)
-    .first<SlotDbRow>();
-  if (!slot || slot.is_active !== 1) return finalize(409, { error: 'slot_inactive' });
-  if (new Date(slot.starts_at).getTime() <= Date.now()) return finalize(410, { error: 'slot_started' });
+      .bind(body.slot_id, event.id)
+      .first<SlotDbRow>();
+    if (!slot || slot.is_active !== 1) return finalize(409, { error: 'slot_inactive' });
+    if (new Date(slot.starts_at).getTime() <= Date.now()) return finalize(410, { error: 'slot_started' });
 
-  // Pre-flight friend-limit check は identity_key ベースに統合済 (後段の
-  // sameIdentityActive ブロック参照)。friend_id ベースの単一アカウント
-  // 内カウントは cross-account 同一人物を捉えられないので使わない。
-  // Pre-flight capacity check (also a cheap rejection).
-  const slotRow = await c.env.DB
-    .prepare(`SELECT capacity FROM event_slots WHERE id = ?`)
-    .bind(slot.id)
-    .first<{ capacity: number | null }>();
-  if (slotRow?.capacity != null) {
-    const cnt = await c.env.DB
-      .prepare(
+    // Pre-flight friend-limit check は identity_key ベースに統合済 (後段の
+    // sameIdentityActive ブロック参照)。friend_id ベースの単一アカウント
+    // 内カウントは cross-account 同一人物を捉えられないので使わない。
+    // Pre-flight capacity check (also a cheap rejection).
+    const slotRow = await c.env.DB.prepare(`SELECT capacity FROM event_slots WHERE id = ?`)
+      .bind(slot.id)
+      .first<{ capacity: number | null }>();
+    if (slotRow?.capacity != null) {
+      const cnt = await c.env.DB.prepare(
         `SELECT COUNT(*) AS c FROM event_bookings
           WHERE slot_id = ? AND status IN ('requested','confirmed')`,
       )
-      .bind(slot.id)
-      .first<{ c: number }>();
-    if ((cnt?.c ?? 0) >= slotRow.capacity) return finalize(409, { error: 'slot_full' });
-  }
+        .bind(slot.id)
+        .first<{ c: number }>();
+      if ((cnt?.c ?? 0) >= slotRow.capacity) return finalize(409, { error: 'slot_full' });
+    }
 
-  // identity_key 算出: broadcasts dedup と同じ式 (url_token > uid > solo)。
-  // computeIdentityKey は friends.picture_url の url_token を最優先、なければ
-  // user_id (UUID)、ともになければ自分自身のみ ('solo:'+id) にフォールバック。
-  const identityKey = computeIdentityKey(friend);
+    // identity_key 算出: broadcasts dedup と同じ式 (url_token > uid > solo)。
+    // computeIdentityKey は friends.picture_url の url_token を最優先、なければ
+    // user_id (UUID)、ともになければ自分自身のみ ('solo:'+id) にフォールバック。
+    const identityKey = computeIdentityKey(friend);
 
-  // 同一人物 (cross-account) の active 予約数を identity_key ベースでカウント。
-  // 重複制限ロジック:
-  //   - max=null: 制限なし (admin UI の「制限なし」と整合)、チェックスキップ
-  //   - max=1: 同一人物の 2 件目を duplicate_friend_booking で弾く
-  //   - max=N (>1): N 件まで許可、N+1 件目以降は over_friend_limit
-  // UNIQUE INDEX を貼らないので max>1 の event も正しく動作する。
-  if (event.max_bookings_per_friend != null) {
-    const sameIdentityActive = await c.env.DB
-      .prepare(
+    // 同一人物 (cross-account) の active 予約数を identity_key ベースでカウント。
+    // 重複制限ロジック:
+    //   - max=null: 制限なし (admin UI の「制限なし」と整合)、チェックスキップ
+    //   - max=1: 同一人物の 2 件目を duplicate_friend_booking で弾く
+    //   - max=N (>1): N 件まで許可、N+1 件目以降は over_friend_limit
+    // UNIQUE INDEX を貼らないので max>1 の event も正しく動作する。
+    if (event.max_bookings_per_friend != null) {
+      const sameIdentityActive = await c.env.DB.prepare(
         `SELECT b.id, b.status, s.starts_at AS slot_starts_at, COUNT(*) OVER () AS total
            FROM event_bookings b
            JOIN event_slots s ON s.id = b.slot_id
@@ -998,127 +966,115 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
           ORDER BY b.requested_at ASC
           LIMIT 1`,
       )
-      .bind(event.id, identityKey)
-      .first<{ id: string; status: string; slot_starts_at: string; total: number }>();
-    if (sameIdentityActive && sameIdentityActive.total >= event.max_bookings_per_friend) {
-      if (event.max_bookings_per_friend === 1) {
-        return finalize(409, {
-          error: 'duplicate_friend_booking',
-          existing: {
-            id: sameIdentityActive.id,
-            status: sameIdentityActive.status,
-            slot_starts_at: sameIdentityActive.slot_starts_at,
-          },
-        });
+        .bind(event.id, identityKey)
+        .first<{ id: string; status: string; slot_starts_at: string; total: number }>();
+      if (sameIdentityActive && sameIdentityActive.total >= event.max_bookings_per_friend) {
+        if (event.max_bookings_per_friend === 1) {
+          return finalize(409, {
+            error: 'duplicate_friend_booking',
+            existing: {
+              id: sameIdentityActive.id,
+              status: sameIdentityActive.status,
+              slot_starts_at: sameIdentityActive.slot_starts_at,
+            },
+          });
+        }
+        return finalize(409, { error: 'over_friend_limit' });
       }
-      return finalize(409, { error: 'over_friend_limit' });
     }
-  }
 
-  // Insert-then-verify pattern: Cloudflare D1 doesn't expose multi-statement
-  // transactions, so we INSERT first, then re-COUNT. If concurrent inserts
-  // pushed us over the limit we DELETE this row and return 409. Determinism
-  // is enforced by the INSERT timestamp (newest row loses).
-  const status = event.requires_approval === 1 ? 'requested' : 'confirmed';
-  const id = crypto.randomUUID();
-  const nowIso = new Date().toISOString();
-  await c.env.DB
-    .prepare(
+    // Insert-then-verify pattern: Cloudflare D1 doesn't expose multi-statement
+    // transactions, so we INSERT first, then re-COUNT. If concurrent inserts
+    // pushed us over the limit we DELETE this row and return 409. Determinism
+    // is enforced by the INSERT timestamp (newest row loses).
+    const status = event.requires_approval === 1 ? 'requested' : 'confirmed';
+    const id = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    await c.env.DB.prepare(
       `INSERT INTO event_bookings
          (id, line_account_id, event_id, slot_id, friend_id, status, customer_note, requested_at, identity_key)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, account_id, event.id, slot.id, friend.id, status, body.customer_note ?? null, nowIso, identityKey)
-    .run();
+      .bind(id, account_id, event.id, slot.id, friend.id, status, body.customer_note ?? null, nowIso, identityKey)
+      .run();
 
-  // Verify capacity again. If there is a race winner ahead of us — i.e. an
-  // earlier (smaller requested_at, then smaller id) row — we are the loser
-  // and roll back our row.
-  if (slotRow?.capacity != null) {
-    const cnt = await c.env.DB
-      .prepare(
+    // Verify capacity again. If there is a race winner ahead of us — i.e. an
+    // earlier (smaller requested_at, then smaller id) row — we are the loser
+    // and roll back our row.
+    if (slotRow?.capacity != null) {
+      const cnt = await c.env.DB.prepare(
         `SELECT COUNT(*) AS c FROM event_bookings
           WHERE slot_id = ? AND status IN ('requested','confirmed')`,
       )
-      .bind(slot.id)
-      .first<{ c: number }>();
-    if ((cnt?.c ?? 0) > slotRow.capacity) {
-      const winner = await c.env.DB
-        .prepare(
+        .bind(slot.id)
+        .first<{ c: number }>();
+      if ((cnt?.c ?? 0) > slotRow.capacity) {
+        const winner = await c.env.DB.prepare(
           `SELECT id FROM event_bookings
             WHERE slot_id = ? AND status IN ('requested','confirmed')
             ORDER BY requested_at ASC, id ASC
             LIMIT ?`,
         )
-        .bind(slot.id, slotRow.capacity)
-        .all<{ id: string }>();
-      const winners = new Set((winner.results ?? []).map((r) => r.id));
-      if (!winners.has(id)) {
-        await c.env.DB
-          .prepare(`DELETE FROM event_bookings WHERE id = ?`)
-          .bind(id)
-          .run();
-        return finalize(409, { error: 'slot_full' });
+          .bind(slot.id, slotRow.capacity)
+          .all<{ id: string }>();
+        const winners = new Set((winner.results ?? []).map((r) => r.id));
+        if (!winners.has(id)) {
+          await c.env.DB.prepare(`DELETE FROM event_bookings WHERE id = ?`).bind(id).run();
+          return finalize(409, { error: 'slot_full' });
+        }
       }
     }
-  }
 
-  // Verify friend-limit again (identity_key ベース、cross-account 同一人物
-  // を含めて再 COUNT)。並走 race の loser は DELETE してロールバック。
-  // effectiveMax = max_bookings_per_friend ?? 1 (max=null は 1 件まで)。
-  {
-    const effectiveMax = event.max_bookings_per_friend ?? 1;
-    const cnt2 = await c.env.DB
-      .prepare(
+    // Verify friend-limit again (identity_key ベース、cross-account 同一人物
+    // を含めて再 COUNT)。並走 race の loser は DELETE してロールバック。
+    // effectiveMax = max_bookings_per_friend ?? 1 (max=null は 1 件まで)。
+    {
+      const effectiveMax = event.max_bookings_per_friend ?? 1;
+      const cnt2 = await c.env.DB.prepare(
         `SELECT COUNT(*) AS c FROM event_bookings
           WHERE event_id = ? AND identity_key = ? AND status IN ('requested','confirmed')`,
       )
-      .bind(event.id, identityKey)
-      .first<{ c: number }>();
-    if ((cnt2?.c ?? 0) > effectiveMax) {
-      const winner = await c.env.DB
-        .prepare(
+        .bind(event.id, identityKey)
+        .first<{ c: number }>();
+      if ((cnt2?.c ?? 0) > effectiveMax) {
+        const winner = await c.env.DB.prepare(
           `SELECT id FROM event_bookings
             WHERE event_id = ? AND identity_key = ? AND status IN ('requested','confirmed')
             ORDER BY requested_at ASC, id ASC
             LIMIT ?`,
         )
-        .bind(event.id, identityKey, effectiveMax)
-        .all<{ id: string }>();
-      const winners = new Set((winner.results ?? []).map((r) => r.id));
-      if (!winners.has(id)) {
-        await c.env.DB
-          .prepare(`DELETE FROM event_bookings WHERE id = ?`)
-          .bind(id)
-          .run();
-        const code = effectiveMax === 1 ? 'duplicate_friend_booking' : 'over_friend_limit';
-        return finalize(409, { error: code });
+          .bind(event.id, identityKey, effectiveMax)
+          .all<{ id: string }>();
+        const winners = new Set((winner.results ?? []).map((r) => r.id));
+        if (!winners.has(id)) {
+          await c.env.DB.prepare(`DELETE FROM event_bookings WHERE id = ?`).bind(id).run();
+          const code = effectiveMax === 1 ? 'duplicate_friend_booking' : 'over_friend_limit';
+          return finalize(409, { error: code });
+        }
       }
     }
-  }
 
-  await awardActivityMileage(c.env.DB, {
-    eventType: 'booking_created',
-    source: 'event_booking',
-    sourceEventId: id,
-    friendId: friend.id,
-    metadata: { bookingType: 'event', eventId: event.id, slotId: slot.id },
-    occurredAt: nowIso,
-  });
-
-  if (status === 'confirmed') {
-    const reminders = computeRemindersForBooking({
-      starts_at_utc: slot.starts_at,
-      reminder_day_before_enabled: event.reminder_day_before_enabled === 1,
-      reminder_hours_before: event.reminder_hours_before,
+    await awardActivityMileage(c.env.DB, {
+      eventType: 'booking_created',
+      source: 'event_booking',
+      sourceEventId: id,
+      friendId: friend.id,
+      metadata: { bookingType: 'event', eventId: event.id, slotId: slot.id },
+      occurredAt: nowIso,
     });
-    await insertRemindersForBooking(c.env.DB, id, reminders);
-  }
 
-  // best-effort notification: do not fail the booking if push fails.
-  try {
-    const acc = await c.env.DB
-      .prepare(
+    if (status === 'confirmed') {
+      const reminders = computeRemindersForBooking({
+        starts_at_utc: slot.starts_at,
+        reminder_day_before_enabled: event.reminder_day_before_enabled === 1,
+        reminder_hours_before: event.reminder_hours_before,
+      });
+      await insertRemindersForBooking(c.env.DB, id, reminders);
+    }
+
+    // best-effort notification: do not fail the booking if push fails.
+    try {
+      const acc = await c.env.DB.prepare(
         `SELECT mapping.tenant_id, la.channel_access_token,
                 e.confirmation_message_extra
            FROM line_accounts la
@@ -1139,43 +1095,39 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
             )
           WHERE la.id = ? AND la.is_active = 1`,
       )
-      .bind(event.id, account_id)
-      .first<{
-        tenant_id: string;
-        channel_access_token: string;
-        confirmation_message_extra: string | null;
-      }>();
-    if (acc?.channel_access_token) {
-      const kind: EventNotificationKind =
-        status === 'requested' ? 'received_pending' : 'received_confirmed';
-      await sendEventBookingNotification({
-        db: c.env.DB,
-        tenantId: acc.tenant_id,
-        lineAccountId: account_id,
-        friendId: friend.id,
-        channelAccessToken: acc.channel_access_token,
-        toLineUserId: callerLineUserId,
-        retryKey: await createBroadcastRetryKey(
-          'event-booking-notification', id, kind,
-        ),
-        kind,
-        ctx: {
-          eventName: event.name,
-          startsAtJst: startsAtJst(slot.starts_at),
-          venueName: event.venue_name,
-          venueUrl: event.venue_url,
-          confirmationExtra: acc.confirmation_message_extra,
-        },
-      });
+        .bind(event.id, account_id)
+        .first<{
+          tenant_id: string;
+          channel_access_token: string;
+          confirmation_message_extra: string | null;
+        }>();
+      if (acc?.channel_access_token) {
+        const kind: EventNotificationKind = status === 'requested' ? 'received_pending' : 'received_confirmed';
+        await sendEventBookingNotification({
+          db: c.env.DB,
+          tenantId: acc.tenant_id,
+          lineAccountId: account_id,
+          friendId: friend.id,
+          channelAccessToken: acc.channel_access_token,
+          toLineUserId: callerLineUserId,
+          retryKey: await createBroadcastRetryKey('event-booking-notification', id, kind),
+          kind,
+          ctx: {
+            eventName: event.name,
+            startsAtJst: startsAtJst(slot.starts_at),
+            venueName: event.venue_name,
+            venueUrl: event.venue_url,
+            confirmationExtra: acc.confirmation_message_extra,
+          },
+        });
+      }
+    } catch (e) {
+      console.error('[event-booking] notify failed', e);
     }
-  } catch (e) {
-    console.error('[event-booking] notify failed', e);
-  }
 
-  return finalize(201, { id, status });
+    return finalize(201, { id, status });
   } // close runBookingFlow
 });
-
 
 events.delete('/api/events/admin/events/:id/slots/:slotId', async (c) => {
   const account_id = getAccountId(c);
@@ -1183,19 +1135,18 @@ events.delete('/api/events/admin/events/:id/slots/:slotId', async (c) => {
   const event_id = c.req.param('id');
   const slot_id = c.req.param('slotId');
   if (!(await ownsEvent(c.env.DB, event_id, account_id))) return bad(c, 'not_found', 404);
-  const slot = await c.env.DB
-    .prepare(`SELECT id FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL`)
+  const slot = await c.env.DB.prepare(`SELECT id FROM event_slots WHERE id = ? AND event_id = ? AND deleted_at IS NULL`)
     .bind(slot_id, event_id)
     .first<{ id: string }>();
   if (!slot) return bad(c, 'not_found', 404);
-  const active = await c.env.DB
-    .prepare(`SELECT COUNT(*) AS c FROM event_bookings WHERE slot_id = ? AND status IN ('requested','confirmed')`)
+  const active = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM event_bookings WHERE slot_id = ? AND status IN ('requested','confirmed')`,
+  )
     .bind(slot_id)
     .first<{ c: number }>();
   if ((active?.c ?? 0) > 0) return bad(c, 'slot_has_bookings', 409);
   const now = new Date().toISOString();
-  await c.env.DB
-    .prepare(`UPDATE event_slots SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+  await c.env.DB.prepare(`UPDATE event_slots SET deleted_at = ?, updated_at = ? WHERE id = ?`)
     .bind(now, now, slot_id)
     .run();
   return new Response(null, { status: 204 });
@@ -1208,12 +1159,11 @@ events.delete('/api/events/admin/events/:id/slots/:slotId', async (c) => {
 events.get('/api/events/admin/events/notifications/pending', async (c) => {
   const account_id = getAccountId(c);
   if (!account_id) return bad(c, 'account_id_required', 400);
-  const row = await c.env.DB
-    .prepare(
-      `SELECT COUNT(*) AS c
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS c
          FROM event_bookings
         WHERE line_account_id = ? AND status = 'requested'`,
-    )
+  )
     .bind(account_id)
     .first<{ c: number }>();
   return c.json({ count: row?.c ?? 0 });
@@ -1236,9 +1186,8 @@ events.get('/api/events/admin/events/:id/bookings', async (c) => {
     conditions.push('b.slot_id = ?');
     params.push(slot_id);
   }
-  const { results } = await c.env.DB
-    .prepare(
-      `SELECT b.*,
+  const { results } = await c.env.DB.prepare(
+    `SELECT b.*,
               s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
               f.display_name AS friend_display_name, f.provider_line_user_id AS friend_line_user_id
          FROM event_bookings b
@@ -1246,7 +1195,7 @@ events.get('/api/events/admin/events/:id/bookings', async (c) => {
          LEFT JOIN friends f ON f.id = b.friend_id
         WHERE ${conditions.join(' AND ')}
         ORDER BY b.requested_at DESC`,
-    )
+  )
     .bind(...params)
     .all();
   return c.json({ items: results ?? [] });
@@ -1284,11 +1233,7 @@ async function loadBookingForAction(
   return row ?? null;
 }
 
-async function notifyBookingFriend(
-  db: D1Database,
-  booking_id: string,
-  kind: EventNotificationKind,
-): Promise<void> {
+async function notifyBookingFriend(db: D1Database, booking_id: string, kind: EventNotificationKind): Promise<void> {
   try {
     const row = await db
       .prepare(
@@ -1343,9 +1288,7 @@ async function notifyBookingFriend(
       friendId: row.friend_id,
       channelAccessToken: row.channel_access_token,
       toLineUserId: row.line_user_id,
-      retryKey: await createBroadcastRetryKey(
-        'event-booking-notification', booking_id, kind,
-      ),
+      retryKey: await createBroadcastRetryKey('event-booking-notification', booking_id, kind),
       kind,
       ctx: {
         eventName: row.event_name,
@@ -1382,37 +1325,33 @@ events.post('/api/events/admin/events/:id/bookings/:bookingId/decide', async (c)
   // Conditional UPDATE so two concurrent admins can't both transition the
   // same `requested` row. The losing request gets changes=0 and treats the
   // booking as already decided.
-  const upd = await c.env.DB
-    .prepare(
-      `UPDATE event_bookings
+  const upd = await c.env.DB.prepare(
+    `UPDATE event_bookings
           SET status = ?, decided_at = ?, decided_by_staff_id = ?, updated_at = ?
         WHERE id = ? AND status = ? AND decided_at IS NULL`,
-    )
+  )
     .bind(next, nowIso, staff?.id ?? null, nowIso, booking.id, booking.status)
     .run();
   if ((upd.meta?.changes ?? 0) === 0) return bad(c, 'already_decided', 409);
 
   if (action === 'reject' && body.reason) {
-    await c.env.DB
-      .prepare(
-        `UPDATE event_bookings
+    await c.env.DB.prepare(
+      `UPDATE event_bookings
             SET internal_note = COALESCE(internal_note || char(10), '') || ?,
                 updated_at = ?
           WHERE id = ?`,
-      )
+    )
       .bind(`[reject reason] ${body.reason}`, nowIso, booking.id)
       .run();
   }
 
   if (action === 'confirm') {
-    const slot = await c.env.DB
-      .prepare(`SELECT starts_at FROM event_slots WHERE id = ?`)
+    const slot = await c.env.DB.prepare(`SELECT starts_at FROM event_slots WHERE id = ?`)
       .bind(booking.slot_id)
       .first<{ starts_at: string }>();
-    const evRow = await c.env.DB
-      .prepare(
-        `SELECT reminder_day_before_enabled, reminder_hours_before FROM events WHERE id = ?`,
-      )
+    const evRow = await c.env.DB.prepare(
+      `SELECT reminder_day_before_enabled, reminder_hours_before FROM events WHERE id = ?`,
+    )
       .bind(booking.event_id)
       .first<{ reminder_day_before_enabled: number; reminder_hours_before: number | null }>();
     if (slot && evRow) {
@@ -1426,10 +1365,7 @@ events.post('/api/events/admin/events/:id/bookings/:bookingId/decide', async (c)
   }
 
   await notifyBookingFriend(c.env.DB, booking.id, action === 'confirm' ? 'confirmed' : 'rejected');
-  const updated = await c.env.DB
-    .prepare(`SELECT * FROM event_bookings WHERE id = ?`)
-    .bind(booking.id)
-    .first();
+  const updated = await c.env.DB.prepare(`SELECT * FROM event_bookings WHERE id = ?`).bind(booking.id).first();
   return c.json(updated);
 });
 
@@ -1445,12 +1381,11 @@ events.post('/api/events/admin/events/:id/bookings/:bookingId/cancel', async (c)
   const nowIso = new Date().toISOString();
   // Conditional UPDATE: another concurrent action (mark_attended /
   // mark_no_show / friend cancel) may have already changed status.
-  const upd = await c.env.DB
-    .prepare(
-      `UPDATE event_bookings
+  const upd = await c.env.DB.prepare(
+    `UPDATE event_bookings
           SET status = 'cancelled', cancelled_at = ?, cancelled_by = 'admin', updated_at = ?
         WHERE id = ? AND status = ?`,
-    )
+  )
     .bind(nowIso, nowIso, booking.id, booking.status)
     .run();
   if ((upd.meta?.changes ?? 0) === 0) return bad(c, 'invalid_state', 409);
@@ -1467,7 +1402,10 @@ events.put('/api/events/admin/events/:id/bookings/:bookingId', async (c) => {
   const booking = await loadBookingForAction(c.env.DB, account_id, event_id, c.req.param('bookingId'));
   if (!booking) return bad(c, 'not_found', 404);
 
-  const body = (await c.req.json().catch(() => ({}))) as { internal_note?: string | null; status?: string };
+  const body = (await c.req.json().catch(() => ({}))) as {
+    internal_note?: string | null;
+    status?: string;
+  };
   const setClauses: string[] = [];
   const setValues: unknown[] = [];
 
@@ -1491,8 +1429,7 @@ events.put('/api/events/admin/events/:id/bookings/:bookingId', async (c) => {
   setValues.push(booking.id, booking.status);
   // Conditional UPDATE on (id, status) — same race protection as the
   // decide / cancel handlers.
-  const upd = await c.env.DB
-    .prepare(`UPDATE event_bookings SET ${setClauses.join(', ')} WHERE id = ? AND status = ?`)
+  const upd = await c.env.DB.prepare(`UPDATE event_bookings SET ${setClauses.join(', ')} WHERE id = ? AND status = ?`)
     .bind(...setValues)
     .run();
   if ((upd.meta?.changes ?? 0) === 0) return bad(c, 'invalid_state', 409);

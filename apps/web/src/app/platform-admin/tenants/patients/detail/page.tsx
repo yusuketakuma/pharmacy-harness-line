@@ -1,61 +1,75 @@
-'use client'
-import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import {
-  isSupportModeRequired,
-  platformAdminApi,
-  type PlatformPatientDetail,
-} from '@/lib/platform-admin-api'
+'use client';
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { isSupportModeRequired, platformAdminApi, type PlatformPatientDetail } from '@/lib/platform-admin-api';
 import {
   SUPPORT_ACCESS_EXPIRED,
   SUPPORT_GRANTS_CHANGED,
   SupportModeRequired,
-} from '@/components/platform-admin/support-mode'
+} from '@/components/platform-admin/support-mode';
 
 import {
-  RELATIONSHIP_LABELS, SEX_LABELS, intakeAnswerText, intakeQuestionLabel,
-} from '@/custom/pharmacy/intake/labels'
+  RELATIONSHIP_LABELS,
+  SEX_LABELS,
+  intakeAnswerText,
+  intakeQuestionLabel,
+} from '@/custom/pharmacy/intake/labels';
 
 function text(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
 }
 
 function dateText(value: string | null | undefined): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('ja-JP', {
     dateStyle: 'short',
     timeStyle: 'medium',
     timeZone: 'Asia/Tokyo',
-  }).format(date)
+  }).format(date);
 }
 
 /** 同じ形のテーブルをセクションごとに使い回す。 */
-function Section<T>({ title, rows, columns }: {
-  title: string
-  rows: T[]
-  columns: Array<[string, (row: T) => ReactNode]>
+function Section<T>({
+  title,
+  rows,
+  columns,
+}: {
+  title: string;
+  rows: T[];
+  columns: Array<[string, (row: T) => ReactNode]>;
 }) {
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="mb-3 font-semibold">{title}<span className="ml-2 text-xs font-normal text-gray-500">{rows.length}件</span></h2>
+      <h2 className="mb-3 font-semibold">
+        {title}
+        <span className="ml-2 text-xs font-normal text-gray-500">{rows.length}件</span>
+      </h2>
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500">データなし</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-600">
-              <tr>{columns.map(([label]) => <th key={label} className="px-3 py-2">{label}</th>)}</tr>
+              <tr>
+                {columns.map(([label]) => (
+                  <th key={label} className="px-3 py-2">
+                    {label}
+                  </th>
+                ))}
+              </tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
                 <tr key={index} className="border-t border-gray-100">
                   {columns.map(([label, render]) => (
-                    <td key={label} className="px-3 py-2 align-top">{render(row)}</td>
+                    <td key={label} className="px-3 py-2 align-top">
+                      {render(row)}
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -64,47 +78,53 @@ function Section<T>({ title, rows, columns }: {
         </div>
       )}
     </section>
-  )
+  );
 }
 
 function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: string }) {
-  const [detail, setDetail] = useState<PlatformPatientDetail | null>(null)
-  const [error, setError] = useState('')
+  const [detail, setDetail] = useState<PlatformPatientDetail | null>(null);
+  const [error, setError] = useState('');
   // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
-  const [grantMissing, setGrantMissing] = useState(false)
-  const requestId = useRef(0)
+  const [grantMissing, setGrantMissing] = useState(false);
+  const requestId = useRef(0);
 
   const load = useCallback(() => {
-    const currentRequest = ++requestId.current
-    setDetail(null)
-    setError('')
-    setGrantMissing(false)
-    platformAdminApi.patient(tenantId, patientId)
+    const currentRequest = ++requestId.current;
+    setDetail(null);
+    setError('');
+    setGrantMissing(false);
+    platformAdminApi
+      .patient(tenantId, patientId)
       .then((res) => {
-        if (requestId.current === currentRequest) setDetail(res.data)
+        if (requestId.current === currentRequest) setDetail(res.data);
       })
       .catch((caught: Error) => {
-        if (requestId.current !== currentRequest) return
-        if (isSupportModeRequired(caught)) setGrantMissing(true)
-        else setError('患者情報を取得できませんでした。再度お試しください。')
-      })
-  }, [tenantId, patientId])
+        if (requestId.current !== currentRequest) return;
+        if (isSupportModeRequired(caught)) setGrantMissing(true);
+        else setError('患者情報を取得できませんでした。再度お試しください。');
+      });
+  }, [tenantId, patientId]);
 
   useEffect(() => {
-    load()
-    window.addEventListener(SUPPORT_GRANTS_CHANGED, load)
-    window.addEventListener(SUPPORT_ACCESS_EXPIRED, load)
+    load();
+    window.addEventListener(SUPPORT_GRANTS_CHANGED, load);
+    window.addEventListener(SUPPORT_ACCESS_EXPIRED, load);
     return () => {
-      window.removeEventListener(SUPPORT_GRANTS_CHANGED, load)
-      window.removeEventListener(SUPPORT_ACCESS_EXPIRED, load)
-    }
-  }, [load])
+      window.removeEventListener(SUPPORT_GRANTS_CHANGED, load);
+      window.removeEventListener(SUPPORT_ACCESS_EXPIRED, load);
+    };
+  }, [load]);
 
-  if (grantMissing) return <SupportModeRequired tenantId={tenantId} />
-  if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>
-  if (!detail) return <p className="text-sm text-gray-500">読み込み中...</p>
+  if (grantMissing) return <SupportModeRequired tenantId={tenantId} />;
+  if (error)
+    return (
+      <p role="alert" className="text-sm text-red-600">
+        {error}
+      </p>
+    );
+  if (!detail) return <p className="text-sm text-gray-500">読み込み中...</p>;
 
-  const patient = detail.patient
+  const patient = detail.patient;
   return (
     <div className="space-y-6">
       <div>
@@ -116,27 +136,72 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
         </Link>
         <h1 className="mt-2 text-xl font-bold">{patient.name}</h1>
         <p className="text-xs text-gray-500">
-          患者ID <span className="font-mono">{patient.id}</span> / LINEアカウント <span className="font-mono">{detail.lineAccountId}</span>
+          患者ID <span className="font-mono">{patient.id}</span> / LINEアカウント{' '}
+          <span className="font-mono">{detail.lineAccountId}</span>
         </p>
       </div>
 
       <section className="rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="mb-3 font-semibold">患者プロフィール</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-          <div><dt className="text-gray-500">氏名</dt><dd>{text(patient.name)}</dd></div>
-          <div><dt className="text-gray-500">カナ</dt><dd>{text(patient.name_kana)}</dd></div>
-          <div><dt className="text-gray-500">生年月日</dt><dd>{text(patient.birth_date)}</dd></div>
-          <div><dt className="text-gray-500">性別</dt><dd>{patient.sex ? SEX_LABELS[patient.sex] ?? patient.sex : '—'}</dd></div>
-          <div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[patient.relationship as keyof typeof RELATIONSHIP_LABELS] ?? patient.relationship}</dd></div>
-          <div><dt className="text-gray-500">電話</dt><dd>{text(patient.contact_phone)}</dd></div>
-          <div><dt className="text-gray-500">郵便番号</dt><dd>{text(patient.postal_code)}</dd></div>
-          <div><dt className="text-gray-500">都道府県</dt><dd>{text(patient.prefecture)}</dd></div>
-          <div><dt className="text-gray-500">市区町村</dt><dd>{text(patient.city)}</dd></div>
-          <div><dt className="text-gray-500">住所1</dt><dd>{text(patient.address_line1)}</dd></div>
-          <div><dt className="text-gray-500">住所2</dt><dd>{text(patient.address_line2)}</dd></div>
-          <div><dt className="text-gray-500">アーカイブ</dt><dd>{text(patient.archived_at)}</dd></div>
-          <div><dt className="text-gray-500">作成</dt><dd>{dateText(patient.created_at)}</dd></div>
-          <div><dt className="text-gray-500">更新</dt><dd>{dateText(patient.updated_at)}</dd></div>
+          <div>
+            <dt className="text-gray-500">氏名</dt>
+            <dd>{text(patient.name)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">カナ</dt>
+            <dd>{text(patient.name_kana)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">生年月日</dt>
+            <dd>{text(patient.birth_date)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">性別</dt>
+            <dd>{patient.sex ? (SEX_LABELS[patient.sex] ?? patient.sex) : '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">続柄</dt>
+            <dd>
+              {RELATIONSHIP_LABELS[patient.relationship as keyof typeof RELATIONSHIP_LABELS] ?? patient.relationship}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">電話</dt>
+            <dd>{text(patient.contact_phone)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">郵便番号</dt>
+            <dd>{text(patient.postal_code)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">都道府県</dt>
+            <dd>{text(patient.prefecture)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">市区町村</dt>
+            <dd>{text(patient.city)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">住所1</dt>
+            <dd>{text(patient.address_line1)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">住所2</dt>
+            <dd>{text(patient.address_line2)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">アーカイブ</dt>
+            <dd>{text(patient.archived_at)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">作成</dt>
+            <dd>{dateText(patient.created_at)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">更新</dt>
+            <dd>{dateText(patient.updated_at)}</dd>
+          </div>
         </dl>
       </section>
 
@@ -145,17 +210,23 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
         {detail.latestIntake ? (
           <>
             <p className="mb-2 text-xs text-gray-500">
-              第{detail.latestIntake.revision}版 / schema v{detail.latestIntake.schema_version} / 回答日時 {dateText(detail.latestIntake.created_at)}
+              第{detail.latestIntake.revision}版 / schema v{detail.latestIntake.schema_version} / 回答日時{' '}
+              {dateText(detail.latestIntake.created_at)}
               {' / '}代理同意 {text(detail.latestIntake.representative_consent_at)}
               {' / '}個人情報同意 {text(detail.latestIntake.privacy_consent_at)}
             </p>
             <dl className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
               {Object.entries(detail.latestIntake.answers).map(([key, value]) => (
-                <div key={key}><dt className="text-gray-500">{intakeQuestionLabel(key)}</dt><dd>{intakeAnswerText(key, value)}</dd></div>
+                <div key={key}>
+                  <dt className="text-gray-500">{intakeQuestionLabel(key)}</dt>
+                  <dd>{intakeAnswerText(key, value)}</dd>
+                </div>
               ))}
             </dl>
           </>
-        ) : <p className="text-sm text-gray-500">データなし</p>}
+        ) : (
+          <p className="text-sm text-gray-500">データなし</p>
+        )}
       </section>
 
       <Section
@@ -275,17 +346,17 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
         ]}
       />
     </div>
-  )
+  );
 }
 
 function PatientDetailRoute() {
-  const params = useSearchParams()
-  const tenantId = params.get('id')
-  const patientId = params.get('patientId')
+  const params = useSearchParams();
+  const tenantId = params.get('id');
+  const patientId = params.get('patientId');
   if (!tenantId || !patientId) {
-    return <p className="text-sm text-gray-500">テナント ID と患者 ID が必要です</p>
+    return <p className="text-sm text-gray-500">テナント ID と患者 ID が必要です</p>;
   }
-  return <PatientDetail tenantId={tenantId} patientId={patientId} />
+  return <PatientDetail tenantId={tenantId} patientId={patientId} />;
 }
 
 export default function PlatformAdminPatientDetailPage() {
@@ -293,5 +364,5 @@ export default function PlatformAdminPatientDetailPage() {
     <Suspense fallback={<p className="text-sm text-gray-500">読み込み中...</p>}>
       <PatientDetailRoute />
     </Suspense>
-  )
+  );
 }

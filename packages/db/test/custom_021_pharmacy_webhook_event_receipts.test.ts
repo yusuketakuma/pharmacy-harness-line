@@ -26,10 +26,9 @@ describe('custom_021 pharmacy webhook event receipts', () => {
     `);
     expect(insert.run('tenant-a', 'account-a', 'event-1', '2026-08-19').changes).toBe(1);
     expect(insert.run('tenant-a', 'account-a', 'event-1', '2026-08-19').changes).toBe(0);
-    expect(db.prepare(
-      `SELECT COUNT(*) AS count FROM pharmacy_webhook_event_receipts`,
-    ).get()).toEqual({ count: 1 });
-    expect(() => insert.run('tenant-other', 'account-a', 'event-1', '2026-08-19'))
-      .toThrow(/FOREIGN KEY constraint failed/i);
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_webhook_event_receipts`).get()).toEqual({ count: 1 });
+    expect(() => insert.run('tenant-other', 'account-a', 'event-1', '2026-08-19')).toThrow(
+      /FOREIGN KEY constraint failed/i,
+    );
   });
 });

@@ -37,8 +37,7 @@ type InquiryInput = {
   consent?: boolean;
 };
 
-const text = (value: unknown, max = 1000): string =>
-  typeof value === 'string' ? value.trim().slice(0, max) : '';
+const text = (value: unknown, max = 1000): string => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -66,7 +65,14 @@ mediaInquiries.post('/api/public/media-inquiries', async (c) => {
   const email = text(body.email, 254).toLowerCase();
   const challenge = text(body.challenge, 4000);
 
-  if (!inquiryType || !companyName || !contactName || !emailPattern.test(email) || !challenge || body.consent !== true) {
+  if (
+    !inquiryType ||
+    !companyName ||
+    !contactName ||
+    !emailPattern.test(email) ||
+    !challenge ||
+    body.consent !== true
+  ) {
     return c.json({ success: false, error: 'Required fields are missing or invalid' }, 400);
   }
 
@@ -100,14 +106,35 @@ mediaInquiries.post('/api/public/media-inquiries', async (c) => {
       utm_source, utm_medium, utm_campaign, country, cf_ray,
       mail_status, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'), datetime('now'))`,
-  ).bind(
-    id, inquiryType, companyName, contactName, values.department, values.position,
-    values.decisionRole, email, values.phone, values.companySize, values.currentTools,
-    values.lineFriendCount, values.budget, values.timeframe, challenge, values.desiredOutcome,
-    values.preferredContact, values.sourceArticle, values.sourceUrl, values.referrer,
-    values.utmSource, values.utmMedium, values.utmCampaign,
-    c.req.header('cf-ipcountry') || '', c.req.header('cf-ray') || '',
-  ).run();
+  )
+    .bind(
+      id,
+      inquiryType,
+      companyName,
+      contactName,
+      values.department,
+      values.position,
+      values.decisionRole,
+      email,
+      values.phone,
+      values.companySize,
+      values.currentTools,
+      values.lineFriendCount,
+      values.budget,
+      values.timeframe,
+      challenge,
+      values.desiredOutcome,
+      values.preferredContact,
+      values.sourceArticle,
+      values.sourceUrl,
+      values.referrer,
+      values.utmSource,
+      values.utmMedium,
+      values.utmCampaign,
+      c.req.header('cf-ipcountry') || '',
+      c.req.header('cf-ray') || '',
+    )
+    .run();
 
   let mailStatus = 'pending';
   let mailError = '';
@@ -144,7 +171,7 @@ mediaInquiries.post('/api/public/media-inquiries', async (c) => {
       },
       body: form,
     });
-    const responseBody = await response.json().catch(() => null) as {
+    const responseBody = (await response.json().catch(() => null)) as {
       success?: boolean | string;
       message?: string;
     } | null;
@@ -168,16 +195,21 @@ mediaInquiries.post('/api/public/media-inquiries', async (c) => {
 
   await c.env.DB.prepare(
     `UPDATE media_inquiries SET mail_status = ?, mail_error = ?, updated_at = datetime('now') WHERE id = ?`,
-  ).bind(mailStatus, mailError || null, id).run();
+  )
+    .bind(mailStatus, mailError || null, id)
+    .run();
 
-  return c.json({
-    success: true,
-    data: {
-      id,
-      notification: mailStatus,
-      fallbackEmail: 'info@aiagent-inc.com',
+  return c.json(
+    {
+      success: true,
+      data: {
+        id,
+        notification: mailStatus,
+        fallbackEmail: 'info@aiagent-inc.com',
+      },
     },
-  }, 201);
+    201,
+  );
 });
 
 export { mediaInquiries };

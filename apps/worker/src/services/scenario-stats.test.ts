@@ -3,7 +3,12 @@ import { computeScenarioStats } from './scenario-stats.js';
 
 // total はユニーク friend_id 数を返す（COUNT(DISTINCT friend_id)）。
 function mockDb(handlers: {
-  enrollment: { total: number; active_count: number; completed_count: number; paused_count: number };
+  enrollment: {
+    total: number;
+    active_count: number;
+    completed_count: number;
+    paused_count: number;
+  };
   steps: Array<{ step_order: number; reached_count: number }>;
 }): D1Database {
   return {

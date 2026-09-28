@@ -73,11 +73,10 @@ const env = {
 
 function get(path: string) {
   const headers = new Headers({ Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' });
-  return worker.fetch(
-    new Request(`https://worker.example.com${path}`, { method: 'GET', headers }),
-    env,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
-  );
+  return worker.fetch(new Request(`https://worker.example.com${path}`, { method: 'GET', headers }), env, {
+    waitUntil() {},
+    passThroughOnException() {},
+  } as unknown as ExecutionContext);
 }
 
 function post(path: string, body: unknown) {
@@ -98,9 +97,7 @@ function post(path: string, body: unknown) {
 }
 
 const UNIQUE_CODE_ERR = new Error('D1_ERROR: UNIQUE constraint failed: affiliates.code');
-const UNIQUE_FRIEND_ERR = new Error(
-  'D1_ERROR: UNIQUE constraint failed: affiliates.friend_id',
-);
+const UNIQUE_FRIEND_ERR = new Error('D1_ERROR: UNIQUE constraint failed: affiliates.friend_id');
 
 beforeEach(() => {
   dbMocks.getStaffByApiKey.mockResolvedValue({ id: 'staff-1', name: 'Owner', role: 'owner' });
@@ -305,7 +302,17 @@ describe('GET /api/affiliates/:id/links — offer_name enrichment', () => {
       },
     ]);
     dbMocks.listAffiliateOffers.mockResolvedValue([
-      { id: 'offer-A', name: 'Summer Campaign', is_active: 1, reward_amount: 100, description: null, line_account_id: null, tag_id: null, scenario_id: null, created_at: '2026-07-01T00:00:00.000+09:00' },
+      {
+        id: 'offer-A',
+        name: 'Summer Campaign',
+        is_active: 1,
+        reward_amount: 100,
+        description: null,
+        line_account_id: null,
+        tag_id: null,
+        scenario_id: null,
+        created_at: '2026-07-01T00:00:00.000+09:00',
+      },
     ]);
 
     const res = await get('/api/affiliates/aff-1/links');

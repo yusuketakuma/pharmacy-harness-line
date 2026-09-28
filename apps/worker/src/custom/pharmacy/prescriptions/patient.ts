@@ -11,8 +11,9 @@ export async function resolvePrescriptionPatient(
   identity: VerifiedLineIdentity,
 ): Promise<PrescriptionPatient | null> {
   if (!liffId) return null;
-  const row = await db.prepare(
-    `SELECT la.id AS line_account_id, f.id AS friend_id
+  const row = await db
+    .prepare(
+      `SELECT la.id AS line_account_id, f.id AS friend_id
        FROM line_accounts la
        INNER JOIN tenant_line_accounts AS mapping
          ON mapping.line_account_id = la.id
@@ -25,17 +26,11 @@ export async function resolvePrescriptionPatient(
         AND mapping.tenant_id = ?
         AND la.id = ?
         AND la.is_active = 1`,
-  ).bind(
-    identity.lineUserId,
-    liffId,
-    identity.loginChannelId,
-    identity.tenantId,
-    identity.lineAccountId,
-  ).first<{
-    line_account_id: string;
-    friend_id: string;
-  }>();
-  return row
-    ? { lineAccountId: row.line_account_id, friendId: row.friend_id }
-    : null;
+    )
+    .bind(identity.lineUserId, liffId, identity.loginChannelId, identity.tenantId, identity.lineAccountId)
+    .first<{
+      line_account_id: string;
+      friend_id: string;
+    }>();
+  return row ? { lineAccountId: row.line_account_id, friendId: row.friend_id } : null;
 }

@@ -9,13 +9,13 @@ import {
 
 describe('renderMessageContent', () => {
   test('replaces {{liff_id}} with given liffId', () => {
-    expect(renderMessageContent('hello https://liff.line.me/{{liff_id}}/x', '12345-AAA'))
-      .toBe('hello https://liff.line.me/12345-AAA/x');
+    expect(renderMessageContent('hello https://liff.line.me/{{liff_id}}/x', '12345-AAA')).toBe(
+      'hello https://liff.line.me/12345-AAA/x',
+    );
   });
 
   test('replaces all occurrences', () => {
-    expect(renderMessageContent('a={{liff_id}} b={{liff_id}}', 'X'))
-      .toBe('a=X b=X');
+    expect(renderMessageContent('a={{liff_id}} b={{liff_id}}', 'X')).toBe('a=X b=X');
   });
 
   test('returns input unchanged when no placeholder', () => {
@@ -38,10 +38,8 @@ describe('renderMessageContent', () => {
   });
 
   test('replaces recipient display name when supplied', () => {
-    expect(renderMessageContent('{{name}}さん、こんにちは', { displayName: 'Michi' }))
-      .toBe('Michiさん、こんにちは');
-    expect(renderMessageContent('{{ name }}さん', { displayName: 'Michi' }))
-      .toBe('Michiさん');
+    expect(renderMessageContent('{{name}}さん、こんにちは', { displayName: 'Michi' })).toBe('Michiさん、こんにちは');
+    expect(renderMessageContent('{{ name }}さん', { displayName: 'Michi' })).toBe('Michiさん');
   });
 
   test('keeps {{name}} unresolved when display name is unavailable', () => {
@@ -63,8 +61,7 @@ describe('renderMessageContent', () => {
   });
 
   test('does not JSON-normalize ordinary text messages', () => {
-    expect(renderBroadcastMessageContent('text', '  {{name}}  ', { displayName: 'Michi' }))
-      .toBe('  Michi  ');
+    expect(renderBroadcastMessageContent('text', '  {{name}}  ', { displayName: 'Michi' })).toBe('  Michi  ');
   });
 
   test('detects recipient and unsupported variables', () => {
@@ -73,8 +70,9 @@ describe('renderMessageContent', () => {
   });
 
   test('fails closed when any variable remains unresolved', () => {
-    expect(() => assertNoUnresolvedBroadcastVariables('hello {{name}}'))
-      .toThrow('Unresolved broadcast variables: {{name}}');
+    expect(() => assertNoUnresolvedBroadcastVariables('hello {{name}}')).toThrow(
+      'Unresolved broadcast variables: {{name}}',
+    );
     expect(() => assertNoUnresolvedBroadcastVariables('hello Michi')).not.toThrow();
   });
 });

@@ -24,8 +24,7 @@ const PROBE_TIMEOUT_ERROR = 'LINE API request timed out';
 const LIFF_VERIFY_TIMEOUT_MS = 5000;
 
 async function tenantExists(db: D1Database, tenantId: string): Promise<boolean> {
-  const row = await db.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
-    .bind(tenantId).first<{ id: string }>();
+  const row = await db.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`).bind(tenantId).first<{ id: string }>();
   return Boolean(row);
 }
 
@@ -63,7 +62,9 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/staff', async
        INNER JOIN staff_members AS staff ON staff.id = membership.staff_id
       WHERE membership.tenant_id = ?
       ORDER BY staff.name, staff.id`,
-  ).bind(new Date().toISOString(), tenantId).all<StaffRow>();
+  )
+    .bind(new Date().toISOString(), tenantId)
+    .all<StaffRow>();
 
   await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'list_staff');
   return c.json({
@@ -104,45 +105,42 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/staff', async
  * session query INNER JOINs the same condition. The session revocation below is
  * the explicit, immediate half of the same result.
  */
-platformAdminOperationsRoutes.post(
-  '/api/platform-admin/tenants/:id/staff/:staffId/disable',
-  async (c) => {
-    const admin = c.get('platformAdmin');
-    const tenantId = c.req.param('id');
-    const staffId = c.req.param('staffId');
+platformAdminOperationsRoutes.post('/api/platform-admin/tenants/:id/staff/:staffId/disable', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const staffId = c.req.param('staffId');
 
-    // Membership is the authorization check, not just an existence check: a
-    // staff id that is valid for some other tenant must not be disabled from
-    // this tenant's page. No membership row implies no tenant/staff pair.
-    const membership = await c.env.DB.prepare(
-      `SELECT staff_id FROM tenant_staff_memberships
+  // Membership is the authorization check, not just an existence check: a
+  // staff id that is valid for some other tenant must not be disabled from
+  // this tenant's page. No membership row implies no tenant/staff pair.
+  const membership = await c.env.DB.prepare(
+    `SELECT staff_id FROM tenant_staff_memberships
         WHERE tenant_id = ? AND staff_id = ? LIMIT 1`,
-    ).bind(tenantId, staffId).first<{ staff_id: string }>();
-    if (!membership) {
-      return c.json({ success: false, error: 'Staff member not found for this tenant' }, 404);
-    }
+  )
+    .bind(tenantId, staffId)
+    .first<{ staff_id: string }>();
+  if (!membership) {
+    return c.json({ success: false, error: 'Staff member not found for this tenant' }, 404);
+  }
 
-    const now = new Date().toISOString();
-    const results = await c.env.DB.batch([
-      c.env.DB.prepare(
-        `UPDATE tenant_staff_memberships SET is_active = 0, updated_at = ?
+  const now = new Date().toISOString();
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE tenant_staff_memberships SET is_active = 0, updated_at = ?
           WHERE tenant_id = ? AND staff_id = ?`,
-      ).bind(now, tenantId, staffId),
-      c.env.DB.prepare(
-        `UPDATE tenant_admin_sessions SET revoked_at = ?
+    ).bind(now, tenantId, staffId),
+    c.env.DB.prepare(
+      `UPDATE tenant_admin_sessions SET revoked_at = ?
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
-      ).bind(now, tenantId, staffId),
-      platformAdminAccessStatement(
-        c.env.DB, admin.id, tenantId, 'disable_staff', 'staff', staffId,
-      ),
-    ]);
+    ).bind(now, tenantId, staffId),
+    platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'disable_staff', 'staff', staffId),
+  ]);
 
-    return c.json({
-      success: true,
-      data: { staffId, sessionsRevoked: results[1].meta.changes ?? 0 },
-    });
-  },
-);
+  return c.json({
+    success: true,
+    data: { staffId, sessionsRevoked: results[1].meta.changes ?? 0 },
+  });
+});
 
 /** POST /api/platform-admin/tenants/:id/revoke-sessions — log every tenant admin out. */
 platformAdminOperationsRoutes.post('/api/platform-admin/tenants/:id/revoke-sessions', async (c) => {
@@ -159,7 +157,9 @@ platformAdminOperationsRoutes.post('/api/platform-admin/tenants/:id/revoke-sessi
   const pending = await c.env.DB.prepare(
     `SELECT COUNT(*) AS count FROM tenant_admin_sessions
       WHERE tenant_id = ? AND revoked_at IS NULL`,
-  ).bind(tenantId).first<{ count: number }>();
+  )
+    .bind(tenantId)
+    .first<{ count: number }>();
 
   const now = new Date().toISOString();
   const results = await c.env.DB.batch([
@@ -167,10 +167,9 @@ platformAdminOperationsRoutes.post('/api/platform-admin/tenants/:id/revoke-sessi
       `UPDATE tenant_admin_sessions SET revoked_at = ?
         WHERE tenant_id = ? AND revoked_at IS NULL`,
     ).bind(now, tenantId),
-    platformAdminAccessStatement(
-      c.env.DB, admin.id, tenantId, 'revoke_tenant_sessions', 'tenant', tenantId,
-      { revoked: pending?.count ?? 0 },
-    ),
+    platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'revoke_tenant_sessions', 'tenant', tenantId, {
+      revoked: pending?.count ?? 0,
+    }),
   ]);
 
   return c.json({ success: true, data: { revoked: results[0].meta.changes ?? 0 } });
@@ -207,16 +206,24 @@ function expectedLiffEndpoint(origin: string | undefined, liffId: string | null)
 type LiffEndpointEvidence =
   | { status: 'MATCH'; source: 'line_api'; checkedAt: string }
   | {
-    status: 'MISMATCH'; source: 'line_api'; checkedAt: string;
-    reason: 'LIFF_ID_NOT_FOUND' | 'ENDPOINT_URL_MISMATCH';
-  }
+      status: 'MISMATCH';
+      source: 'line_api';
+      checkedAt: string;
+      reason: 'LIFF_ID_NOT_FOUND' | 'ENDPOINT_URL_MISMATCH';
+    }
   | {
-    status: 'ERROR'; source: 'line_api'; checkedAt: string;
-    reason: 'CONFIGURATION_UNAVAILABLE' | 'CREDENTIAL_UNAVAILABLE' |
-      'TOKEN_REQUEST_FAILED' | 'TOKEN_RESPONSE_INVALID' |
-      'APPS_REQUEST_FAILED' | 'APPS_RESPONSE_INVALID';
-    upstreamStatus?: number;
-  };
+      status: 'ERROR';
+      source: 'line_api';
+      checkedAt: string;
+      reason:
+        | 'CONFIGURATION_UNAVAILABLE'
+        | 'CREDENTIAL_UNAVAILABLE'
+        | 'TOKEN_REQUEST_FAILED'
+        | 'TOKEN_RESPONSE_INVALID'
+        | 'APPS_REQUEST_FAILED'
+        | 'APPS_RESPONSE_INVALID';
+      upstreamStatus?: number;
+    };
 
 async function verifyLiffEndpoint(
   loginChannelId: string,
@@ -240,11 +247,14 @@ async function verifyLiffEndpoint(
     });
     if (!tokenResponse.ok) {
       return {
-        status: 'ERROR', source: 'line_api', checkedAt,
-        reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: tokenResponse.status,
+        status: 'ERROR',
+        source: 'line_api',
+        checkedAt,
+        reason: 'TOKEN_REQUEST_FAILED',
+        upstreamStatus: tokenResponse.status,
       };
     }
-    const tokenPayload = await tokenResponse.json().catch(() => null) as {
+    const tokenPayload = (await tokenResponse.json().catch(() => null)) as {
       access_token?: unknown;
     } | null;
     if (typeof tokenPayload?.access_token !== 'string' || !tokenPayload.access_token) {
@@ -263,16 +273,20 @@ async function verifyLiffEndpoint(
     }
     if (!appsResponse.ok) {
       return {
-        status: 'ERROR', source: 'line_api', checkedAt,
-        reason: 'APPS_REQUEST_FAILED', upstreamStatus: appsResponse.status,
+        status: 'ERROR',
+        source: 'line_api',
+        checkedAt,
+        reason: 'APPS_REQUEST_FAILED',
+        upstreamStatus: appsResponse.status,
       };
     }
-    const appsPayload = await appsResponse.json().catch(() => null) as { apps?: unknown } | null;
+    const appsPayload = (await appsResponse.json().catch(() => null)) as { apps?: unknown } | null;
     if (!Array.isArray(appsPayload?.apps)) {
       return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'APPS_RESPONSE_INVALID' };
     }
     const matches = appsPayload.apps.filter((app): app is { liffId: string; view?: { url?: unknown } } =>
-      Boolean(app && typeof app === 'object' && (app as { liffId?: unknown }).liffId === liffId));
+      Boolean(app && typeof app === 'object' && (app as { liffId?: unknown }).liffId === liffId),
+    );
     if (matches.length === 0) {
       return { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'LIFF_ID_NOT_FOUND' };
     }
@@ -285,7 +299,9 @@ async function verifyLiffEndpoint(
       : { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'ENDPOINT_URL_MISMATCH' };
   } catch {
     return {
-      status: 'ERROR', source: 'line_api', checkedAt,
+      status: 'ERROR',
+      source: 'line_api',
+      checkedAt,
       reason: requestStage === 'TOKEN' ? 'TOKEN_REQUEST_FAILED' : 'APPS_REQUEST_FAILED',
     };
   }
@@ -341,60 +357,73 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
        INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
       WHERE mapping.tenant_id = ?
       ORDER BY account.id`,
-  ).bind(tenantId).all<LineStatusRow>();
+  )
+    .bind(tenantId)
+    .all<LineStatusRow>();
 
   const rows = result.results ?? [];
-  const verifyLiffRow = verifyLiffAccountId
-    ? rows.find((row) => row.id === verifyLiffAccountId) : null;
+  const verifyLiffRow = verifyLiffAccountId ? rows.find((row) => row.id === verifyLiffAccountId) : null;
   if (verifyLiffAccountId && !verifyLiffRow) {
     return c.json({ success: false, error: 'LINE account not found for this tenant' }, 404);
   }
-  const readiness = await Promise.allSettled(
-    rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)),
+  const readiness = await Promise.allSettled(rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)));
+  const credentialStatus = await Promise.all(
+    rows.map(async (row) => {
+      if (row.messaging_credential_count !== 2 || row.login_credential_count !== 1 || !c.env.LINE_CREDENTIAL_KEY_V1)
+        return 'UNVERIFIED' as const;
+      const values = await Promise.all([
+        readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId,
+          lineAccountId: row.id,
+          kind: 'channel_access_token',
+        }),
+        readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId,
+          lineAccountId: row.id,
+          kind: 'channel_secret',
+        }),
+        readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId,
+          lineAccountId: row.id,
+          kind: 'login_channel_secret',
+        }),
+      ]);
+      return values.every((value) => typeof value === 'string' && value.length > 0)
+        ? ('READY' as const)
+        : ('UNVERIFIED' as const);
+    }),
   );
-  const credentialStatus = await Promise.all(rows.map(async (row) => {
-    if (row.messaging_credential_count !== 2 || row.login_credential_count !== 1 ||
-        !c.env.LINE_CREDENTIAL_KEY_V1) return 'UNVERIFIED' as const;
-    const values = await Promise.all([
-      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
-        tenantId, lineAccountId: row.id, kind: 'channel_access_token',
-      }),
-      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
-        tenantId, lineAccountId: row.id, kind: 'channel_secret',
-      }),
-      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
-        tenantId, lineAccountId: row.id, kind: 'login_channel_secret',
-      }),
-    ]);
-    return values.every((value) => typeof value === 'string' && value.length > 0)
-      ? 'READY' as const : 'UNVERIFIED' as const;
-  }));
 
   let liveLiffEvidence: LiffEndpointEvidence | null = null;
   if (verifyLiffRow) {
     const endpoint = expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, verifyLiffRow.liff_id);
-    if (!c.env.LINE_CREDENTIAL_KEY_V1 || !verifyLiffRow.login_channel_id ||
-        !verifyLiffRow.liff_id || !endpoint) {
+    if (!c.env.LINE_CREDENTIAL_KEY_V1 || !verifyLiffRow.login_channel_id || !verifyLiffRow.liff_id || !endpoint) {
       liveLiffEvidence = {
-        status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+        status: 'ERROR',
+        source: 'line_api',
+        checkedAt: new Date().toISOString(),
         reason: 'CONFIGURATION_UNAVAILABLE',
       };
     } else {
       try {
         const loginSecret = await readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
-          tenantId, lineAccountId: verifyLiffRow.id, kind: 'login_channel_secret',
+          tenantId,
+          lineAccountId: verifyLiffRow.id,
+          kind: 'login_channel_secret',
         });
         liveLiffEvidence = loginSecret
-          ? await verifyLiffEndpoint(
-            verifyLiffRow.login_channel_id, loginSecret, verifyLiffRow.liff_id, endpoint,
-          )
+          ? await verifyLiffEndpoint(verifyLiffRow.login_channel_id, loginSecret, verifyLiffRow.liff_id, endpoint)
           : {
-            status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
-            reason: 'CREDENTIAL_UNAVAILABLE',
-          };
+              status: 'ERROR',
+              source: 'line_api',
+              checkedAt: new Date().toISOString(),
+              reason: 'CREDENTIAL_UNAVAILABLE',
+            };
       } catch {
         liveLiffEvidence = {
-          status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+          status: 'ERROR',
+          source: 'line_api',
+          checkedAt: new Date().toISOString(),
           reason: 'CREDENTIAL_UNAVAILABLE',
         };
       }
@@ -410,30 +439,32 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
     verifyLiffAccountId ?? undefined,
     liveLiffEvidence
       ? {
-        status: liveLiffEvidence.status,
-        ...('reason' in liveLiffEvidence ? { reason: liveLiffEvidence.reason } : {}),
-        ...('upstreamStatus' in liveLiffEvidence && liveLiffEvidence.upstreamStatus !== undefined
-          ? { upstreamStatus: liveLiffEvidence.upstreamStatus }
-          : {}),
-      }
+          status: liveLiffEvidence.status,
+          ...('reason' in liveLiffEvidence ? { reason: liveLiffEvidence.reason } : {}),
+          ...('upstreamStatus' in liveLiffEvidence && liveLiffEvidence.upstreamStatus !== undefined
+            ? { upstreamStatus: liveLiffEvidence.upstreamStatus }
+            : {}),
+        }
       : undefined,
   );
   return c.json({
     success: true,
     data: rows.map((row, index) => {
       const endpoint = expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, row.liff_id);
-      const liffEvidence = row.id === verifyLiffAccountId && liveLiffEvidence
-        ? liveLiffEvidence
-        : { status: 'UNVERIFIED' as const, source: 'manual_console' as const, checkedAt: null };
+      const liffEvidence =
+        row.id === verifyLiffAccountId && liveLiffEvidence
+          ? liveLiffEvidence
+          : { status: 'UNVERIFIED' as const, source: 'manual_console' as const, checkedAt: null };
       const liffEndpointReady = liffEvidence.status === 'MATCH';
       const liffReasonCodes = !row.liff_id
         ? ['LIFF_ID_MISSING']
         : endpoint
-          ? liffEndpointReady ? [] : ['LIFF_ENDPOINT_UNVERIFIED']
+          ? liffEndpointReady
+            ? []
+            : ['LIFF_ENDPOINT_UNVERIFIED']
           : ['LIFF_PUBLIC_ORIGIN_INVALID'];
       const readinessResult = readiness[index];
-      const accountReadiness = readinessResult?.status === 'fulfilled'
-        ? readinessResult.value : null;
+      const accountReadiness = readinessResult?.status === 'fulfilled' ? readinessResult.value : null;
       const configurationDoctor = buildPharmacyConfigurationDoctor({
         accountId: row.id,
         checkedAt: liffEvidence.checkedAt ?? accountReadiness?.checkedAt ?? new Date().toISOString(),
@@ -453,22 +484,22 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
         readiness: accountReadiness,
       });
       return {
-      id: row.id,
-      name: row.name,
-      channelId: row.channel_id,
-      isActive: row.is_active === 1,
-      hasBotIdentity: row.bot_identity_count > 0,
-      hasEncryptedCredential: row.messaging_credential_count + row.login_credential_count > 0,
-      liffIdConfigured: Boolean(row.liff_id),
-      loginChannelConfigured: Boolean(row.login_channel_id),
-      messagingCredentialsReady: row.messaging_credential_count === 2,
-      loginCredentialReady: row.login_credential_count === 1,
-      expectedLiffEndpoint: endpoint,
-      liffEndpointEvidence: liffEvidence,
-      liffReasonCodes,
-      lastWebhookReceivedAt: row.last_webhook_received_at,
-      readiness: accountReadiness,
-      configurationDoctor,
+        id: row.id,
+        name: row.name,
+        channelId: row.channel_id,
+        isActive: row.is_active === 1,
+        hasBotIdentity: row.bot_identity_count > 0,
+        hasEncryptedCredential: row.messaging_credential_count + row.login_credential_count > 0,
+        liffIdConfigured: Boolean(row.liff_id),
+        loginChannelConfigured: Boolean(row.login_channel_id),
+        messagingCredentialsReady: row.messaging_credential_count === 2,
+        loginCredentialReady: row.login_credential_count === 1,
+        expectedLiffEndpoint: endpoint,
+        liffEndpointEvidence: liffEvidence,
+        liffReasonCodes,
+        lastWebhookReceivedAt: row.last_webhook_received_at,
+        readiness: accountReadiness,
+        configurationDoctor,
       };
     }),
   });
@@ -485,9 +516,7 @@ function probeTimeout(): Promise<never> {
   });
 }
 
-type ProbeOutcome =
-  | { ok: true; botUserId: string; displayName: string | null }
-  | { ok: false; error: string };
+type ProbeOutcome = { ok: true; botUserId: string; displayName: string | null } | { ok: false; error: string };
 
 /**
  * POST /api/platform-admin/tenants/:id/line-accounts/:lineAccountId/test-connection
@@ -511,7 +540,9 @@ platformAdminOperationsRoutes.post(
     const mapping = await c.env.DB.prepare(
       `SELECT line_account_id FROM tenant_line_accounts
         WHERE tenant_id = ? AND line_account_id = ? LIMIT 1`,
-    ).bind(tenantId, lineAccountId).first<{ line_account_id: string }>();
+    )
+      .bind(tenantId, lineAccountId)
+      .first<{ line_account_id: string }>();
     if (!mapping) {
       return c.json({ success: false, error: 'LINE account not found for this tenant' }, 404);
     }
@@ -519,10 +550,10 @@ platformAdminOperationsRoutes.post(
     // Same decrypt path every outbound pharmacy LINE call uses.
     const accessToken = c.env.LINE_CREDENTIAL_KEY_V1
       ? await readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
-        tenantId,
-        lineAccountId,
-        kind: 'channel_access_token',
-      })
+          tenantId,
+          lineAccountId,
+          kind: 'channel_access_token',
+        })
       : null;
 
     let outcome: ProbeOutcome;
@@ -543,15 +574,21 @@ platformAdminOperationsRoutes.post(
       } catch (error) {
         outcome = {
           ok: false,
-          error: error instanceof Error && error.message === PROBE_TIMEOUT_ERROR
-            ? PROBE_TIMEOUT_ERROR
-            : 'LINE API request failed',
+          error:
+            error instanceof Error && error.message === PROBE_TIMEOUT_ERROR
+              ? PROBE_TIMEOUT_ERROR
+              : 'LINE API request failed',
         };
       }
     }
 
     await recordPlatformAdminAccess(
-      c.env.DB, admin.id, tenantId, 'test_line_connection', 'line_account', lineAccountId,
+      c.env.DB,
+      admin.id,
+      tenantId,
+      'test_line_connection',
+      'line_account',
+      lineAccountId,
       outcome.ok ? { ok: true } : { ok: false, error: outcome.error },
     );
     return c.json({ success: true, data: outcome });

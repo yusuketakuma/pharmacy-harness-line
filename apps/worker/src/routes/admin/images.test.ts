@@ -11,7 +11,10 @@ const r2 = {
 function app() {
   const testApp = new Hono<{
     Bindings: { IMAGES: R2Bucket; WORKER_URL?: string };
-    Variables: { tenantId: string; staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' } };
+    Variables: {
+      tenantId: string;
+      staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    };
   }>();
   testApp.use('*', async (c, next) => {
     c.set('tenantId', 'tenant-a');
@@ -29,10 +32,15 @@ function db(pharmacy = false, auditWrites: AuditWrite[] = [], events: string[] =
     prepare(sql: string) {
       const statement = {
         values: [] as unknown[],
-        bind(...values: unknown[]) { statement.values = values; return statement; },
+        bind(...values: unknown[]) {
+          statement.values = values;
+          return statement;
+        },
         async first() {
-          if (sql.includes('FROM tenant_line_accounts AS mapping') &&
-              sql.includes('pharmacy_account_capabilities AS capability')) {
+          if (
+            sql.includes('FROM tenant_line_accounts AS mapping') &&
+            sql.includes('pharmacy_account_capabilities AS capability')
+          ) {
             return pharmacy ? { pharmacy_install: 1 } : null;
           }
           if (sql.includes('tenant_staff_memberships') && sql.includes('pharmacy_staff_accounts')) {
@@ -48,9 +56,7 @@ function db(pharmacy = false, auditWrites: AuditWrite[] = [], events: string[] =
                 : null;
           }
           if (sql.includes('pharmacy_staff_accounts')) {
-            return statement.values[0] === 'account-a' && statement.values[2] === 'staff-a'
-              ? { ok: 1 }
-              : null;
+            return statement.values[0] === 'account-a' && statement.values[2] === 'staff-a' ? { ok: 1 } : null;
           }
           return null;
         },
@@ -104,11 +110,10 @@ describe('tenant-scoped image storage', () => {
   });
 
   it('never exposes incoming patient images through the public image route', async () => {
-    const res = await app().request(
-      '/images/tenants/tenant-a/accounts/account-a/incoming/message.jpg',
-      undefined,
-      { IMAGES: r2 as unknown as R2Bucket, DB: db() },
-    );
+    const res = await app().request('/images/tenants/tenant-a/accounts/account-a/incoming/message.jpg', undefined, {
+      IMAGES: r2 as unknown as R2Bucket,
+      DB: db(),
+    });
     expect(res.status).toBe(404);
     expect(r2.get).not.toHaveBeenCalled();
   });
@@ -148,18 +153,22 @@ describe('tenant-scoped image storage', () => {
       etag: 'etag-upload',
       httpMetadata: { contentType: 'image/png' },
     });
-    const res = await app().request('/api/images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png' },
-      body: new Uint8Array([1, 2, 3]),
-    }, {
-      IMAGES: r2 as unknown as R2Bucket,
-      DB: db(),
-      WORKER_URL: 'https://worker.example.com',
-    });
+    const res = await app().request(
+      '/api/images',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: new Uint8Array([1, 2, 3]),
+      },
+      {
+        IMAGES: r2 as unknown as R2Bucket,
+        DB: db(),
+        WORKER_URL: 'https://worker.example.com',
+      },
+    );
 
     expect(res.status).toBe(201);
-    const body = await res.json() as { data: { key: string; url: string } };
+    const body = (await res.json()) as { data: { key: string; url: string } };
     expect(body.data.key).toMatch(/^tenants\/tenant-a\/uploads\/[0-9a-f-]+\.png$/);
 
     const publicResponse = await app().request(new URL(body.data.url).pathname, undefined, {
@@ -173,44 +182,56 @@ describe('tenant-scoped image storage', () => {
   it('requires an assigned account and audits pharmacy uploads before R2 mutation', async () => {
     const auditWrites: AuditWrite[] = [];
     const events: string[] = [];
-    r2.put.mockImplementation(async () => { events.push('put'); });
+    r2.put.mockImplementation(async () => {
+      events.push('put');
+    });
     const env = {
       IMAGES: r2 as unknown as R2Bucket,
       DB: db(true, auditWrites, events),
       WORKER_URL: 'https://worker.example.com',
     };
 
-    const missing = await app().request('/api/images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png' },
-      body: new Uint8Array([1]),
-    }, env);
+    const missing = await app().request(
+      '/api/images',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: new Uint8Array([1]),
+      },
+      env,
+    );
     expect(missing.status).toBe(400);
 
-    const unassigned = await app().request('/api/images?line_account_id=account-b', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png' },
-      body: new Uint8Array([1]),
-    }, env);
+    const unassigned = await app().request(
+      '/api/images?line_account_id=account-b',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: new Uint8Array([1]),
+      },
+      env,
+    );
     expect(unassigned.status).toBe(403);
     expect(r2.put).not.toHaveBeenCalled();
 
-    const uploaded = await app().request('/api/images?line_account_id=account-a', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png' },
-      body: new Uint8Array([1, 2, 3]),
-    }, env);
-    expect(uploaded.status).toBe(201);
-    const body = await uploaded.json() as { data: { key: string; url: string } };
-    expect(body.data.key).toMatch(
-      /^tenants\/tenant-a\/accounts\/account-a\/uploads\/[0-9a-f-]+\.png$/,
+    const uploaded = await app().request(
+      '/api/images?line_account_id=account-a',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: new Uint8Array([1, 2, 3]),
+      },
+      env,
     );
+    expect(uploaded.status).toBe(201);
+    const body = (await uploaded.json()) as { data: { key: string; url: string } };
+    expect(body.data.key).toMatch(/^tenants\/tenant-a\/accounts\/account-a\/uploads\/[0-9a-f-]+\.png$/);
     expect(events).toEqual(['audit', 'put']);
     expect(auditWrites).toHaveLength(1);
     expect(auditWrites[0].sql).toContain('INSERT INTO tenant_admin_audit_events');
-    expect(auditWrites[0].values).toEqual(expect.arrayContaining([
-      'tenant-a', 'account-a', 'staff-a', 'image.upload_requested',
-    ]));
+    expect(auditWrites[0].values).toEqual(
+      expect.arrayContaining(['tenant-a', 'account-a', 'staff-a', 'image.upload_requested']),
+    );
 
     r2.get.mockResolvedValue({
       body: new Uint8Array([1]),
@@ -221,4 +242,49 @@ describe('tenant-scoped image storage', () => {
     expect(publicResponse.status).toBe(200);
     expect(r2.get).toHaveBeenCalledWith(body.data.key);
   });
+});
+
+describe('image route error privacy', () => {
+  it.each(['json', 'database', 'upload', 'delete'] as const)(
+    'keeps %s failure details out of diagnostics and the response',
+    async (phase) => {
+      const sentinel = 'PHI_TEST';
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const database = db(phase === 'database');
+        if (phase === 'database') {
+          const prepare = database.prepare.bind(database);
+          database.prepare = (sql) => {
+            const statement = prepare(sql);
+            statement.run = async () => {
+              throw new Error(sentinel);
+            };
+            return statement;
+          };
+        }
+        if (phase === 'upload') r2.put.mockRejectedValueOnce(new Error(sentinel));
+        if (phase === 'delete') r2.delete.mockRejectedValueOnce(new Error(sentinel));
+        const deleting = phase === 'delete';
+        const response = await app().request(
+          deleting
+            ? '/api/images/tenants/tenant-a/uploads/550e8400-e29b-41d4-a716-446655440000.png'
+            : '/api/images?line_account_id=account-a',
+          {
+            method: deleting ? 'DELETE' : 'POST',
+            headers: { 'Content-Type': phase === 'json' ? 'application/json' : 'image/png' },
+            ...(deleting ? {} : { body: phase === 'json' ? sentinel : new Uint8Array([1]) }),
+          },
+          { DB: database, IMAGES: r2 as unknown as R2Bucket },
+        );
+        expect(response.status).toBe(500);
+        expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
+        expect(log.mock.calls).toEqual([[deleting ? 'DELETE /api/images/:key failed' : 'POST /api/images failed']]);
+        if (phase === 'json' || phase === 'database') expect(r2.put).not.toHaveBeenCalled();
+        if (phase === 'upload') expect(r2.put).toHaveBeenCalledTimes(1);
+        if (deleting) expect(r2.delete).toHaveBeenCalledTimes(1);
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
 });

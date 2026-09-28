@@ -8,6 +8,8 @@ export interface StaffMember {
   api_key: string;
   /** HMAC-SHA-256 of `api_key`. NULL for keys issued before custom_027. */
   api_key_hash: string | null;
+  principal_kind?: 'human' | 'pharmacy_shared';
+  shared_tenant_id?: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -29,7 +31,9 @@ export interface UpdateStaffInput {
 function generateApiKey(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
   return `lh_${hex}`;
 }
 
@@ -49,12 +53,8 @@ export async function hashStaffApiKey(secret: string, apiKey: string): Promise<s
     false,
     ['sign'],
   );
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    new TextEncoder().encode(`${STAFF_API_KEY_LABEL}:${apiKey}`),
-  );
-  return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${STAFF_API_KEY_LABEL}:${apiKey}`));
+  return Array.from(new Uint8Array(signature), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -98,20 +98,12 @@ export async function getStaffByApiKey(
 }
 
 export async function getStaffMembers(db: D1Database): Promise<StaffMember[]> {
-  const result = await db
-    .prepare('SELECT * FROM staff_members ORDER BY created_at ASC')
-    .all<StaffMember>();
+  const result = await db.prepare('SELECT * FROM staff_members ORDER BY created_at ASC').all<StaffMember>();
   return result.results;
 }
 
-export async function getStaffById(
-  db: D1Database,
-  id: string,
-): Promise<StaffMember | null> {
-  return db
-    .prepare('SELECT * FROM staff_members WHERE id = ?')
-    .bind(id)
-    .first<StaffMember>();
+export async function getStaffById(db: D1Database, id: string): Promise<StaffMember | null> {
+  return db.prepare('SELECT * FROM staff_members WHERE id = ?').bind(id).first<StaffMember>();
 }
 
 export async function createStaffMember(
@@ -133,10 +125,7 @@ export async function createStaffMember(
     .bind(id, input.name, input.email ?? null, input.role, apiKey, apiKeyHash, now, now)
     .run();
 
-  return (await db
-    .prepare('SELECT * FROM staff_members WHERE id = ?')
-    .bind(id)
-    .first<StaffMember>())!;
+  return (await db.prepare('SELECT * FROM staff_members WHERE id = ?').bind(id).first<StaffMember>())!;
 }
 
 export async function updateStaffMember(
@@ -149,10 +138,22 @@ export async function updateStaffMember(
   const sets: string[] = ['updated_at = ?'];
   const values: (string | number | null)[] = [now];
 
-  if (input.name !== undefined) { sets.push('name = ?'); values.push(input.name); }
-  if (input.email !== undefined) { sets.push('email = ?'); values.push(input.email ?? null); }
-  if (input.role !== undefined) { sets.push('role = ?'); values.push(input.role); }
-  if (input.is_active !== undefined) { sets.push('is_active = ?'); values.push(input.is_active); }
+  if (input.name !== undefined) {
+    sets.push('name = ?');
+    values.push(input.name);
+  }
+  if (input.email !== undefined) {
+    sets.push('email = ?');
+    values.push(input.email ?? null);
+  }
+  if (input.role !== undefined) {
+    sets.push('role = ?');
+    values.push(input.role);
+  }
+  if (input.is_active !== undefined) {
+    sets.push('is_active = ?');
+    values.push(input.is_active);
+  }
 
   values.push(id, id, tenantId);
   const result = await db
@@ -173,16 +174,10 @@ export async function updateStaffMember(
 }
 
 export async function deleteStaffMember(_db: D1Database, _id: string): Promise<void> {
-  throw new Error(
-    'Physical staff deletion is disabled; deactivate the tenant membership instead',
-  );
+  throw new Error('Physical staff deletion is disabled; deactivate the tenant membership instead');
 }
 
-export async function regenerateStaffApiKey(
-  db: D1Database,
-  id: string,
-  hashSecret?: string,
-): Promise<string> {
+export async function regenerateStaffApiKey(db: D1Database, id: string, hashSecret?: string): Promise<string> {
   const newKey = generateApiKey();
   const now = jstNow();
   const result = await db

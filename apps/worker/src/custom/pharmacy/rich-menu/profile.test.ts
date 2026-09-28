@@ -98,7 +98,9 @@ describe('pharmacy rich-menu profile', () => {
   });
 
   it('ships a LINE-compliant generated initial image', () => {
-    const bytes = new Uint8Array(readFileSync(resolve(process.cwd(), `public${PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH}`)));
+    const bytes = new Uint8Array(
+      readFileSync(resolve(process.cwd(), `public${PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH}`)),
+    );
     expect(validateRichMenuImage(bytes, bytes.byteLength)).toEqual({
       ok: true,
       size: 'large',
@@ -123,7 +125,9 @@ describe('pharmacy rich-menu profile', () => {
     });
     expect(areas).toHaveLength(3);
     expect(areas.map((area) => [area.boundsX, area.boundsY])).toEqual([
-      [0, 0], [833, 0], [1667, 0],
+      [0, 0],
+      [833, 0],
+      [1667, 0],
     ]);
     expect(areas[0].actionData).toEqual({ text: '薬局へ相談' });
     expect(areas[1].actionData).toEqual({
@@ -135,41 +139,57 @@ describe('pharmacy rich-menu profile', () => {
   });
 
   it('projects server-owned candidate labels and tap bounds without raw action data', () => {
-    expect(getPharmacyRichMenuCatalogPreview(
-      '1234567890-AbCd', [
-        'prescription-send', 'prescription-history', 'medication-followup',
-        'manual-chat', 'pharmacy-info',
-      ],
-    )[0]).toMatchObject({
-      actionKey: 'prescription-send', label: '処方せん事前送信', actionType: 'uri',
+    expect(
+      getPharmacyRichMenuCatalogPreview('1234567890-AbCd', [
+        'prescription-send',
+        'prescription-history',
+        'medication-followup',
+        'manual-chat',
+        'pharmacy-info',
+      ])[0],
+    ).toMatchObject({
+      actionKey: 'prescription-send',
+      label: '処方せん事前送信',
+      actionType: 'uri',
     });
-    expect(getPharmacyRichMenuCatalogPreview(
-      '1234567890-AbCd', ['pharmacy-info'],
-    )).toEqual([
+    expect(getPharmacyRichMenuCatalogPreview('1234567890-AbCd', ['pharmacy-info'])).toEqual([
       expect.objectContaining({
-        actionKey: 'pharmacy-info', label: '薬局情報', actionType: 'uri',
-        boundsX: 0, boundsY: 0, boundsWidth: 1250, boundsHeight: 843,
+        actionKey: 'pharmacy-info',
+        label: '薬局情報',
+        actionType: 'uri',
+        boundsX: 0,
+        boundsY: 0,
+        boundsWidth: 1250,
+        boundsHeight: 843,
       }),
       expect.objectContaining({
-        actionKey: 'all-functions', label: 'すべての機能', actionType: 'uri',
-        boundsX: 1250, boundsY: 0, boundsWidth: 1250, boundsHeight: 843,
+        actionKey: 'all-functions',
+        label: 'すべての機能',
+        actionType: 'uri',
+        boundsX: 1250,
+        boundsY: 0,
+        boundsWidth: 1250,
+        boundsHeight: 843,
       }),
     ]);
     expect(getPharmacyRichMenuCatalogPreview('1234567890-AbCd', [])).toEqual([
       expect.objectContaining({
-        actionKey: 'all-functions', label: 'すべての機能',
-        boundsX: 0, boundsY: 0, boundsWidth: 2500, boundsHeight: 843,
+        actionKey: 'all-functions',
+        label: 'すべての機能',
+        boundsX: 0,
+        boundsY: 0,
+        boundsWidth: 2500,
+        boundsHeight: 843,
       }),
     ]);
-    expect(JSON.stringify(getPharmacyRichMenuCatalogPreview(
-      '1234567890-AbCd', ['pharmacy-info'],
-    ))).not.toContain('liff.line.me');
+    expect(JSON.stringify(getPharmacyRichMenuCatalogPreview('1234567890-AbCd', ['pharmacy-info']))).not.toContain(
+      'liff.line.me',
+    );
   });
 
   it('hashes the canonical image action manifest and detects any action change', async () => {
-    const areas = buildPharmacyCatalogRichMenu(
-      'account-a', '1234567890-AbCd', ['manual-chat', 'pharmacy-info'], 'Menu',
-    ).pages[0].areas;
+    const areas = buildPharmacyCatalogRichMenu('account-a', '1234567890-AbCd', ['manual-chat', 'pharmacy-info'], 'Menu')
+      .pages[0].areas;
     const first = await hashPharmacyRichMenuManifest(areas);
     const changed = areas.map((area) => ({ ...area, actionData: { ...area.actionData } }));
     changed[0] = { ...changed[0], actionData: { text: '別のmessage' } };
@@ -189,21 +209,24 @@ describe('pharmacy rich-menu profile', () => {
 
   it('diagnoses persisted actions independently of database row order', () => {
     const order = [
-      'prescription-send', 'prescription-history', 'medication-followup',
-      'manual-chat', 'pharmacy-info',
+      'prescription-send',
+      'prescription-history',
+      'medication-followup',
+      'manual-chat',
+      'pharmacy-info',
     ] as const;
-    const areas = buildPharmacyCatalogRichMenu(
-      'account-a', '1234567890-AbCd', order, 'Menu',
-    ).pages[0].areas.slice().reverse();
+    const areas = buildPharmacyCatalogRichMenu('account-a', '1234567890-AbCd', order, 'Menu')
+      .pages[0].areas.slice()
+      .reverse();
 
     expect(diagnosePharmacyRichMenuActions(areas, '1234567890-AbCd', order)).toEqual([]);
   });
 
   it('rejects changed bounds and action types before LINE publication', () => {
     const order = ['pharmacy-info'] as const;
-    const areas = buildPharmacyCatalogRichMenu(
-      'account-a', '1234567890-AbCd', order, 'Menu',
-    ).pages[0].areas.map((area) => ({ ...area, actionData: { ...area.actionData } }));
+    const areas = buildPharmacyCatalogRichMenu('account-a', '1234567890-AbCd', order, 'Menu').pages[0].areas.map(
+      (area) => ({ ...area, actionData: { ...area.actionData } }),
+    );
     areas[0].boundsX += 1;
     areas[1].actionType = 'message';
     areas[1].actionData = { text: 'すべての機能' };
@@ -216,44 +239,62 @@ describe('pharmacy rich-menu profile', () => {
 
   it('classifies slot, action, and image changes without exposing action data', () => {
     const current = buildPharmacyCatalogRichMenu(
-      'account-a', '1234567890-AbCd', ['manual-chat', 'pharmacy-info'], 'Current',
+      'account-a',
+      '1234567890-AbCd',
+      ['manual-chat', 'pharmacy-info'],
+      'Current',
     ).pages[0].areas;
     const reordered = buildPharmacyCatalogRichMenu(
-      'account-a', '1234567890-AbCd', ['pharmacy-info', 'manual-chat'], 'Draft',
+      'account-a',
+      '1234567890-AbCd',
+      ['pharmacy-info', 'manual-chat'],
+      'Draft',
     ).pages[0].areas;
 
-    expect(diffPharmacyRichMenuManifests(current, current, 'a'.repeat(64), 'a'.repeat(64)))
-      .toEqual({ imageChanged: false, slots: current.map((_, index) => ({
-        kind: 'same', currentIndex: index, draftIndex: index,
-      })) });
-    expect(diffPharmacyRichMenuManifests(current, current, 'a'.repeat(64), 'b'.repeat(64)))
-      .toEqual({ imageChanged: true, slots: current.map((_, index) => ({
-        kind: 'image_changed', currentIndex: index, draftIndex: index,
-      })) });
-    expect(diffPharmacyRichMenuManifests(current, reordered, 'a'.repeat(64), 'b'.repeat(64)).slots)
-      .toEqual([
-        { kind: 'moved', currentIndex: 1, draftIndex: 0 },
-        { kind: 'moved', currentIndex: 0, draftIndex: 1 },
-        { kind: 'image_changed', currentIndex: 2, draftIndex: 2 },
-      ]);
+    expect(diffPharmacyRichMenuManifests(current, current, 'a'.repeat(64), 'a'.repeat(64))).toEqual({
+      imageChanged: false,
+      slots: current.map((_, index) => ({
+        kind: 'same',
+        currentIndex: index,
+        draftIndex: index,
+      })),
+    });
+    expect(diffPharmacyRichMenuManifests(current, current, 'a'.repeat(64), 'b'.repeat(64))).toEqual({
+      imageChanged: true,
+      slots: current.map((_, index) => ({
+        kind: 'image_changed',
+        currentIndex: index,
+        draftIndex: index,
+      })),
+    });
+    expect(diffPharmacyRichMenuManifests(current, reordered, 'a'.repeat(64), 'b'.repeat(64)).slots).toEqual([
+      { kind: 'moved', currentIndex: 1, draftIndex: 0 },
+      { kind: 'moved', currentIndex: 0, draftIndex: 1 },
+      { kind: 'image_changed', currentIndex: 2, draftIndex: 2 },
+    ]);
 
     const changed = current.map((area) => ({ ...area, actionData: { ...area.actionData } }));
     changed[1] = { ...changed[1], actionData: { uri: 'https://liff.line.me/fixed/?page=changed' } };
-    expect(diffPharmacyRichMenuManifests(current, changed, 'a'.repeat(64), 'a'.repeat(64)).slots[1])
-      .toEqual({ kind: 'action_changed', currentIndex: 1, draftIndex: 1 });
+    expect(diffPharmacyRichMenuManifests(current, changed, 'a'.repeat(64), 'a'.repeat(64)).slots[1]).toEqual({
+      kind: 'action_changed',
+      currentIndex: 1,
+      draftIndex: 1,
+    });
 
-    expect(diffPharmacyRichMenuManifests(current, current.slice(1), 'a'.repeat(64), 'a'.repeat(64)).slots)
-      .toEqual(expect.arrayContaining([
+    expect(diffPharmacyRichMenuManifests(current, current.slice(1), 'a'.repeat(64), 'a'.repeat(64)).slots).toEqual(
+      expect.arrayContaining([
         { kind: 'removed', currentIndex: 0, draftIndex: null },
         { kind: 'moved', currentIndex: 1, draftIndex: 0 },
-      ]));
-    expect(diffPharmacyRichMenuManifests(current.slice(1), current, 'a'.repeat(64), 'a'.repeat(64)).slots)
-      .toEqual(expect.arrayContaining([
+      ]),
+    );
+    expect(diffPharmacyRichMenuManifests(current.slice(1), current, 'a'.repeat(64), 'a'.repeat(64)).slots).toEqual(
+      expect.arrayContaining([
         { kind: 'added', currentIndex: null, draftIndex: 0 },
         { kind: 'moved', currentIndex: 0, draftIndex: 1 },
-      ]));
-    expect(JSON.stringify(diffPharmacyRichMenuManifests(
-      current, changed, 'a'.repeat(64), 'a'.repeat(64),
-    ))).not.toContain('liff.line.me');
+      ]),
+    );
+    expect(
+      JSON.stringify(diffPharmacyRichMenuManifests(current, changed, 'a'.repeat(64), 'a'.repeat(64))),
+    ).not.toContain('liff.line.me');
   });
 });

@@ -1,0 +1,16 @@
+{
+  "files": {
+    "dist/index.js": {
+      "bytes": 8763,
+      "sha256": "13e0f3797c02df4c8df96f708e93adf5703522e6f1e21a2a091634681bbe9d19"
+    },
+    "dist-mcp/index.js": {
+      "bytes": 1338902,
+      "sha256": "611a49b7c7cfc91ebbbfad3624e96be6ea5bd499f9d67e92052ef009c60b0a09"
+    }
+  },
+  "outbound": 0,
+  "worker": "PASS webhook valid/invalid, health, 404, no private-body log",
+  "mcp": "PASS compiled stdio tools/list + lookup_customer synthetic HTTP503, no private-body response",
+  "exit": 0
+}

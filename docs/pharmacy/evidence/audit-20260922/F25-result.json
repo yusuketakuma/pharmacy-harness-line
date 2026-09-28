@@ -1,0 +1,21 @@
+{
+  "status": "INTEGRATED",
+  "P": "fa43ab1e53a60e6154ad528a7ee2453e0774cbf4",
+  "commit": "10d1198cfb1d7a2d2154b1d911288ce9ed8b6e9e",
+  "paths": [
+    "apps/worker/src/custom/pharmacy/growth-loop/sender.ts",
+    "apps/worker/src/custom/pharmacy/growth-loop/validity-dispatch.test.ts"
+  ],
+  "near": {
+    "exit": 0,
+    "files": 3,
+    "passed": 64
+  },
+  "verifyCiExit": 0,
+  "buildExit": 0,
+  "compiledRuntimeExit": 0,
+  "patchReplay": "PASS both paths, final delayed-resume fix",
+  "limitedReview": "F25-limited-review-final.md, static, no new blocker",
+  "freshFinalIndependentReview": "NOT RUN",
+  "production": "NOT ACCESSED / NOT DEPLOYED"
+}

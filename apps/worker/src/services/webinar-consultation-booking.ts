@@ -5,10 +5,7 @@ import {
   syncConfirmedBookingToGoogle,
 } from './booking-calendar-sync.js';
 import type { GoogleCalendarCredentials } from './google-oauth.js';
-import {
-  cancelMeetConsultation,
-  registerMeetConsultation,
-} from './meet-consultation-reminders.js';
+import { cancelMeetConsultation, registerMeetConsultation } from './meet-consultation-reminders.js';
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
 
@@ -81,9 +78,7 @@ function googleCredentialsConfigured(
     return Boolean(credentials.email && credentials.privateKey);
   }
   if (connection.auth_type === 'oauth') {
-    return Boolean(
-      connection.refresh_token && credentials.oauthClientId && credentials.oauthClientSecret,
-    );
+    return Boolean(connection.refresh_token && credentials.oauthClientId && credentials.oauthClientSecret);
   }
   return Boolean(connection.access_token);
 }
@@ -149,9 +144,7 @@ async function loadContext(
   if (!offered) throw new WebinarConsultationError('consultation_not_available', 404);
 
   const connection = await getStaffCalendarConnection(db, input.accountId, offered.staff_id);
-  const calendarReady = Boolean(
-    connection && googleCredentialsConfigured(connection, credentials),
-  );
+  const calendarReady = Boolean(connection && googleCredentialsConfigured(connection, credentials));
   return {
     bookingUrl: config.booking_url,
     menuId: offered.menu_id,
@@ -184,9 +177,7 @@ async function findExistingBooking(
     )
     .bind(friendId, menuId, now.toISOString())
     .first<{ id: string; status: string; starts_at: string; meet_url: string | null }>();
-  return row
-    ? { bookingId: row.id, status: row.status, startsAt: row.starts_at, meetUrl: row.meet_url }
-    : null;
+  return row ? { bookingId: row.id, status: row.status, startsAt: row.starts_at, meetUrl: row.meet_url } : null;
 }
 
 function jstDateRange(now: Date): { from: string; to: string } {
@@ -211,9 +202,7 @@ export async function getWebinarConsultationAvailability(
   },
 ): Promise<WebinarConsultationAvailability> {
   const context = await loadContext(db, input, input.credentials);
-  const existingBooking = await findExistingBooking(
-    db, input.friendId, context.menuId, input.now,
-  );
+  const existingBooking = await findExistingBooking(db, input.friendId, context.menuId, input.now);
   const { from, to } = jstDateRange(input.now);
   const availability = await getAvailability(db, {
     lineAccountId: input.accountId!,
@@ -247,10 +236,13 @@ function renderConfirmationText(startsAt: string, meetUrl: string): string {
   const jst = new Date(new Date(startsAt).getTime() + JST_OFFSET_MS);
   const iso = jst.toISOString();
   const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-  const dateLabel = `${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日` +
+  const dateLabel =
+    `${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日` +
     `（${weekdays[jst.getUTCDay()]}）${iso.slice(11, 16)}`;
-  return `個別相談の日程が確定しました✅\n\n日時：${dateLabel}\nGoogle Meet：${meetUrl}` +
-    `\n\n前日と開始1時間前にも、このLINEへ参加リンクをお送りします。`;
+  return (
+    `個別相談の日程が確定しました✅\n\n日時：${dateLabel}\nGoogle Meet：${meetUrl}` +
+    `\n\n前日と開始1時間前にも、このLINEへ参加リンクをお送りします。`
+  );
 }
 
 export async function bookWebinarConsultation(
@@ -311,9 +303,7 @@ export async function bookWebinarConsultation(
     minLeadTimeMinutes: MIN_LEAD_TIME_MINUTES,
     googleCredentials: input.credentials,
   });
-  const slotExists = availability.by_staff[0]?.slots.some(
-    (slot) => slot.date === date && slot.start === time,
-  );
+  const slotExists = availability.by_staff[0]?.slots.some((slot) => slot.date === date && slot.start === time);
   if (!slotExists) throw new WebinarConsultationError('slot_not_available', 409);
 
   const endsAt = new Date(startsAt.getTime() + context.durationMinutes * 60_000);
@@ -367,26 +357,27 @@ export async function bookWebinarConsultation(
   let externalEventId: string | null = null;
   let meetUrl: string | null = null;
   try {
-    const synced = await syncConfirmedBookingToGoogle(
-      db,
-      input.credentials,
-      bookingId,
-      { addGoogleMeet: true },
-    );
+    const synced = await syncConfirmedBookingToGoogle(db, input.credentials, bookingId, {
+      addGoogleMeet: true,
+    });
     if (!synced.synced || !synced.eventId || !synced.meetUrl) {
       throw new Error('calendar_or_meet_not_created');
     }
     externalEventId = synced.eventId;
     meetUrl = synced.meetUrl;
-    await registerMeetConsultation(db, {
-      externalEventId: synced.eventId,
-      friendId: input.friendId,
-      title: `${input.webinarTitle}｜個別相談`,
-      startsAt: startsAt.toISOString(),
-      endsAt: endsAt.toISOString(),
-      meetUrl: synced.meetUrl,
-    }, input.accountId!, input.now);
-
+    await registerMeetConsultation(
+      db,
+      {
+        externalEventId: synced.eventId,
+        friendId: input.friendId,
+        title: `${input.webinarTitle}｜個別相談`,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        meetUrl: synced.meetUrl,
+      },
+      input.accountId!,
+      input.now,
+    );
   } catch (error) {
     if (externalEventId) {
       await cancelMeetConsultation(db, externalEventId, input.accountId!, input.now).catch(() => false);

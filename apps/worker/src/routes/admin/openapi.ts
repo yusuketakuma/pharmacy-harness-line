@@ -8,7 +8,8 @@ const spec = {
   info: {
     title: 'LINE OSS CRM API',
     version: '0.2.0',
-    description: 'Open-source LINE Official Account CRM/marketing automation API. API-first design for Claude Code / AI agent integration.',
+    description:
+      'Open-source LINE Official Account CRM/marketing automation API. API-first design for Claude Code / AI agent integration.',
     license: { name: 'MIT' },
   },
   servers: [{ url: '/', description: 'Current server' }],
@@ -186,14 +187,21 @@ const spec = {
       },
     },
     '/api/friends/count': {
-      get: { tags: ['Friends'], summary: '友だち数取得', responses: { '200': { description: 'Count' } } },
+      get: {
+        tags: ['Friends'],
+        summary: '友だち数取得',
+        responses: { '200': { description: 'Count' } },
+      },
     },
     '/api/friends/{id}': {
       get: {
         tags: ['Friends'],
         summary: '友だち詳細取得',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
-        responses: { '200': { description: 'Friend with tags' }, '404': { description: 'Not found' } },
+        responses: {
+          '200': { description: 'Friend with tags' },
+          '404': { description: 'Not found' },
+        },
       },
     },
     '/api/friends/{id}/tags': {
@@ -201,7 +209,17 @@ const spec = {
         tags: ['Friends'],
         summary: '友だちにタグ追加',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { tagId: { type: 'string' } }, required: ['tagId'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { tagId: { type: 'string' } },
+                required: ['tagId'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Tag added' } },
       },
     },
@@ -218,11 +236,25 @@ const spec = {
     },
     // ── Tags ────────────────────────────────────────────────────────────────
     '/api/tags': {
-      get: { tags: ['Tags'], summary: 'タグ一覧取得', responses: { '200': { description: 'All tags' } } },
+      get: {
+        tags: ['Tags'],
+        summary: 'タグ一覧取得',
+        responses: { '200': { description: 'All tags' } },
+      },
       post: {
         tags: ['Tags'],
         summary: 'タグ作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' } }, required: ['name'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { name: { type: 'string' }, color: { type: 'string' } },
+                required: ['name'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Tag created' } },
       },
     },
@@ -236,11 +268,31 @@ const spec = {
     },
     // ── Scenarios ────────────────────────────────────────────────────────────
     '/api/scenarios': {
-      get: { tags: ['Scenarios'], summary: 'シナリオ一覧取得', responses: { '200': { description: 'All scenarios' } } },
+      get: {
+        tags: ['Scenarios'],
+        summary: 'シナリオ一覧取得',
+        responses: { '200': { description: 'All scenarios' } },
+      },
       post: {
         tags: ['Scenarios'],
         summary: 'シナリオ作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, triggerType: { type: 'string' }, description: { type: 'string' }, triggerTagId: { type: 'string' }, isActive: { type: 'boolean' } }, required: ['name', 'triggerType'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  triggerType: { type: 'string' },
+                  description: { type: 'string' },
+                  triggerTagId: { type: 'string' },
+                  isActive: { type: 'boolean' },
+                },
+                required: ['name', 'triggerType'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Scenario created' } },
       },
     },
@@ -305,11 +357,34 @@ const spec = {
     },
     // ── Broadcasts ───────────────────────────────────────────────────────────
     '/api/broadcasts': {
-      get: { tags: ['Broadcasts'], summary: '配信一覧取得', responses: { '200': { description: 'All broadcasts' } } },
+      get: {
+        tags: ['Broadcasts'],
+        summary: '配信一覧取得',
+        responses: { '200': { description: 'All broadcasts' } },
+      },
       post: {
         tags: ['Broadcasts'],
         summary: '配信作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { title: { type: 'string' }, messageType: { type: 'string' }, messageContent: { type: 'string' }, targetType: { type: 'string' }, targetTagId: { type: 'string' }, accountIds: { type: 'array', items: { type: 'string' } }, dedupPriority: { type: 'array', items: { type: 'string' } }, scheduledAt: { type: 'string' } }, required: ['title', 'messageType', 'messageContent', 'targetType'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  messageType: { type: 'string' },
+                  messageContent: { type: 'string' },
+                  targetType: { type: 'string' },
+                  targetTagId: { type: 'string' },
+                  accountIds: { type: 'array', items: { type: 'string' } },
+                  dedupPriority: { type: 'array', items: { type: 'string' } },
+                  scheduledAt: { type: 'string' },
+                },
+                required: ['title', 'messageType', 'messageContent', 'targetType'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Broadcast created' } },
       },
     },
@@ -320,8 +395,18 @@ const spec = {
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
         responses: { '200': { description: 'Broadcast' } },
       },
-      put: { tags: ['Broadcasts'], summary: '配信更新', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Updated' } } },
-      delete: { tags: ['Broadcasts'], summary: '配信削除', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Deleted' } } },
+      put: {
+        tags: ['Broadcasts'],
+        summary: '配信更新',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Updated' } },
+      },
+      delete: {
+        tags: ['Broadcasts'],
+        summary: '配信削除',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Deleted' } },
+      },
     },
     '/api/broadcasts/{id}/send': {
       post: {
@@ -349,16 +434,38 @@ const spec = {
             },
           },
         },
-        responses: { '200': { description: 'Preview computed (totalSelected, uniqueRecipients, reduction, perAccount)' } },
+        responses: {
+          '200': {
+            description: 'Preview computed (totalSelected, uniqueRecipients, reduction, perAccount)',
+          },
+        },
       },
     },
     // ── Users (UUID Cross-Account) ──────────────────────────────────────────
     '/api/users': {
-      get: { tags: ['Users'], summary: '内部ユーザー一覧取得', responses: { '200': { description: 'All users' } } },
+      get: {
+        tags: ['Users'],
+        summary: '内部ユーザー一覧取得',
+        responses: { '200': { description: 'All users' } },
+      },
       post: {
         tags: ['Users'],
         summary: '内部ユーザー作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { email: { type: 'string' }, phone: { type: 'string' }, externalId: { type: 'string' }, displayName: { type: 'string' } } } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  email: { type: 'string' },
+                  phone: { type: 'string' },
+                  externalId: { type: 'string' },
+                  displayName: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'User created' } },
       },
     },
@@ -366,21 +473,55 @@ const spec = {
       post: {
         tags: ['Users'],
         summary: 'メール/電話でユーザー検索',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { email: { type: 'string' }, phone: { type: 'string' } } } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { email: { type: 'string' }, phone: { type: 'string' } },
+              },
+            },
+          },
+        },
         responses: { '200': { description: 'Matched user' }, '404': { description: 'Not found' } },
       },
     },
     '/api/users/{id}': {
-      get: { tags: ['Users'], summary: 'ユーザー詳細取得', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'User' } } },
-      put: { tags: ['Users'], summary: 'ユーザー更新', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Updated' } } },
-      delete: { tags: ['Users'], summary: 'ユーザー削除', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Deleted' } } },
+      get: {
+        tags: ['Users'],
+        summary: 'ユーザー詳細取得',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'User' } },
+      },
+      put: {
+        tags: ['Users'],
+        summary: 'ユーザー更新',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Updated' } },
+      },
+      delete: {
+        tags: ['Users'],
+        summary: 'ユーザー削除',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Deleted' } },
+      },
     },
     '/api/users/{id}/link': {
       post: {
         tags: ['Users'],
         summary: '友だちをUUIDにリンク',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { friendId: { type: 'string' } }, required: ['friendId'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { friendId: { type: 'string' } },
+                required: ['friendId'],
+              },
+            },
+          },
+        },
         responses: { '200': { description: 'Linked' } },
       },
     },
@@ -394,11 +535,30 @@ const spec = {
     },
     // ── LINE Accounts ───────────────────────────────────────────────────────
     '/api/line-accounts': {
-      get: { tags: ['LINE Accounts'], summary: 'LINEアカウント一覧', responses: { '200': { description: 'All LINE accounts' } } },
+      get: {
+        tags: ['LINE Accounts'],
+        summary: 'LINEアカウント一覧',
+        responses: { '200': { description: 'All LINE accounts' } },
+      },
       post: {
         tags: ['LINE Accounts'],
         summary: 'LINEアカウント登録',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { channelId: { type: 'string' }, name: { type: 'string' }, channelAccessToken: { type: 'string' }, channelSecret: { type: 'string' } }, required: ['channelId', 'name', 'channelAccessToken', 'channelSecret'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  channelId: { type: 'string' },
+                  name: { type: 'string' },
+                  channelAccessToken: { type: 'string' },
+                  channelSecret: { type: 'string' },
+                },
+                required: ['channelId', 'name', 'channelAccessToken', 'channelSecret'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Account created' } },
       },
     },
@@ -433,7 +593,12 @@ const spec = {
       },
     },
     '/api/line-accounts/{id}': {
-      get: { tags: ['LINE Accounts'], summary: 'LINEアカウント詳細', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Account' } } },
+      get: {
+        tags: ['LINE Accounts'],
+        summary: 'LINEアカウント詳細',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Account' } },
+      },
       patch: {
         tags: ['LINE Accounts'],
         summary: 'LINEアカウント部分更新',
@@ -455,16 +620,44 @@ const spec = {
         },
         responses: { '200': { description: 'Updated' } },
       },
-      put: { tags: ['LINE Accounts'], summary: 'LINEアカウント更新', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Updated' } } },
-      delete: { tags: ['LINE Accounts'], summary: 'LINEアカウント削除', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Deleted' } } },
+      put: {
+        tags: ['LINE Accounts'],
+        summary: 'LINEアカウント更新',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Updated' } },
+      },
+      delete: {
+        tags: ['LINE Accounts'],
+        summary: 'LINEアカウント削除',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Deleted' } },
+      },
     },
     // ── Conversions ─────────────────────────────────────────────────────────
     '/api/conversions/points': {
-      get: { tags: ['Conversions'], summary: 'CV ポイント一覧', responses: { '200': { description: 'All conversion points' } } },
+      get: {
+        tags: ['Conversions'],
+        summary: 'CV ポイント一覧',
+        responses: { '200': { description: 'All conversion points' } },
+      },
       post: {
         tags: ['Conversions'],
         summary: 'CV ポイント作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, eventType: { type: 'string' }, value: { type: 'number' } }, required: ['name', 'eventType'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  eventType: { type: 'string' },
+                  value: { type: 'number' },
+                },
+                required: ['name', 'eventType'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Created' } },
       },
     },
@@ -480,7 +673,23 @@ const spec = {
       post: {
         tags: ['Conversions'],
         summary: 'コンバージョン記録',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { conversionPointId: { type: 'string' }, friendId: { type: 'string' }, userId: { type: 'string' }, affiliateCode: { type: 'string' }, metadata: { type: 'object' } }, required: ['conversionPointId', 'friendId'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  conversionPointId: { type: 'string' },
+                  friendId: { type: 'string' },
+                  userId: { type: 'string' },
+                  affiliateCode: { type: 'string' },
+                  metadata: { type: 'object' },
+                },
+                required: ['conversionPointId', 'friendId'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Tracked' } },
       },
     },
@@ -511,18 +720,51 @@ const spec = {
     },
     // ── Affiliates ──────────────────────────────────────────────────────────
     '/api/affiliates': {
-      get: { tags: ['Affiliates'], summary: 'アフィリエイト一覧', responses: { '200': { description: 'All affiliates' } } },
+      get: {
+        tags: ['Affiliates'],
+        summary: 'アフィリエイト一覧',
+        responses: { '200': { description: 'All affiliates' } },
+      },
       post: {
         tags: ['Affiliates'],
         summary: 'アフィリエイト作成',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, code: { type: 'string' }, commissionRate: { type: 'number' } }, required: ['name', 'code'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  code: { type: 'string' },
+                  commissionRate: { type: 'number' },
+                },
+                required: ['name', 'code'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Created' } },
       },
     },
     '/api/affiliates/{id}': {
-      get: { tags: ['Affiliates'], summary: 'アフィリエイト詳細', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Affiliate' } } },
-      put: { tags: ['Affiliates'], summary: 'アフィリエイト更新', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Updated' } } },
-      delete: { tags: ['Affiliates'], summary: 'アフィリエイト削除', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Deleted' } } },
+      get: {
+        tags: ['Affiliates'],
+        summary: 'アフィリエイト詳細',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Affiliate' } },
+      },
+      put: {
+        tags: ['Affiliates'],
+        summary: 'アフィリエイト更新',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Updated' } },
+      },
+      delete: {
+        tags: ['Affiliates'],
+        summary: 'アフィリエイト削除',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'Deleted' } },
+      },
     },
     '/api/affiliates/{id}/report': {
       get: {
@@ -540,7 +782,17 @@ const spec = {
       post: {
         tags: ['Affiliates'],
         summary: 'クリック記録',
-        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { code: { type: 'string' }, url: { type: 'string' } }, required: ['code'] } } } },
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { code: { type: 'string' }, url: { type: 'string' } },
+                required: ['code'],
+              },
+            },
+          },
+        },
         responses: { '201': { description: 'Recorded' } },
       },
     },

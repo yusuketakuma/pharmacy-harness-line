@@ -39,43 +39,78 @@ function db(rows: { tenantId?: string; assigned?: boolean; accountAssigned?: boo
 
 describe('pharmacy staff account access', () => {
   it('does not grant every pharmacy account to an unassigned owner role', async () => {
-    await expect(canAccessPharmacyAccount(
-      db({ tenantId: 'tenant-a', assigned: false }),
-      { id: 'owner-a', role: 'owner' },
-      'account-a',
-    )).resolves.toBe(false);
+    await expect(
+      canAccessPharmacyAccount(
+        db({ tenantId: 'tenant-a', assigned: false }),
+        { id: 'owner-a', role: 'owner' },
+        'account-a',
+      ),
+    ).resolves.toBe(false);
   });
 
   it('allows a staff identity assigned to the account tenant', async () => {
-    await expect(resolveAccessiblePharmacyTenant(
-      db({ tenantId: 'tenant-a', assigned: true, accountAssigned: true }),
-      { id: 'staff-a', role: 'staff' },
-      'account-a',
-    )).resolves.toBe('tenant-a');
+    await expect(
+      resolveAccessiblePharmacyTenant(
+        db({ tenantId: 'tenant-a', assigned: true, accountAssigned: true }),
+        { id: 'staff-a', role: 'staff' },
+        'account-a',
+      ),
+    ).resolves.toBe('tenant-a');
+  });
+
+  it('allows the shared pharmacy principal through its tenant binding', async () => {
+    const sql: string[] = [];
+    const sharedDb = {
+      prepare(statement: string) {
+        sql.push(statement);
+        if (statement.includes('PRAGMA table_info(staff_members)')) {
+          return {
+            all: async () => ({
+              results: [{ name: 'principal_kind' }, { name: 'shared_tenant_id' }],
+            }),
+          };
+        }
+        return {
+          bind: () => ({ first: async () => ({ tenant_id: 'tenant-a' }) }),
+        };
+      },
+    } as unknown as D1Database;
+
+    await expect(
+      resolveAccessiblePharmacyTenant(
+        sharedDb,
+        { id: 'shared-pharmacy', role: 'admin', principalKind: 'pharmacy_shared' },
+        'account-a',
+      ),
+    ).resolves.toBe('tenant-a');
+    expect(sql[1]).toContain("staff.principal_kind = 'pharmacy_shared'");
+    expect(sql[1]).toContain('staff.shared_tenant_id = mapping.tenant_id');
   });
 
   it('rejects a staff member with only tenant membership and no account assignment', async () => {
-    await expect(resolveAccessiblePharmacyTenant(
-      db({ tenantId: 'tenant-a', assigned: true, accountAssigned: false }),
-      { id: 'staff-a', role: 'staff' },
-      'account-a',
-    )).resolves.toBeNull();
+    await expect(
+      resolveAccessiblePharmacyTenant(
+        db({ tenantId: 'tenant-a', assigned: true, accountAssigned: false }),
+        { id: 'staff-a', role: 'staff' },
+        'account-a',
+      ),
+    ).resolves.toBeNull();
   });
 
   it('does not grant the legacy environment owner cross-tenant pharmacy access', async () => {
-    await expect(resolveAccessiblePharmacyTenant(
-      db({ tenantId: 'tenant-a', assigned: false }),
-      { id: 'env-owner', role: 'owner' },
-      'account-a',
-    )).resolves.toBeNull();
+    await expect(
+      resolveAccessiblePharmacyTenant(
+        db({ tenantId: 'tenant-a', assigned: false }),
+        { id: 'env-owner', role: 'owner' },
+        'account-a',
+      ),
+    ).resolves.toBeNull();
   });
 
   it('fails closed for an account without an active tenant mapping', async () => {
-    await expect(resolveAccessiblePharmacyTenant(
-      db({ assigned: true }),
-      { id: 'staff-a', role: 'staff' },
-      'account-a',
-    )).resolves.toBeNull();
+    await expect(
+      resolveAccessiblePharmacyTenant(db({ assigned: true }), { id: 'staff-a', role: 'staff' }, 'account-a'),
+    ).resolves.toBeNull();
   });
 
   it('resolves the active tenant mapping and assignment in one authorization query', async () => {
@@ -91,15 +126,14 @@ describe('pharmacy staff account access', () => {
       },
     } as unknown as D1Database;
 
-    await expect(resolveAccessiblePharmacyTenant(
-      joinedDb,
-      { id: 'staff-a', role: 'staff' },
-      'account-a',
-    )).resolves.toBe('tenant-a');
-    expect(sql).toHaveLength(1);
-    expect(sql[0]).toContain('pharmacy_staff_accounts');
-    expect(sql[0]).toContain('tenant_line_accounts');
-    expect(sql[0]).toContain('tenant_staff_memberships');
+    await expect(
+      resolveAccessiblePharmacyTenant(joinedDb, { id: 'staff-a', role: 'staff' }, 'account-a'),
+    ).resolves.toBe('tenant-a');
+    expect(sql).toHaveLength(2);
+    expect(sql[0]).toContain('PRAGMA table_info(staff_members)');
+    expect(sql[1]).toContain('pharmacy_staff_accounts');
+    expect(sql[1]).toContain('tenant_line_accounts');
+    expect(sql[1]).toContain('tenant_staff_memberships');
   });
 });
 
@@ -107,9 +141,10 @@ describe('pharmacy account mode', () => {
   it('treats a mapped account as pharmacy mode', async () => {
     const pharmacyDb = {
       prepare: (sql: string) => ({
-        bind: () => ({ first: async () => sql.includes('pharmacy_account_capabilities')
-          ? { mode: 'pharmacy' }
-          : { pharmacy_install: 1 } }),
+        bind: () => ({
+          first: async () =>
+            sql.includes('pharmacy_account_capabilities') ? { mode: 'pharmacy' } : { pharmacy_install: 1 },
+        }),
       }),
     } as unknown as D1Database;
     const genericDb = {
@@ -126,9 +161,9 @@ describe('pharmacy account mode', () => {
   it('keeps an account generic when its capability row is absent', async () => {
     const mappedButIncomplete = {
       prepare: (sql: string) => ({
-        bind: () => ({ first: async () => sql.includes('pharmacy_account_capabilities')
-          ? null
-          : { pharmacy_install: 1 } }),
+        bind: () => ({
+          first: async () => (sql.includes('pharmacy_account_capabilities') ? null : { pharmacy_install: 1 }),
+        }),
       }),
     } as unknown as D1Database;
     await expect(isPharmacyModeAccount(mappedButIncomplete, 'account-a')).resolves.toBe(false);
@@ -137,11 +172,13 @@ describe('pharmacy account mode', () => {
   it('fails closed when the capability table exists but the account row is missing', async () => {
     const deployedButIncomplete = {
       prepare: (sql: string) => ({
-        bind: () => ({ first: async () => {
-          if (sql.includes('sqlite_master')) return { name: 'pharmacy_account_capabilities' };
-          if (sql.includes('pharmacy_account_capabilities')) return null;
-          return null;
-        } }),
+        bind: () => ({
+          first: async () => {
+            if (sql.includes('sqlite_master')) return { name: 'pharmacy_account_capabilities' };
+            if (sql.includes('pharmacy_account_capabilities')) return null;
+            return null;
+          },
+        }),
       }),
     } as unknown as D1Database;
     await expect(isPharmacyModeAccount(deployedButIncomplete, 'account-a')).resolves.toBe(true);
@@ -152,10 +189,12 @@ describe('pharmacy account mode', () => {
   it('fails closed when the capability table is not deployed yet', async () => {
     const partialMigrationDb = {
       prepare: (sql: string) => ({
-        bind: () => ({ first: async () => {
-          if (sql.includes('pharmacy_account_capabilities')) throw new Error('no such table');
-          return { pharmacy_install: 1 };
-        } }),
+        bind: () => ({
+          first: async () => {
+            if (sql.includes('pharmacy_account_capabilities')) throw new Error('no such table');
+            return { pharmacy_install: 1 };
+          },
+        }),
       }),
     } as unknown as D1Database;
     await expect(isPharmacyModeAccount(partialMigrationDb, 'account-a')).resolves.toBe(true);
@@ -163,7 +202,9 @@ describe('pharmacy account mode', () => {
 
   it('fails closed when the mode classifier cannot read D1', async () => {
     const unavailable = {
-      prepare: () => { throw new Error('D1 unavailable'); },
+      prepare: () => {
+        throw new Error('D1 unavailable');
+      },
     } as unknown as D1Database;
     await expect(isPharmacyModeAccount(unavailable, 'account-a')).resolves.toBe(true);
     await expect(isPharmacyTenant(unavailable, 'tenant-a')).resolves.toBe(true);
@@ -179,30 +220,38 @@ describe('pharmacy capability compatibility', () => {
   });
 
   it('recognizes v0.29 patient capabilities without mixing management capabilities', () => {
-    expect(PATIENT_PHARMACY_CAPABILITIES).toEqual(expect.arrayContaining([
-      'electronic_prescription', 'emergency_contraception', 'pharmacy_info',
-    ]));
-    expect(MANAGEMENT_PHARMACY_CAPABILITIES).toEqual(expect.arrayContaining([
-      'pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard',
-    ]));
-    expect(PATIENT_PHARMACY_CAPABILITIES).not.toEqual(expect.arrayContaining([
-      'pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard',
-    ]));
+    expect(PATIENT_PHARMACY_CAPABILITIES).toEqual(
+      expect.arrayContaining(['electronic_prescription', 'emergency_contraception', 'pharmacy_info']),
+    );
+    expect(MANAGEMENT_PHARMACY_CAPABILITIES).toEqual(
+      expect.arrayContaining(['pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard']),
+    );
+    expect(PATIENT_PHARMACY_CAPABILITIES).not.toEqual(
+      expect.arrayContaining(['pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard']),
+    );
   });
 
   it('keeps known capabilities when a frozen reader encounters v0.29 keys', () => {
     const raw = JSON.stringify([
-      'prescription_intake', 'electronic_prescription', 'emergency_contraception',
-      'pharmacy_info', 'pharmacy_dashboard', 'future_unknown',
+      'prescription_intake',
+      'electronic_prescription',
+      'emergency_contraception',
+      'pharmacy_info',
+      'pharmacy_dashboard',
+      'future_unknown',
     ]);
     expect(parsePharmacyCapabilities(raw)).toEqual([
-      'prescription_intake', 'electronic_prescription', 'emergency_contraception',
-      'pharmacy_info', 'pharmacy_dashboard',
+      'prescription_intake',
+      'electronic_prescription',
+      'emergency_contraception',
+      'pharmacy_info',
+      'pharmacy_dashboard',
     ]);
 
     const frozenV028 = new Set(['prescription_intake', 'pharmacy_dashboard']);
     expect((JSON.parse(raw) as string[]).filter((value) => frozenV028.has(value))).toEqual([
-      'prescription_intake', 'pharmacy_dashboard',
+      'prescription_intake',
+      'pharmacy_dashboard',
     ]);
   });
 });

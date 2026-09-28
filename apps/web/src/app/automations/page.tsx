@@ -1,32 +1,39 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
-import Header from '@/components/layout/header'
-import CcPromptButton from '@/components/cc-prompt-button'
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
+import Header from '@/components/layout/header';
+import CcPromptButton from '@/components/cc-prompt-button';
 
-type AutomationEventType = "friend_add" | "tag_change" | "score_threshold" | "cv_fire" | "message_received" | "postback_received" | "calendar_booked"
+type AutomationEventType =
+  | 'friend_add'
+  | 'tag_change'
+  | 'score_threshold'
+  | 'cv_fire'
+  | 'message_received'
+  | 'postback_received'
+  | 'calendar_booked';
 
 interface AutomationAction {
-  type: "add_tag" | "remove_tag" | "start_scenario" | "send_message" | "send_webhook" | "switch_rich_menu"
-  params: Record<string, unknown>
+  type: 'add_tag' | 'remove_tag' | 'start_scenario' | 'send_message' | 'send_webhook' | 'switch_rich_menu';
+  params: Record<string, unknown>;
 }
 
 interface Automation {
-  id: string
-  name: string
-  description: string | null
-  eventType: AutomationEventType
-  conditions: Record<string, unknown>
-  actions: AutomationAction[]
-  isActive: boolean
-  priority: number
+  id: string;
+  name: string;
+  description: string | null;
+  eventType: AutomationEventType;
+  conditions: Record<string, unknown>;
+  actions: AutomationAction[];
+  isActive: boolean;
+  priority: number;
   // null = global automation (fires for every account); UUID = bound to that
   // account. Surfaced so the badge + toggle/delete guards can distinguish.
-  lineAccountId: string | null
-  createdAt: string
-  updatedAt: string
+  lineAccountId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 const eventTypeOptions: { value: AutomationEventType; label: string }[] = [
@@ -37,7 +44,7 @@ const eventTypeOptions: { value: AutomationEventType; label: string }[] = [
   { value: 'message_received', label: 'メッセージ受信' },
   { value: 'postback_received', label: 'ポストバック受信（リッチメニュー等）' },
   { value: 'calendar_booked', label: 'カレンダー予約' },
-]
+];
 
 const eventTypeLabelMap: Record<AutomationEventType, string> = {
   friend_add: '友だち追加',
@@ -47,7 +54,7 @@ const eventTypeLabelMap: Record<AutomationEventType, string> = {
   message_received: 'メッセージ受信',
   postback_received: 'ポストバック受信',
   calendar_booked: 'カレンダー予約',
-}
+};
 
 const eventTypeBadgeColor: Record<AutomationEventType, string> = {
   friend_add: 'bg-green-100 text-green-700',
@@ -57,15 +64,15 @@ const eventTypeBadgeColor: Record<AutomationEventType, string> = {
   message_received: 'bg-purple-100 text-purple-700',
   postback_received: 'bg-pink-100 text-pink-700',
   calendar_booked: 'bg-indigo-100 text-indigo-700',
-}
+};
 
 interface CreateFormState {
-  name: string
-  description: string
-  eventType: AutomationEventType
-  actionsJson: string
-  conditionsJson: string
-  priority: number
+  name: string;
+  description: string;
+  eventType: AutomationEventType;
+  actionsJson: string;
+  conditionsJson: string;
+  priority: number;
 }
 
 const initialForm: CreateFormState = {
@@ -75,7 +82,7 @@ const initialForm: CreateFormState = {
   actionsJson: '[\n  {\n    "type": "add_tag",\n    "params": {}\n  }\n]',
   conditionsJson: '{}',
   priority: 0,
-}
+};
 
 const ccPrompts = [
   {
@@ -94,95 +101,95 @@ const ccPrompts = [
 3. 効果の低いルールの改善提案と新規ルールの推奨
 結果をレポートしてください。`,
   },
-]
+];
 
 export default function AutomationsPage() {
-  const { selectedAccountId, loading: accountLoading } = useAccount()
-  const [automations, setAutomations] = useState<Automation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState<CreateFormState>({ ...initialForm })
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const { selectedAccountId, loading: accountLoading } = useAccount();
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState<CreateFormState>({ ...initialForm });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const loadAutomations = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.automations.list({ accountId: selectedAccountId || undefined })
+      const res = await api.automations.list({ accountId: selectedAccountId || undefined });
       if (res.success) {
-        setAutomations(res.data)
+        setAutomations(res.data);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('オートメーションの読み込みに失敗しました。もう一度お試しください。')
+      setError('オートメーションの読み込みに失敗しました。もう一度お試しください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    if (accountLoading) return
+    if (accountLoading) return;
 
-    let cancelled = false
+    let cancelled = false;
 
     const fetchData = async () => {
-      setLoading(true)
-      setError('')
+      setLoading(true);
+      setError('');
       try {
-        const res = await api.automations.list({ accountId: selectedAccountId || undefined })
-        if (cancelled) return
+        const res = await api.automations.list({ accountId: selectedAccountId || undefined });
+        if (cancelled) return;
         if (res.success) {
-          setAutomations(res.data)
+          setAutomations(res.data);
         } else {
-          setError(res.error)
+          setError(res.error);
         }
       } catch {
-        if (cancelled) return
-        setError('オートメーションの読み込みに失敗しました。もう一度お試しください。')
+        if (cancelled) return;
+        setError('オートメーションの読み込みに失敗しました。もう一度お試しください。');
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
       }
-    }
+    };
 
-    fetchData()
+    fetchData();
 
     return () => {
-      cancelled = true
-    }
-  }, [selectedAccountId, accountLoading])
+      cancelled = true;
+    };
+  }, [selectedAccountId, accountLoading]);
 
   const handleCreate = async () => {
     if (!form.name.trim()) {
-      setFormError('ルール名を入力してください')
-      return
+      setFormError('ルール名を入力してください');
+      return;
     }
     if (!selectedAccountId) {
-      setFormError('LINEアカウントを選択してください')
-      return
+      setFormError('LINEアカウントを選択してください');
+      return;
     }
 
-    let parsedActions: AutomationAction[]
-    let parsedConditions: Record<string, unknown>
+    let parsedActions: AutomationAction[];
+    let parsedConditions: Record<string, unknown>;
     try {
-      parsedActions = JSON.parse(form.actionsJson)
+      parsedActions = JSON.parse(form.actionsJson);
     } catch {
-      setFormError('アクションのJSON形式が正しくありません')
-      return
+      setFormError('アクションのJSON形式が正しくありません');
+      return;
     }
     try {
-      parsedConditions = JSON.parse(form.conditionsJson)
+      parsedConditions = JSON.parse(form.conditionsJson);
     } catch {
-      setFormError('条件のJSON形式が正しくありません')
-      return
+      setFormError('条件のJSON形式が正しくありません');
+      return;
     }
 
-    setSaving(true)
-    setFormError('')
+    setSaving(true);
+    setFormError('');
     try {
       const res = await api.automations.create({
         name: form.name,
@@ -192,57 +199,59 @@ export default function AutomationsPage() {
         conditions: parsedConditions,
         priority: form.priority,
         lineAccountId: selectedAccountId,
-      })
+      });
       if (res.success) {
-        setShowCreate(false)
-        setForm({ ...initialForm })
-        loadAutomations()
+        setShowCreate(false);
+        setForm({ ...initialForm });
+        loadAutomations();
       } else {
-        setFormError(res.error)
+        setFormError(res.error);
       }
     } catch {
-      setFormError('作成に失敗しました')
+      setFormError('作成に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleToggleActive = async (id: string, current: boolean) => {
     // Globals fire for every account; flipping one from an account-scoped view
     // would silently affect all accounts, so warn first.
-    const target = automations.find((a) => a.id === id)
+    const target = automations.find((a) => a.id === id);
     if (target?.lineAccountId === null) {
       const ok = confirm(
         `「${target.name}」は全アカウント共通のオートメーションです。${current ? '無効化' : '有効化'}するとすべてのアカウントに影響します。続行しますか?`,
-      )
-      if (!ok) return
+      );
+      if (!ok) return;
     }
     try {
-      await api.automations.update(id, { isActive: !current })
-      loadAutomations()
+      await api.automations.update(id, { isActive: !current });
+      loadAutomations();
     } catch {
-      setError('ステータスの変更に失敗しました')
+      setError('ステータスの変更に失敗しました');
     }
-  }
+  };
 
   const handleDelete = async (id: string) => {
-    const target = automations.find((a) => a.id === id)
-    const message = target?.lineAccountId === null
-      ? `「${target.name}」は全アカウント共通のオートメーションです。削除するとすべてのアカウントから消えます。本当に削除しますか?`
-      : 'このオートメーションを削除してもよいですか？'
-    if (!confirm(message)) return
+    const target = automations.find((a) => a.id === id);
+    const message =
+      target?.lineAccountId === null
+        ? `「${target.name}」は全アカウント共通のオートメーションです。削除するとすべてのアカウントから消えます。本当に削除しますか?`
+        : 'このオートメーションを削除してもよいですか？';
+    if (!confirm(message)) return;
     try {
-      await api.automations.delete(id)
-      loadAutomations()
+      await api.automations.delete(id);
+      loadAutomations();
     } catch {
-      setError('削除に失敗しました')
+      setError('削除に失敗しました');
     }
-  }
+  };
 
   return (
     <div>
       <Header
         title="オートメーション"
+        description="条件に合う友だちへ自動でメッセージを送る仕組みを管理します。"
         action={
           <button
             onClick={() => setShowCreate(true)}
@@ -255,11 +264,7 @@ export default function AutomationsPage() {
       />
 
       {/* Error */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {/* Create form */}
       {showCreate && (
@@ -267,7 +272,9 @@ export default function AutomationsPage() {
           <h2 className="text-sm font-semibold text-gray-800 mb-4">新規オートメーションを作成</h2>
           <div className="space-y-4 max-w-lg">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">ルール名 <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                ルール名 <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -294,7 +301,9 @@ export default function AutomationsPage() {
                 onChange={(e) => setForm({ ...form, eventType: e.target.value as AutomationEventType })}
               >
                 {eventTypeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -340,7 +349,10 @@ export default function AutomationsPage() {
                 {saving ? '作成中...' : '作成'}
               </button>
               <button
-                onClick={() => { setShowCreate(false); setFormError('') }}
+                onClick={() => {
+                  setShowCreate(false);
+                  setFormError('');
+                }}
                 className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 キャンセル
@@ -400,12 +412,16 @@ export default function AutomationsPage() {
 
               {/* Event type badge */}
               <div className="flex items-center gap-2 mb-3">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${eventTypeBadgeColor[automation.eventType]}`}>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${eventTypeBadgeColor[automation.eventType]}`}
+                >
                   {eventTypeLabelMap[automation.eventType]}
                 </span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                  automation.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
-                }`}>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    automation.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}
+                >
                   {automation.isActive ? '有効' : '無効'}
                 </span>
                 {/* lineAccountId === null = global; label it so the account-scoped
@@ -424,18 +440,22 @@ export default function AutomationsPage() {
               {(() => {
                 const sendMsgWithTpl = automation.actions.filter(
                   (a) => a.type === 'send_message' && (a.params as { template_id?: string }).template_id,
-                ).length
+                ).length;
                 return (
                   <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
                     <span>アクション: {automation.actions.length}件</span>
                     {sendMsgWithTpl > 0 && (
-                      <a href="/templates" className="text-blue-600 hover:underline" title="template_id 参照を含む send_message action あり">
+                      <a
+                        href="/templates"
+                        className="text-blue-600 hover:underline"
+                        title="template_id 参照を含む send_message action あり"
+                      >
                         🔗 template×{sendMsgWithTpl}
                       </a>
                     )}
                     <span>優先度: {automation.priority}</span>
                   </div>
-                )
+                );
               })()}
 
               {/* Actions */}
@@ -453,5 +473,5 @@ export default function AutomationsPage() {
       )}
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

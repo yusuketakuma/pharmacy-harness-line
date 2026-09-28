@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
-import { BroadcastsResource } from '../../src/resources/broadcasts.js'
-import type { HttpClient } from '../../src/http.js'
+import { describe, it, expect, vi } from 'vitest';
+import { BroadcastsResource } from '../../src/resources/broadcasts.js';
+import type { HttpClient } from '../../src/http.js';
 
 function mockHttp(overrides: Partial<HttpClient> = {}): HttpClient {
   return {
@@ -9,7 +9,7 @@ function mockHttp(overrides: Partial<HttpClient> = {}): HttpClient {
     put: vi.fn(),
     delete: vi.fn(),
     ...overrides,
-  } as unknown as HttpClient
+  } as unknown as HttpClient;
 }
 
 describe('BroadcastsResource', () => {
@@ -29,13 +29,13 @@ describe('BroadcastsResource', () => {
         successCount: 95,
         createdAt: '2026-03-20T10:00:00Z',
       },
-    ]
-    const http = mockHttp({ get: vi.fn().mockResolvedValue({ success: true, data: broadcasts }) })
-    const resource = new BroadcastsResource(http)
-    const result = await resource.list()
-    expect(http.get).toHaveBeenCalledWith('/api/broadcasts')
-    expect(result).toEqual(broadcasts)
-  })
+    ];
+    const http = mockHttp({ get: vi.fn().mockResolvedValue({ success: true, data: broadcasts }) });
+    const resource = new BroadcastsResource(http);
+    const result = await resource.list();
+    expect(http.get).toHaveBeenCalledWith('/api/broadcasts');
+    expect(result).toEqual(broadcasts);
+  });
 
   it('get(id) calls GET /api/broadcasts/:id and returns Broadcast', async () => {
     const broadcast = {
@@ -51,13 +51,13 @@ describe('BroadcastsResource', () => {
       totalCount: 100,
       successCount: 95,
       createdAt: '2026-03-20T10:00:00Z',
-    }
-    const http = mockHttp({ get: vi.fn().mockResolvedValue({ success: true, data: broadcast }) })
-    const resource = new BroadcastsResource(http)
-    const result = await resource.get('bc-1')
-    expect(http.get).toHaveBeenCalledWith('/api/broadcasts/bc-1')
-    expect(result).toEqual(broadcast)
-  })
+    };
+    const http = mockHttp({ get: vi.fn().mockResolvedValue({ success: true, data: broadcast }) });
+    const resource = new BroadcastsResource(http);
+    const result = await resource.get('bc-1');
+    expect(http.get).toHaveBeenCalledWith('/api/broadcasts/bc-1');
+    expect(result).toEqual(broadcast);
+  });
 
   it('create(input) calls POST /api/broadcasts with input', async () => {
     const broadcast = {
@@ -73,26 +73,28 @@ describe('BroadcastsResource', () => {
       totalCount: 0,
       successCount: 0,
       createdAt: '2026-03-21T10:00:00Z',
-    }
+    };
     const input = {
       title: 'Spring Sale',
       messageType: 'text' as const,
       messageContent: 'Enjoy 50% off',
       targetType: 'all' as const,
-    }
-    const http = mockHttp({ post: vi.fn().mockResolvedValue({ success: true, data: broadcast }) })
-    const resource = new BroadcastsResource(http)
-    const result = await resource.create(input)
-    expect(http.post).toHaveBeenCalledWith('/api/broadcasts', input)
-    expect(result).toEqual(broadcast)
-  })
+    };
+    const http = mockHttp({ post: vi.fn().mockResolvedValue({ success: true, data: broadcast }) });
+    const resource = new BroadcastsResource(http);
+    const result = await resource.create(input);
+    expect(http.post).toHaveBeenCalledWith('/api/broadcasts', input);
+    expect(result).toEqual(broadcast);
+  });
 
   it('create(input) sends idempotency key as a header, not in the JSON body', async () => {
-    const http = mockHttp({ post: vi.fn().mockResolvedValue({
-      success: true,
-      data: { id: 'bc-stable' },
-    }) })
-    const resource = new BroadcastsResource(http)
+    const http = mockHttp({
+      post: vi.fn().mockResolvedValue({
+        success: true,
+        data: { id: 'bc-stable' },
+      }),
+    });
+    const resource = new BroadcastsResource(http);
 
     await resource.create({
       title: 'Personalized notice',
@@ -100,7 +102,7 @@ describe('BroadcastsResource', () => {
       messageContent: '{{name}}さんへ',
       targetType: 'all',
       idempotencyKey: '11111111-2222-4333-8444-555555555555',
-    })
+    });
 
     expect(http.post).toHaveBeenCalledWith(
       '/api/broadcasts',
@@ -111,8 +113,8 @@ describe('BroadcastsResource', () => {
         targetType: 'all',
       },
       { 'Idempotency-Key': '11111111-2222-4333-8444-555555555555' },
-    )
-  })
+    );
+  });
 
   it('update(id, input) calls PUT /api/broadcasts/:id with input', async () => {
     const updatedBroadcast = {
@@ -128,24 +130,26 @@ describe('BroadcastsResource', () => {
       totalCount: 0,
       successCount: 0,
       createdAt: '2026-03-21T10:00:00Z',
-    }
+    };
     const input = {
       title: 'Spring Sale - Updated',
       messageContent: 'Enjoy 60% off',
-    }
-    const http = mockHttp({ put: vi.fn().mockResolvedValue({ success: true, data: updatedBroadcast }) })
-    const resource = new BroadcastsResource(http)
-    const result = await resource.update('bc-1', input)
-    expect(http.put).toHaveBeenCalledWith('/api/broadcasts/bc-1', input)
-    expect(result).toEqual(updatedBroadcast)
-  })
+    };
+    const http = mockHttp({
+      put: vi.fn().mockResolvedValue({ success: true, data: updatedBroadcast }),
+    });
+    const resource = new BroadcastsResource(http);
+    const result = await resource.update('bc-1', input);
+    expect(http.put).toHaveBeenCalledWith('/api/broadcasts/bc-1', input);
+    expect(result).toEqual(updatedBroadcast);
+  });
 
   it('delete(id) calls DELETE /api/broadcasts/:id', async () => {
-    const http = mockHttp({ delete: vi.fn().mockResolvedValue({ success: true, data: null }) })
-    const resource = new BroadcastsResource(http)
-    await resource.delete('bc-1')
-    expect(http.delete).toHaveBeenCalledWith('/api/broadcasts/bc-1')
-  })
+    const http = mockHttp({ delete: vi.fn().mockResolvedValue({ success: true, data: null }) });
+    const resource = new BroadcastsResource(http);
+    await resource.delete('bc-1');
+    expect(http.delete).toHaveBeenCalledWith('/api/broadcasts/bc-1');
+  });
 
   it('send(id) calls POST /api/broadcasts/:id/send and returns Broadcast', async () => {
     const broadcast = {
@@ -161,11 +165,11 @@ describe('BroadcastsResource', () => {
       totalCount: 100,
       successCount: 0,
       createdAt: '2026-03-20T10:00:00Z',
-    }
-    const http = mockHttp({ post: vi.fn().mockResolvedValue({ success: true, data: broadcast }) })
-    const resource = new BroadcastsResource(http)
-    const result = await resource.send('bc-1')
-    expect(http.post).toHaveBeenCalledWith('/api/broadcasts/bc-1/send')
-    expect(result).toEqual(broadcast)
-  })
-})
+    };
+    const http = mockHttp({ post: vi.fn().mockResolvedValue({ success: true, data: broadcast }) });
+    const resource = new BroadcastsResource(http);
+    const result = await resource.send('bc-1');
+    expect(http.post).toHaveBeenCalledWith('/api/broadcasts/bc-1/send');
+    expect(result).toEqual(broadcast);
+  });
+});

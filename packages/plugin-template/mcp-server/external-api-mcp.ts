@@ -7,5 +7,5 @@
  * customize this file.
  */
 
-export { MyServiceClient } from '../src/external-api.js'
-export type { Customer, Appointment, Membership } from '../src/external-api.js'
+export { MyServiceClient } from '../src/external-api.js';
+export type { Customer, Appointment, Membership } from '../src/external-api.js';

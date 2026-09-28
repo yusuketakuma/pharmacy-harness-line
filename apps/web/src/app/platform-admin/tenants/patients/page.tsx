@@ -1,13 +1,13 @@
-'use client'
-import { Suspense, useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+'use client';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { isSupportModeRequired, platformAdminApi, type PlatformPatient } from '@/lib/platform-admin-api';
 import {
-  isSupportModeRequired,
-  platformAdminApi,
-  type PlatformPatient,
-} from '@/lib/platform-admin-api'
-import { SupportModeRequired } from '@/components/platform-admin/support-mode'
+  SUPPORT_ACCESS_EXPIRED,
+  SUPPORT_GRANTS_CHANGED,
+  SupportModeRequired,
+} from '@/components/platform-admin/support-mode';
 
 const RELATIONSHIP_LABELS: Record<PlatformPatient['relationship'], string> = {
   self: '本人',
@@ -15,34 +15,52 @@ const RELATIONSHIP_LABELS: Record<PlatformPatient['relationship'], string> = {
   spouse: '配偶者',
   parent: '親',
   other: 'その他',
-}
+};
 
 const SEX_LABELS: Record<string, string> = {
   male: '男性',
   female: '女性',
   other: 'その他',
   prefer_not_to_say: '回答しない',
-}
+};
 
 function PatientList({ tenantId }: { tenantId: string }) {
-  const [patients, setPatients] = useState<PlatformPatient[] | null>(null)
-  const [error, setError] = useState('')
+  const [patients, setPatients] = useState<PlatformPatient[] | null>(null);
+  const [error, setError] = useState('');
   // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
-  const [grantMissing, setGrantMissing] = useState(false)
+  const [grantMissing, setGrantMissing] = useState(false);
+  const requestId = useRef(0);
 
   const load = useCallback(() => {
-    setPatients(null)
-    setError('')
-    setGrantMissing(false)
-    platformAdminApi.patients(tenantId)
-      .then((res) => setPatients(res.data))
-      .catch((caught: Error) => {
-        if (isSupportModeRequired(caught)) setGrantMissing(true)
-        else setError('患者一覧を取得できませんでした。再度お試しください。')
+    const currentRequest = ++requestId.current;
+    setPatients(null);
+    setError('');
+    setGrantMissing(false);
+    platformAdminApi
+      .patients(tenantId)
+      .then((res) => {
+        if (requestId.current === currentRequest) setPatients(res.data);
       })
-  }, [tenantId])
+      .catch((caught: Error) => {
+        if (requestId.current !== currentRequest) return;
+        if (isSupportModeRequired(caught)) setGrantMissing(true);
+        else setError('患者一覧を取得できませんでした。再度お試しください。');
+      });
+  }, [tenantId]);
 
-  useEffect(load, [load])
+  useEffect(() => {
+    load();
+    window.addEventListener(SUPPORT_GRANTS_CHANGED, load);
+    window.addEventListener(SUPPORT_ACCESS_EXPIRED, load);
+    return () => {
+      window.removeEventListener(SUPPORT_GRANTS_CHANGED, load);
+      window.removeEventListener(SUPPORT_ACCESS_EXPIRED, load);
+      requestId.current += 1;
+      setPatients(null);
+      setError('');
+      setGrantMissing(false);
+    };
+  }, [load]);
 
   return (
     <div>
@@ -54,7 +72,11 @@ function PatientList({ tenantId }: { tenantId: string }) {
       </Link>
       <h1 className="mt-2 mb-4 text-xl font-bold">患者一覧</h1>
       {grantMissing && <SupportModeRequired tenantId={tenantId} onStarted={load} />}
-      {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600">
+          {error}
+        </p>
+      )}
       {!patients && !error && !grantMissing && <p className="text-sm text-gray-500">読み込み中...</p>}
       {patients && (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
@@ -84,7 +106,7 @@ function PatientList({ tenantId }: { tenantId: string }) {
                   </td>
                   <td className="px-3 py-2">{patient.name_kana}</td>
                   <td className="px-3 py-2">{patient.birth_date}</td>
-                  <td className="px-3 py-2">{patient.sex ? SEX_LABELS[patient.sex] ?? patient.sex : '—'}</td>
+                  <td className="px-3 py-2">{patient.sex ? (SEX_LABELS[patient.sex] ?? patient.sex) : '—'}</td>
                   <td className="px-3 py-2">{RELATIONSHIP_LABELS[patient.relationship] ?? patient.relationship}</td>
                   <td className="px-3 py-2">{patient.contact_phone ?? '—'}</td>
                   <td className="px-3 py-2 font-mono text-xs">{patient.lineAccountId}</td>
@@ -92,20 +114,24 @@ function PatientList({ tenantId }: { tenantId: string }) {
                 </tr>
               ))}
               {patients.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-500">患者が登録されていません</td></tr>
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
+                    患者が登録されていません
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function PatientListRoute() {
-  const tenantId = useSearchParams().get('id')
-  if (!tenantId) return <p className="text-sm text-gray-500">テナント ID が指定されていません</p>
-  return <PatientList tenantId={tenantId} />
+  const tenantId = useSearchParams().get('id');
+  if (!tenantId) return <p className="text-sm text-gray-500">テナント ID が指定されていません</p>;
+  return <PatientList tenantId={tenantId} />;
 }
 
 export default function PlatformAdminTenantPatientsPage() {
@@ -113,5 +139,5 @@ export default function PlatformAdminTenantPatientsPage() {
     <Suspense fallback={<p className="text-sm text-gray-500">読み込み中...</p>}>
       <PatientListRoute />
     </Suspense>
-  )
+  );
 }

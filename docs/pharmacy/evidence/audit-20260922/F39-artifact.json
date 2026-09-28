@@ -1,0 +1,6 @@
+{
+  "path": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F39-native-XiGsEk/consumers.mjs",
+  "bytes": 60462,
+  "sha256": "6cbc92f952e5b4725285bfe9d9c101fd2d8941cc86f1ef45070190c79d1ec58e",
+  "runtime": "Node imported bundled functions with native Miniflare D1; not deployed Worker routing or production R2"
+}

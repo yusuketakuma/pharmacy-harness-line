@@ -1,0 +1,10 @@
+{
+  "result": "REPRODUCED",
+  "providerBoundaryCalls": 1,
+  "deliveryResult": "failed",
+  "final": {
+    "status": "ended",
+    "version": 2
+  },
+  "externalCalls": 0
+}

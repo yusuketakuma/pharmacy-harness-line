@@ -25,8 +25,12 @@ export type PharmacyRichMenuCatalogJob = {
 };
 
 const SLOT_BOUNDS = [
-  [0, 0, 833], [833, 0, 834], [1667, 0, 833],
-  [0, 843, 833], [833, 843, 834], [1667, 843, 833],
+  [0, 0, 833],
+  [833, 0, 834],
+  [1667, 0, 833],
+  [0, 843, 833],
+  [833, 843, 834],
+  [1667, 843, 833],
 ] as const;
 
 const SOURCE_SLOT: Record<Exclude<CatalogCell, null>, number> = {
@@ -51,15 +55,25 @@ export function buildPharmacyRichMenuCatalogJobs(): PharmacyRichMenuCatalogJob[]
   });
 }
 
-export function buildCompositeTileArgs(
-  tile: string,
-  bounds: PharmacyRichMenuBounds,
-): string[] {
+export function buildCompositeTileArgs(tile: string, bounds: PharmacyRichMenuBounds): string[] {
   const { x, y, width, height } = bounds;
   return [
-    '(', tile, '-resize', `${width}x${height}`,
-    '-background', '#f3fff8', '-gravity', 'center', '-extent', `${width}x${height}`, ')',
-    '-gravity', 'northwest', '-geometry', `+${x}+${y}`, '-composite',
+    '(',
+    tile,
+    '-resize',
+    `${width}x${height}`,
+    '-background',
+    '#f3fff8',
+    '-gravity',
+    'center',
+    '-extent',
+    `${width}x${height}`,
+    ')',
+    '-gravity',
+    'northwest',
+    '-geometry',
+    `+${x}+${y}`,
+    '-composite',
   ];
 }
 
@@ -120,11 +134,18 @@ export async function generatePharmacyRichMenuCatalog(input: {
       job.cells.forEach((cell, slot) => {
         args.push(...buildCompositeTileArgs(tiles.get(cell)!, job.bounds[slot]));
       });
-      const borders = job.bounds.map(({ x, y, width, height: cellHeight }) =>
-        `rectangle ${x},${y} ${x + width},${y + cellHeight}`).join(' ');
+      const borders = job.bounds
+        .map(({ x, y, width, height: cellHeight }) => `rectangle ${x},${y} ${x + width},${y + cellHeight}`)
+        .join(' ');
       args.push(
-        '-fill', 'none', '-stroke', '#dbe7e1', '-strokewidth', '4',
-        '-draw', borders,
+        '-fill',
+        'none',
+        '-stroke',
+        '#dbe7e1',
+        '-strokewidth',
+        '4',
+        '-draw',
+        borders,
         ...buildCatalogEncodingArgs(path),
       );
       runMagick(magick, args);
@@ -146,12 +167,19 @@ export async function generatePharmacyRichMenuCatalog(input: {
       });
     }
     const manifestPath = join(output, 'manifest.json');
-    await writeFile(manifestPath, `${JSON.stringify({
-      catalogVersion: PHARMACY_RICH_MENU_CATALOG_VERSION,
-      sourceImage: basename(source),
-      sourceImageHash: sourceBytes.hash,
-      entries,
-    }, null, 2)}\n`);
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          catalogVersion: PHARMACY_RICH_MENU_CATALOG_VERSION,
+          sourceImage: basename(source),
+          sourceImageHash: sourceBytes.hash,
+          entries,
+        },
+        null,
+        2,
+      )}\n`,
+    );
     return { entries: entries.length, manifestPath };
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -166,13 +194,12 @@ function argument(argv: string[], name: string): string | undefined {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const output = argument(process.argv.slice(2), 'output');
   if (!output) throw new Error('--output is required');
-  const source = argument(process.argv.slice(2), 'source') ??
+  const source =
+    argument(process.argv.slice(2), 'source') ??
     'apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg';
   generatePharmacyRichMenuCatalog({
     source,
     output,
     magick: argument(process.argv.slice(2), 'magick'),
-  }).then((result) => process.stdout.write(
-    `Generated ${result.entries} variants and ${result.manifestPath}\n`,
-  ));
+  }).then((result) => process.stdout.write(`Generated ${result.entries} variants and ${result.manifestPath}\n`));
 }

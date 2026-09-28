@@ -84,16 +84,10 @@ affiliateOffers.post('/api/affiliate-offers', async (c) => {
       return c.json({ success: false, error: 'name is required' }, 400);
     }
     if (body.rewardAmount !== undefined && !isValidReward(body.rewardAmount)) {
-      return c.json(
-        { success: false, error: 'rewardAmount must be a non-negative integer' },
-        400,
-      );
+      return c.json({ success: false, error: 'rewardAmount must be a non-negative integer' }, 400);
     }
     if (body.rewardMiles !== undefined && !isValidReward(body.rewardMiles)) {
-      return c.json(
-        { success: false, error: 'rewardMiles must be a non-negative integer' },
-        400,
-      );
+      return c.json({ success: false, error: 'rewardMiles must be a non-negative integer' }, 400);
     }
 
     const offer = await createAffiliateOffer(c.env.DB, {
@@ -133,16 +127,10 @@ affiliateOffers.put('/api/affiliate-offers/:id', async (c) => {
       return c.json({ success: false, error: 'name cannot be empty' }, 400);
     }
     if (body.rewardAmount !== undefined && !isValidReward(body.rewardAmount)) {
-      return c.json(
-        { success: false, error: 'rewardAmount must be a non-negative integer' },
-        400,
-      );
+      return c.json({ success: false, error: 'rewardAmount must be a non-negative integer' }, 400);
     }
     if (body.rewardMiles !== undefined && !isValidReward(body.rewardMiles)) {
-      return c.json(
-        { success: false, error: 'rewardMiles must be a non-negative integer' },
-        400,
-      );
+      return c.json({ success: false, error: 'rewardMiles must be a non-negative integer' }, 400);
     }
 
     const existing = await getAffiliateOfferById(c.env.DB, id);

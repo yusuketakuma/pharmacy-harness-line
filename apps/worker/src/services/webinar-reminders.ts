@@ -27,8 +27,9 @@ async function isActiveMappedAccount(
 ): Promise<boolean> {
   if (!accountId || !friendId) return false;
   try {
-    const row = await db.prepare(
-      `SELECT 1 AS ok
+    const row = await db
+      .prepare(
+        `SELECT 1 AS ok
          FROM tenant_line_accounts AS mapping
          INNER JOIN line_accounts AS account
                  ON account.id = mapping.line_account_id
@@ -38,7 +39,9 @@ async function isActiveMappedAccount(
                  ON f.id = ? AND f.line_account_id = account.id
         WHERE mapping.line_account_id = ? AND account.is_active = 1
         LIMIT 1`,
-    ).bind(friendId, accountId).first<{ ok: number }>();
+      )
+      .bind(friendId, accountId)
+      .first<{ ok: number }>();
     return Boolean(row);
   } catch {
     return false;
@@ -53,11 +56,7 @@ export type WebinarProxyDeliveryOptions = {
   canProcessAccount?: (accountId: string | null) => Promise<boolean>;
 };
 
-export function buildWebinarUrl(
-  liffId: string,
-  slug: string,
-  sessionStartAt: number,
-): string {
+export function buildWebinarUrl(liffId: string, slug: string, sessionStartAt: number): string {
   return (
     `https://liff.line.me/${liffId}/?page=webinar&slug=${encodeURIComponent(slug)}` +
     `&sessionStartAt=${sessionStartAt}&liffId=${liffId}`
@@ -84,8 +83,7 @@ async function resolveDeliveryConfig(
       return {
         accessToken: account.channel_access_token,
         liffId:
-          ((account as unknown as Record<string, string | null>).liff_id as string | null) ??
-          options.defaultLiffId,
+          ((account as unknown as Record<string, string | null>).liff_id as string | null) ?? options.defaultLiffId,
       };
     }
   }
@@ -123,15 +121,22 @@ export async function processWebinarReminders(
       }
       const head =
         reg.session_start_at - now > 60 ? '🔴 まもなくライブ配信が始まります' : '🔴 ライブ配信が始まりました';
-      await pushViaHarnessProxy(options.proxyBaseUrl, accessToken, friend.line_user_id, [
-        {
-          type: 'text',
-          text:
-            `${head}\n\n「${reg.title}」\n${fmtJstDateTime(reg.session_start_at)}〜\n\n` +
-            `こちらから参加してください👇\n${buildWebinarUrl(liffId, reg.slug, reg.session_start_at)}` +
-            `\n\n※この専用リンクは、閉じた後も何度でも開けます。`,
-        },
-      ], reg.id, options.proxyDispatch);
+      await pushViaHarnessProxy(
+        options.proxyBaseUrl,
+        accessToken,
+        friend.line_user_id,
+        [
+          {
+            type: 'text',
+            text:
+              `${head}\n\n「${reg.title}」\n${fmtJstDateTime(reg.session_start_at)}〜\n\n` +
+              `こちらから参加してください👇\n${buildWebinarUrl(liffId, reg.slug, reg.session_start_at)}` +
+              `\n\n※この専用リンクは、閉じた後も何度でも開けます。`,
+          },
+        ],
+        reg.id,
+        options.proxyDispatch,
+      );
       // 実送信が成功した後だけ通知済みにする。失敗時は NULL のままなので次 tick で再試行。
       await markWebinarRegistrationNotified(db, reg.id);
       sent++;
@@ -162,23 +167,30 @@ export async function sendWebinarRegistrationConfirmation(
     const { accessToken, liffId } = await resolveDeliveryConfig(db, accountId, options);
     if (!liffId) return;
     const admissionUrl = buildWebinarUrl(liffId, webinar.slug, sessionStartAt);
-    await pushViaHarnessProxy(options.proxyBaseUrl, accessToken, friend.line_user_id, [
-      {
-        type: 'text',
-        text:
-          `✅ ${fmtJstDateTime(sessionStartAt)} の回で受付しました\n\n` +
-          `「${webinar.title}」\n\n` +
-          `専用の入場リンクです👇\n${admissionUrl}\n\n` +
-          `開始5分前にも同じリンクをお送りします。` +
-          `閉じた後も何度でも開けます。`,
-      },
-    ], await createBroadcastRetryKey(
-      'webinar-registration-confirmation',
-      accountId,
-      webinar.slug,
-      friendId,
-      String(sessionStartAt),
-    ), options.proxyDispatch);
+    await pushViaHarnessProxy(
+      options.proxyBaseUrl,
+      accessToken,
+      friend.line_user_id,
+      [
+        {
+          type: 'text',
+          text:
+            `✅ ${fmtJstDateTime(sessionStartAt)} の回で受付しました\n\n` +
+            `「${webinar.title}」\n\n` +
+            `専用の入場リンクです👇\n${admissionUrl}\n\n` +
+            `開始5分前にも同じリンクをお送りします。` +
+            `閉じた後も何度でも開けます。`,
+        },
+      ],
+      await createBroadcastRetryKey(
+        'webinar-registration-confirmation',
+        accountId,
+        webinar.slug,
+        friendId,
+        String(sessionStartAt),
+      ),
+      options.proxyDispatch,
+    );
   } catch (err) {
     console.error('webinar registration confirmation error:', err);
   }

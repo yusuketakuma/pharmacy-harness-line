@@ -20,17 +20,14 @@ async function resolveLineClient(c: Context<Env>): Promise<LineClient> {
   if (accountId) {
     const account = await getLineAccountById(c.env.DB, accountId);
     const tenantId = c.get('tenantId');
-    if (account && (!tenantId || await accountResourceOwnedByStaff(c, tenantId, accountId))) {
+    if (account && (!tenantId || (await accountResourceOwnedByStaff(c, tenantId, accountId)))) {
       return new LineClient(account.channel_access_token);
     }
   }
   return new LineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
 }
 
-async function resolveFriendLineClient(
-  c: Context<Env>,
-  lineAccountId: string | null,
-): Promise<LineClient | null> {
+async function resolveFriendLineClient(c: Context<Env>, lineAccountId: string | null): Promise<LineClient | null> {
   let pharmacyAccount = false;
   try {
     pharmacyAccount = await isPharmacyModeAccount(c.env.DB, lineAccountId);
@@ -263,7 +260,13 @@ richMenus.post('/api/rich-menus/:id/image', async (c) => {
       imageData = await c.req.arrayBuffer();
       imageContentType = contentType.includes('jpeg') || contentType.includes('jpg') ? 'image/jpeg' : 'image/png';
     } else {
-      return c.json({ success: false, error: 'Content-Type must be application/json (with base64) or image/png or image/jpeg' }, 400);
+      return c.json(
+        {
+          success: false,
+          error: 'Content-Type must be application/json (with base64) or image/png or image/jpeg',
+        },
+        400,
+      );
     }
 
     const lineClient = await resolveLineClient(c);

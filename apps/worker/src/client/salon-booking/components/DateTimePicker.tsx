@@ -171,9 +171,7 @@ export default function DateTimePicker({
         selectedStart={selected?.start}
       />
 
-      <p className="text-[11px] text-gray-400 text-center pt-1">
-        緑のセルをタップして時間を選択
-      </p>
+      <p className="text-[11px] text-gray-400 text-center pt-1">緑のセルをタップして時間を選択</p>
     </div>
   );
 }

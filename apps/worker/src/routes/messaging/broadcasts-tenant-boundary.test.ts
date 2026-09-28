@@ -38,18 +38,19 @@ function db(ownedAccountIds: string[], sqlLog: string[] = []) {
   return {
     prepare: (sql: string) => {
       sqlLog.push(sql);
-      return ({
+      return {
         bind: (...values: unknown[]) => ({
           first: async () => {
             if (sql.includes('FROM pharmacy_account_capabilities')) return { mode: 'pharmacy' };
             if (sql.includes('FROM tenant_line_accounts AS mapping')) {
               const accountId = values.at(-1);
-              return ownedAccountIds.includes(accountId as string) ? { ok: 1 } : null;
+              if (!ownedAccountIds.includes(accountId as string)) return null;
+              return sql.includes('SELECT mapping.tenant_id') ? { tenant_id: 'tenant-a' } : { ok: 1 };
             }
             return null;
           },
         }),
-      });
+      };
     },
   } as unknown as D1Database;
 }
@@ -81,8 +82,9 @@ describe('GET /api/broadcasts collection tenant boundary', () => {
     const response = await root.request('/api/broadcasts', {}, env);
 
     expect(response.status).toBe(200);
-    expect((await response.json() as { data: Array<{ id: string }> }).data.map((item) => item.id))
-      .toEqual(['broadcast-1']);
+    expect(((await response.json()) as { data: Array<{ id: string }> }).data.map((item) => item.id)).toEqual([
+      'broadcast-1',
+    ]);
     expect(dbMocks.getBroadcasts).toHaveBeenCalledWith(expect.anything(), undefined);
   });
 
@@ -97,17 +99,19 @@ describe('GET /api/broadcasts collection tenant boundary', () => {
   });
 
   test('does not list a mixed-account broadcast when the selected account is owned', async () => {
-    dbMocks.getBroadcasts.mockResolvedValueOnce([{
-      ...broadcastRow('account-a'),
-      target_type: 'multi-account-dedup',
-      account_ids: JSON.stringify(['account-a', 'account-b']),
-    }]);
+    dbMocks.getBroadcasts.mockResolvedValueOnce([
+      {
+        ...broadcastRow('account-a'),
+        target_type: 'multi-account-dedup',
+        account_ids: JSON.stringify(['account-a', 'account-b']),
+      },
+    ]);
     const { root, env } = app('tenant-a', ['account-a']);
 
     const response = await root.request('/api/broadcasts?lineAccountId=account-a', {}, env);
 
     expect(response.status).toBe(200);
-    expect((await response.json() as { data: unknown[] }).data).toHaveLength(0);
+    expect(((await response.json()) as { data: unknown[] }).data).toHaveLength(0);
   });
 });
 
@@ -128,7 +132,7 @@ describe('GET /api/broadcasts/:id tenant boundary', () => {
     const response = await root.request('/api/broadcasts/broadcast-1', {}, env);
 
     expect(response.status).toBe(200);
-    expect((await response.json() as { data: { id: string } }).data.id).toBe('broadcast-1');
+    expect(((await response.json()) as { data: { id: string } }).data.id).toBe('broadcast-1');
   });
 
   test('skips the ownership check when no tenant context is set', async () => {
@@ -185,11 +189,15 @@ describe('broadcast creation tenant boundary', () => {
   test('rejects a foreign lineAccountId before creating a broadcast', async () => {
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, lineAccountId: 'account-b' }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, lineAccountId: 'account-b' }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
@@ -198,11 +206,15 @@ describe('broadcast creation tenant boundary', () => {
   test('rejects an unscoped broadcast before creating it in a tenant session', async () => {
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
@@ -211,16 +223,20 @@ describe('broadcast creation tenant boundary', () => {
   test('rejects a multi-account broadcast when any target account is foreign', async () => {
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...body,
-        targetType: 'multi-account-dedup',
-        accountIds: ['account-a', 'account-b'],
-        dedupPriority: ['account-a', 'account-b'],
-      }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...body,
+          targetType: 'multi-account-dedup',
+          accountIds: ['account-a', 'account-b'],
+          dedupPriority: ['account-a', 'account-b'],
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
@@ -229,17 +245,21 @@ describe('broadcast creation tenant boundary', () => {
   test('rejects a multi-account broadcast when its legacy lineAccountId is foreign', async () => {
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...body,
-        targetType: 'multi-account-dedup',
-        lineAccountId: 'account-b',
-        accountIds: ['account-a'],
-        dedupPriority: ['account-a'],
-      }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...body,
+          targetType: 'multi-account-dedup',
+          lineAccountId: 'account-b',
+          accountIds: ['account-a'],
+          dedupPriority: ['account-a'],
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
@@ -263,11 +283,15 @@ describe('broadcast ID route tenant boundary', () => {
     dbMocks.getBroadcastById.mockResolvedValueOnce(broadcastRow('account-b'));
     const { root, env } = app('tenant-a', ['account-a'], sql);
 
-    const response = await root.request('/api/broadcasts/broadcast-1', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'changed' }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'changed' }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(404);
     expect(dbMocks.updateBroadcast).not.toHaveBeenCalled();
@@ -318,16 +342,20 @@ describe('broadcast target type safety', () => {
   test('rejects segment targets before creating a broadcast', async () => {
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'segment broadcast',
-        messageType: 'text',
-        messageContent: 'hello',
-        targetType: 'segment',
-      }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'segment broadcast',
+          messageType: 'text',
+          messageContent: 'hello',
+          targetType: 'segment',
+        }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(400);
     expect(dbMocks.createBroadcast).not.toHaveBeenCalled();
@@ -337,11 +365,15 @@ describe('broadcast target type safety', () => {
     dbMocks.getBroadcastById.mockResolvedValueOnce(broadcastRow('account-a'));
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts/broadcast-1', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetType: 'segment' }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetType: 'segment' }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(400);
     expect(dbMocks.updateBroadcast).not.toHaveBeenCalled();
@@ -354,9 +386,13 @@ describe('broadcast target type safety', () => {
     });
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts/broadcast-1/send', {
-      method: 'POST',
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1/send',
+      {
+        method: 'POST',
+      },
+      env,
+    );
 
     expect(response.status).toBe(400);
   });
@@ -367,9 +403,13 @@ describe('broadcast send tenant boundary', () => {
     dbMocks.getBroadcastById.mockResolvedValueOnce(broadcastRow('account-b'));
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts/broadcast-1/send', {
-      method: 'POST',
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1/send',
+      {
+        method: 'POST',
+      },
+      env,
+    );
 
     expect(response.status).toBe(404);
   });
@@ -378,11 +418,15 @@ describe('broadcast send tenant boundary', () => {
     dbMocks.getBroadcastById.mockResolvedValueOnce(broadcastRow('account-b'));
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts/broadcast-1/send-segment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conditions: { operator: 'AND', rules: [] } }),
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1/send-segment',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conditions: { operator: 'AND', rules: [] } }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(404);
   });
@@ -396,9 +440,13 @@ describe('broadcast send tenant boundary', () => {
     });
     const { root, env } = app('tenant-a', ['account-a']);
 
-    const response = await root.request('/api/broadcasts/broadcast-1/send', {
-      method: 'POST',
-    }, env);
+    const response = await root.request(
+      '/api/broadcasts/broadcast-1/send',
+      {
+        method: 'POST',
+      },
+      env,
+    );
 
     expect(response.status).toBe(404);
   });

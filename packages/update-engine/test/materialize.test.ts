@@ -36,16 +36,12 @@ describe('materializeAdminFiles', () => {
     const out = materializeAdminFiles(files, WORKER_URL);
 
     const text = out.get('chunk.js')!.toString('utf8');
-    expect(text).toBe(
-      `fetch("${WORKER_URL}/api/friends");const base="${WORKER_URL}";`,
-    );
+    expect(text).toBe(`fetch("${WORKER_URL}/api/friends");const base="${WORKER_URL}";`);
     expect(text).not.toContain('__LH_');
   });
 
   it('strips trailing slashes from the worker URL (admin concatenates paths)', () => {
-    const files = new Map([
-      ['a.js', Buffer.from(`"${ADMIN_URL_PLACEHOLDER}/api"`)],
-    ]);
+    const files = new Map([['a.js', Buffer.from(`"${ADMIN_URL_PLACEHOLDER}/api"`)]]);
     const out = materializeAdminFiles(files, `${WORKER_URL}/`);
     expect(out.get('a.js')!.toString('utf8')).toBe(`"${WORKER_URL}/api"`);
   });
@@ -93,9 +89,7 @@ describe('findResidualPlaceholders', () => {
   });
 
   it('returns empty after a full materialization', () => {
-    const files = new Map([
-      ['a.js', Buffer.from(`"${ADMIN_URL_PLACEHOLDER}/api"`)],
-    ]);
+    const files = new Map([['a.js', Buffer.from(`"${ADMIN_URL_PLACEHOLDER}/api"`)]]);
     const out = materializeAdminFiles(files, WORKER_URL);
     expect(findResidualPlaceholders(out)).toEqual([]);
   });
@@ -105,12 +99,8 @@ describe('isBenignSchemaErrorText', () => {
   it('matches duplicate-object errors from wrangler and the D1 REST API', () => {
     expect(isBenignSchemaErrorText('duplicate column name: score')).toBe(true);
     expect(isBenignSchemaErrorText('table "friends" already exists')).toBe(true);
-    expect(
-      isBenignSchemaErrorText('D1_ERROR: index idx_chats_friend already exists: SQLITE_ERROR'),
-    ).toBe(true);
-    expect(isBenignSchemaErrorText('Error: table friends already defined? ALREADY exists')).toBe(
-      true,
-    );
+    expect(isBenignSchemaErrorText('D1_ERROR: index idx_chats_friend already exists: SQLITE_ERROR')).toBe(true);
+    expect(isBenignSchemaErrorText('Error: table friends already defined? ALREADY exists')).toBe(true);
   });
 
   it('rejects real failures', () => {
@@ -128,9 +118,7 @@ describe('createTriggerName', () => {
         "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends BEGIN SELECT RAISE(ABORT, 'X'); END",
       ),
     ).toBe('friends_account_immutable');
-    expect(createTriggerName('create temporary trigger "t x" AFTER INSERT ON a BEGIN SELECT 1; END')).toBe(
-      't x',
-    );
+    expect(createTriggerName('create temporary trigger "t x" AFTER INSERT ON a BEGIN SELECT 1; END')).toBe('t x');
   });
 
   it('returns null for statements that carry no trigger body', () => {
@@ -143,9 +131,7 @@ describe('createTriggerName', () => {
 describe('normalizeTriggerSql', () => {
   it('ignores the formatting differences SQLite itself introduces', () => {
     expect(
-      normalizeTriggerSql(
-        "CREATE TRIGGER IF NOT EXISTS t AFTER INSERT ON a\n  BEGIN SELECT RAISE(ABORT, 'X'); END;",
-      ),
+      normalizeTriggerSql("CREATE TRIGGER IF NOT EXISTS t AFTER INSERT ON a\n  BEGIN SELECT RAISE(ABORT, 'X'); END;"),
     ).toBe(normalizeTriggerSql("create trigger t after insert on a begin select raise(abort, 'X'); end"));
   });
 

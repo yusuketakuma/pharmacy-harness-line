@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import {
-  fetchManifest,
-  findRelease,
-  findLatestUpgrade,
-  compareSemver,
-} from '../src/manifest.js';
+import { fetchManifest, findRelease, findLatestUpgrade, compareSemver } from '../src/manifest.js';
 import type { Manifest, ReleaseEntry } from '../src/types.js';
 
 const sampleRelease = (overrides: Partial<ReleaseEntry> = {}): ReleaseEntry => ({
@@ -69,9 +64,7 @@ describe('fetchManifest', () => {
       json: async () => ({}),
     } as Response);
 
-    await expect(fetchManifest('https://example.com/missing.json')).rejects.toThrow(
-      /404/,
-    );
+    await expect(fetchManifest('https://example.com/missing.json')).rejects.toThrow(/404/);
   });
 
   it('throws on unsupported schema_version', async () => {

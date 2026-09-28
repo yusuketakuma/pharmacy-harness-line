@@ -1,3 +1,8 @@
+import { patientAuthorityPredicateFor } from '../intake/repository.js';
+import { assertPharmacyAutomatedText } from '../growth-loop/policy.js';
+import { pharmacyHumanStaffPredicate, pharmacyStaffAccountPredicate } from '../growth-loop/access.js';
+import { tenantAuditStatement } from '../../../lib/tenant-audit.js';
+
 export type MedicationFollowUpStatus =
   | 'scheduled'
   | 'due'
@@ -11,10 +16,15 @@ export type MedicationFollowUpStatus =
   | 'closed'
   | 'cancelled';
 
-export type MedicationFollowUpPatientResponse =
-  | 'no_issue'
-  | 'concern'
-  | 'pharmacist_requested';
+export type MedicationFollowUpPatientResponse = 'no_issue' | 'concern' | 'pharmacist_requested';
+
+export type MedicationFollowUpContactChannel = 'line' | 'phone';
+export type MedicationFollowUpContactOutcome =
+  | 'answered'
+  | 'no_answer'
+  | 'resolved'
+  | 'follow_up_required'
+  | 'escalated';
 
 export interface MedicationFollowUp {
   id: string;
@@ -24,6 +34,8 @@ export interface MedicationFollowUp {
   source_submission_id: string;
   status: MedicationFollowUpStatus;
   due_at: string;
+  question_set_version: number;
+  response_deadline_at: string | null;
   delivered_at: string | null;
   responded_at: string | null;
   assigned_to: string | null;
@@ -34,7 +46,34 @@ export interface MedicationFollowUp {
   updated_at: string;
 }
 
+export interface MedicationFollowUpContactRecord {
+  id: string;
+  followup_id: string;
+  line_account_id: string;
+  channel: MedicationFollowUpContactChannel;
+  outcome_code: MedicationFollowUpContactOutcome;
+  next_contact_at: string | null;
+  actor_staff_id: string;
+  idempotency_key: string;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface MedicationFollowUpContactInput {
+  channel: MedicationFollowUpContactChannel;
+  outcomeCode: MedicationFollowUpContactOutcome;
+  nextContactAt?: string | null;
+  idempotencyKey: string;
+}
+
+export interface MedicationFollowUpAssignee {
+  id: string;
+  name: string;
+  role: 'owner' | 'admin' | 'staff';
+}
+
 export interface DueMedicationFollowUp extends MedicationFollowUp {
+  notification_checked_at?: string | null;
   tenant_id: string;
   line_user_id: string;
   liff_id: string | null;
@@ -44,11 +83,67 @@ export interface PatientMedicationFollowUp extends MedicationFollowUp {
   patient_name: string;
 }
 
-const SELECT = `
-  SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-         status, due_at, delivered_at, responded_at, assigned_to, closed_at,
-         version, created_by, created_at, updated_at
-    FROM pharmacy_medication_followups`;
+type MedicationFollowUpSchema = {
+  notificationQueue: boolean;
+  closureColumns: boolean;
+  contactRecords: boolean;
+  eventAssigneeColumn: boolean;
+};
+
+async function tableColumns(db: D1Database, table: string): Promise<Set<string>> {
+  const result = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  return new Set((result.results ?? []).map((column) => column.name));
+}
+
+async function medicationFollowUpSchema(db: D1Database): Promise<MedicationFollowUpSchema> {
+  let columns: [Set<string>, Set<string>, Set<string>];
+  try {
+    columns = await Promise.all([
+      tableColumns(db, 'pharmacy_medication_followups'),
+      tableColumns(db, 'pharmacy_medication_followup_contact_records'),
+      tableColumns(db, 'pharmacy_medication_followup_events'),
+    ]);
+  } catch {
+    throw new Error('follow-up schema unavailable');
+  }
+  const [followUpColumns, contactColumns, eventColumns] = columns;
+  return {
+    notificationQueue: followUpColumns.has('notification_checked_at'),
+    closureColumns: followUpColumns.has('question_set_version') && followUpColumns.has('response_deadline_at'),
+    contactRecords: contactColumns.size > 0,
+    eventAssigneeColumn: eventColumns.has('assignee_staff_id'),
+  };
+}
+
+function followUpFields(schema: MedicationFollowUpSchema, alias = ''): string {
+  const field = (name: string) => (alias ? `${alias}.${name}` : name);
+  const closure = schema.closureColumns
+    ? `${field('question_set_version')}, ${field('response_deadline_at')}`
+    : '1 AS question_set_version, NULL AS response_deadline_at';
+  return [
+    field('id'),
+    field('line_account_id'),
+    field('owner_friend_id'),
+    field('patient_id'),
+    field('source_submission_id'),
+    field('status'),
+    field('due_at'),
+    closure,
+    field('delivered_at'),
+    field('responded_at'),
+    field('assigned_to'),
+    field('closed_at'),
+    field('version'),
+    field('created_by'),
+    field('created_at'),
+    field('updated_at'),
+  ].join(', ');
+}
+
+function followUpSelect(schema: MedicationFollowUpSchema, alias = ''): string {
+  return `SELECT ${followUpFields(schema, alias)}
+    FROM pharmacy_medication_followups${alias ? ` ${alias}` : ''}`;
+}
 
 const TRANSITIONS: Record<MedicationFollowUpStatus, readonly MedicationFollowUpStatus[]> = {
   scheduled: ['due', 'cancelled'],
@@ -71,19 +166,166 @@ export function isMedicationFollowUpTransitionAllowed(
   return TRANSITIONS[fromStatus].includes(toStatus);
 }
 
-const RESPONSE_RE = /^pharmacy-followup:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(no_issue|concern|pharmacist_requested)$/i;
+const RESPONSE_RE =
+  /^pharmacy-followup:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(no_issue|concern|pharmacist_requested)$/i;
+const CONTACT_CHANNELS = new Set<MedicationFollowUpContactChannel>(['line', 'phone']);
+const CONTACT_OUTCOMES = new Set<MedicationFollowUpContactOutcome>([
+  'answered',
+  'no_answer',
+  'resolved',
+  'follow_up_required',
+  'escalated',
+]);
 
 function validOpaqueKey(value: string, maxLength = 160): boolean {
   return value.length >= 8 && value.length <= maxLength && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function normalizeContactInput(input: {
+  channel: MedicationFollowUpContactChannel;
+  outcomeCode: MedicationFollowUpContactOutcome;
+  nextContactAt?: string | null;
+}): string | null {
+  if (!CONTACT_CHANNELS.has(input.channel) || !CONTACT_OUTCOMES.has(input.outcomeCode)) {
+    throw new Error('invalid medication follow-up contact');
+  }
+  if (input.nextContactAt === undefined || input.nextContactAt === null) {
+    if (input.outcomeCode === 'follow_up_required') {
+      throw new Error('next contact time is required');
+    }
+    return null;
+  }
+  const nextContact = new Date(input.nextContactAt);
+  if (!Number.isFinite(nextContact.getTime())) throw new Error('invalid medication follow-up contact');
+  return nextContact.toISOString();
+}
+
+function requireFutureContactAt(nextContactAt: string | null, now: Date): void {
+  if (nextContactAt !== null && Date.parse(nextContactAt) <= now.getTime()) {
+    throw new Error('next contact time must be in the future');
+  }
+}
+
+async function staffAccountAuthorityPredicate(db: D1Database, accountColumn: string): Promise<string> {
+  return `EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN line_accounts AS account
+              ON account.id = mapping.line_account_id AND account.is_active = 1
+      INNER JOIN tenants AS tenant
+              ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+     WHERE mapping.line_account_id = ${accountColumn}
+       AND ${await pharmacyStaffAccountPredicate(db, accountColumn, 'mapping')}
+  )`;
+}
+
+async function humanStaffAccountPredicate(db: D1Database, accountColumn: string): Promise<string> {
+  return `EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN line_accounts AS account
+              ON account.id = mapping.line_account_id AND account.is_active = 1
+      INNER JOIN tenants AS tenant
+              ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id AND membership.is_active = 1
+      INNER JOIN staff_members AS assignee
+              ON assignee.id = membership.staff_id
+             AND assignee.is_active = 1
+             AND ${await pharmacyHumanStaffPredicate(db, 'assignee')}
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = ${accountColumn}
+             AND assignment.staff_id = assignee.id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = ${accountColumn}
+       AND assignee.id = ?
+  )`;
+}
+
+function validStaffId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function sameContactInput(
+  existing: MedicationFollowUpContactRecord,
+  input: MedicationFollowUpContactInput,
+  nextContactAt: string | null,
+  followUpId: string,
+): boolean {
+  return (
+    existing.followup_id === followUpId &&
+    existing.channel === input.channel &&
+    existing.outcome_code === input.outcomeCode &&
+    existing.next_contact_at === nextContactAt
+  );
+}
+
+async function getMedicationFollowUpContactByKey(
+  db: D1Database,
+  lineAccountId: string,
+  idempotencyKey: string,
+): Promise<MedicationFollowUpContactRecord | null> {
+  return db
+    .prepare(
+      `SELECT id, followup_id, line_account_id, channel, outcome_code,
+            next_contact_at, actor_staff_id, idempotency_key, occurred_at, created_at
+       FROM pharmacy_medication_followup_contact_records
+      WHERE line_account_id = ? AND idempotency_key = ?
+      LIMIT 1`,
+    )
+    .bind(lineAccountId, idempotencyKey)
+    .first<MedicationFollowUpContactRecord>();
+}
+
+async function hasResponseRecord(db: D1Database, lineAccountId: string, followUpId: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
+       FROM pharmacy_medication_followup_contact_records
+      WHERE line_account_id = ? AND followup_id = ?
+        AND outcome_code <> 'no_answer'
+      LIMIT 1`,
+    )
+    .bind(lineAccountId, followUpId)
+    .first<{ ok: number }>();
+  return Boolean(row);
+}
+
+async function hasPatientAuthorityForFollowUp(
+  db: D1Database,
+  input: { lineAccountId: string; followUpId: string; actorId: string },
+  now: string,
+): Promise<boolean> {
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
+       FROM pharmacy_medication_followups AS followup
+       INNER JOIN pharmacy_patients AS patient
+         ON patient.id = followup.patient_id
+        AND patient.line_account_id = followup.line_account_id
+        AND patient.owner_friend_id = followup.owner_friend_id
+      WHERE followup.id = ? AND followup.line_account_id = ?
+        AND followup.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+        ${authorityPredicate}`,
+    )
+    .bind(input.followUpId, input.lineAccountId, input.actorId, input.actorId, now)
+    .first<{ ok: number }>();
+  return Boolean(row);
 }
 
 async function getFollowUp(
   db: D1Database,
   lineAccountId: string,
   followUpId: string,
+  schema?: MedicationFollowUpSchema,
 ): Promise<MedicationFollowUp | null> {
-  return db.prepare(`${SELECT} WHERE id = ? AND line_account_id = ?`)
-    .bind(followUpId, lineAccountId).first<MedicationFollowUp>();
+  const resolvedSchema = schema ?? (await medicationFollowUpSchema(db));
+  return db
+    .prepare(`${followUpSelect(resolvedSchema)} WHERE id = ? AND line_account_id = ?`)
+    .bind(followUpId, lineAccountId)
+    .first<MedicationFollowUp>();
 }
 
 export async function scheduleMedicationFollowUp(
@@ -92,6 +334,7 @@ export async function scheduleMedicationFollowUp(
     lineAccountId: string;
     submissionId: string;
     dueAt: string;
+    responseDeadlineAt?: string | null;
     staffId: string;
     idempotencyKey: string;
     now?: Date;
@@ -101,13 +344,27 @@ export async function scheduleMedicationFollowUp(
     throw new Error('invalid medication follow-up request');
   }
   const now = input.now ?? new Date();
+  const schema = await medicationFollowUpSchema(db);
   const due = new Date(input.dueAt);
   if (!Number.isFinite(due.getTime()) || due.getTime() <= now.getTime()) {
     throw new Error('medication follow-up due time must be in the future');
   }
   const dueAt = due.toISOString();
-  const source = await db.prepare(
-    `SELECT pp.patient_id, pp.owner_friend_id
+  let responseDeadlineAt: string | null = null;
+  if (input.responseDeadlineAt !== undefined && input.responseDeadlineAt !== null) {
+    const deadline = new Date(input.responseDeadlineAt);
+    if (!Number.isFinite(deadline.getTime()) || deadline.getTime() <= due.getTime()) {
+      throw new Error('medication follow-up response deadline must be after due time');
+    }
+    responseDeadlineAt = deadline.toISOString();
+  }
+  if (!schema.closureColumns && responseDeadlineAt !== null) {
+    throw new Error('follow-up closure unavailable');
+  }
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, '?');
+  const source = await db
+    .prepare(
+      `SELECT pp.patient_id, pp.owner_friend_id
        FROM pharmacy_prescription_patients pp
        INNER JOIN pharmacy_prescription_submissions s
          ON s.id = pp.submission_id AND s.line_account_id = pp.line_account_id
@@ -117,17 +374,22 @@ export async function scheduleMedicationFollowUp(
       WHERE pp.submission_id = ? AND pp.line_account_id = ?
         AND s.status = 'closed' AND p.archived_at IS NULL
       LIMIT 1`,
-  ).bind(input.submissionId, input.lineAccountId).first<{
-    patient_id: string;
-    owner_friend_id: string;
-  }>();
+    )
+    .bind(input.submissionId, input.lineAccountId)
+    .first<{
+      patient_id: string;
+      owner_friend_id: string;
+    }>();
   if (!source) throw new Error('eligible closed submission not found');
 
-  const existing = await db.prepare(
-    `${SELECT} WHERE line_account_id = ? AND source_submission_id = ?`,
-  ).bind(input.lineAccountId, input.submissionId).first<MedicationFollowUp>();
+  const existing = await db
+    .prepare(`${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`)
+    .bind(input.lineAccountId, input.submissionId)
+    .first<MedicationFollowUp>();
   if (existing) {
-    if (existing.due_at !== dueAt) throw new Error('medication follow-up already scheduled');
+    if (existing.due_at !== dueAt || existing.response_deadline_at !== responseDeadlineAt) {
+      throw new Error('medication follow-up already scheduled');
+    }
     return existing;
   }
 
@@ -135,30 +397,84 @@ export async function scheduleMedicationFollowUp(
   const eventId = crypto.randomUUID();
   const timestamp = now.toISOString();
   const eventKey = `schedule:${input.idempotencyKey}`;
-  await db.batch([
-    db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followups
+  const followUpInsert = schema.closureColumns
+    ? db
+        .prepare(
+          `INSERT OR IGNORE INTO pharmacy_medication_followups
+        (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
+         status, due_at, question_set_version, response_deadline_at,
+         created_by, created_at, updated_at)
+       SELECT ?, ?, ?, ?, ?, 'scheduled', ?, 1, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM pharmacy_account_capabilities AS capability
+           WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+           AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                          WHERE value = 'medication_followup')
+        )
+          AND ${staffAuthorityPredicate}
+          AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_medication_followup_events
+           WHERE line_account_id = ? AND idempotency_key = ?
+        )`,
+        )
+        .bind(
+          id,
+          input.lineAccountId,
+          source.owner_friend_id,
+          source.patient_id,
+          input.submissionId,
+          dueAt,
+          responseDeadlineAt,
+          input.staffId,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.staffId,
+          input.lineAccountId,
+          eventKey,
+        )
+    : db
+        .prepare(
+          `INSERT OR IGNORE INTO pharmacy_medication_followups
         (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          status, due_at, created_by, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?
         WHERE EXISTS (
           SELECT 1 FROM pharmacy_account_capabilities AS capability
            WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
-             AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+           AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                           WHERE value = 'medication_followup')
         )
+          AND ${staffAuthorityPredicate}
           AND NOT EXISTS (
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
         )`,
-    ).bind(
-      id, input.lineAccountId, source.owner_friend_id, source.patient_id,
-      input.submissionId, dueAt, input.staffId, timestamp, timestamp,
-      input.lineAccountId,
-      input.lineAccountId, eventKey,
-    ),
-    db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_medication_followup_events
+        )
+        .bind(
+          id,
+          input.lineAccountId,
+          source.owner_friend_id,
+          source.patient_id,
+          input.submissionId,
+          dueAt,
+          input.staffId,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.lineAccountId,
+          input.staffId,
+          input.lineAccountId,
+          eventKey,
+        );
+  await db.batch([
+    followUpInsert,
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO pharmacy_medication_followup_events
         (id, followup_id, line_account_id, event_type, to_status, actor_type,
          actor_id, idempotency_key, occurred_at)
        SELECT ?, f.id, f.line_account_id, 'scheduled', 'scheduled', 'staff', ?, ?, ?
@@ -169,15 +485,16 @@ export async function scheduleMedicationFollowUp(
              WHERE e.followup_id = f.id AND e.line_account_id = f.line_account_id
                AND e.event_type = 'scheduled'
           )`,
-    ).bind(
-      eventId, input.staffId, eventKey, timestamp,
-      input.lineAccountId, input.submissionId, dueAt,
-    ),
+      )
+      .bind(eventId, input.staffId, eventKey, timestamp, input.lineAccountId, input.submissionId, dueAt),
   ]);
-  const saved = await db.prepare(
-    `${SELECT} WHERE line_account_id = ? AND source_submission_id = ?`,
-  ).bind(input.lineAccountId, input.submissionId).first<MedicationFollowUp>();
-  if (!saved || saved.due_at !== dueAt) throw new Error('medication follow-up scheduling conflict');
+  const saved = await db
+    .prepare(`${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`)
+    .bind(input.lineAccountId, input.submissionId)
+    .first<MedicationFollowUp>();
+  if (!saved || saved.due_at !== dueAt || saved.response_deadline_at !== responseDeadlineAt) {
+    throw new Error('medication follow-up scheduling conflict');
+  }
   return saved;
 }
 
@@ -191,46 +508,252 @@ export async function transitionMedicationFollowUp(
     actorType: 'patient' | 'staff' | 'system';
     actorId: string;
     idempotencyKey?: string;
+    assigneeStaffId?: string | null;
+    contact?: MedicationFollowUpContactInput;
     now?: Date;
   },
 ): Promise<MedicationFollowUp> {
   if (!input.lineAccountId || !input.followUpId || !input.actorId || !Number.isInteger(input.expectedVersion)) {
     throw new Error('invalid medication follow-up transition');
   }
-  const current = await getFollowUp(db, input.lineAccountId, input.followUpId);
+  const schema = await medicationFollowUpSchema(db);
+  const current = await getFollowUp(db, input.lineAccountId, input.followUpId, schema);
   if (!current) throw new Error('medication follow-up not found');
-  const idempotencyKey = input.idempotencyKey
-    ?? `transition:${input.followUpId}:${input.expectedVersion}:${input.toStatus}`;
+  const now = input.now ?? new Date();
+  const timestamp = now.toISOString();
+  if (input.assigneeStaffId !== undefined && input.assigneeStaffId !== null && !validStaffId(input.assigneeStaffId)) {
+    throw new Error('invalid assigned staff');
+  }
+  if (input.toStatus !== 'assigned' && input.assigneeStaffId !== undefined) {
+    throw new Error('invalid assigned staff');
+  }
+  const idempotencyKey =
+    input.idempotencyKey ?? `transition:${input.followUpId}:${input.expectedVersion}:${input.toStatus}`;
   if (!validOpaqueKey(idempotencyKey)) throw new Error('invalid medication follow-up transition');
-  const replay = await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_medication_followup_events
+  if (
+    input.actorType === 'patient' &&
+    !(await hasPatientAuthorityForFollowUp(
+      db,
+      {
+        lineAccountId: input.lineAccountId,
+        followUpId: input.followUpId,
+        actorId: input.actorId,
+      },
+      timestamp,
+    ))
+  ) {
+    throw new Error('medication follow-up transition conflict');
+  }
+  if (input.contact && !schema.contactRecords) {
+    throw new Error('follow-up closure unavailable');
+  }
+  if (
+    !schema.contactRecords &&
+    (input.toStatus === 'responded' || (input.toStatus === 'closed' && current.status === 'responded'))
+  ) {
+    throw new Error('follow-up closure unavailable');
+  }
+  const eventAssigneeColumn =
+    (input.toStatus === 'assigned' || input.assigneeStaffId !== undefined) && schema.eventAssigneeColumn;
+  const replay = await db
+    .prepare(
+      `SELECT 1 AS ok${eventAssigneeColumn ? ', assignee_staff_id' : ', NULL AS assignee_staff_id'}
+       FROM pharmacy_medication_followup_events
       WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.followUpId, input.lineAccountId, idempotencyKey).first<{ ok: number }>();
-  if (replay) return current;
-  if (current.version !== input.expectedVersion ||
-      !isMedicationFollowUpTransitionAllowed(current.status, input.toStatus)) {
-    throw new Error(current.version !== input.expectedVersion
-      ? 'medication follow-up transition conflict'
-      : 'invalid follow-up transition');
+    )
+    .bind(input.followUpId, input.lineAccountId, idempotencyKey)
+    .first<{
+      ok: number;
+      assignee_staff_id: string | null;
+    }>();
+  if (replay) {
+    if (
+      eventAssigneeColumn &&
+      input.toStatus === 'assigned' &&
+      replay.assignee_staff_id !== (input.assigneeStaffId ?? null)
+    ) {
+      throw new Error('medication follow-up transition conflict');
+    }
+    return current;
+  }
+  if (
+    current.version !== input.expectedVersion ||
+    !isMedicationFollowUpTransitionAllowed(current.status, input.toStatus)
+  ) {
+    throw new Error(
+      current.version !== input.expectedVersion
+        ? 'medication follow-up transition conflict'
+        : 'invalid follow-up transition',
+    );
+  }
+  if (input.toStatus === 'assigned' && !validStaffId(input.assigneeStaffId)) {
+    // ponytail: preserve the pre-V036 omitted-assignee payload; new clients must send a human staff ID.
+    if (input.assigneeStaffId !== undefined) throw new Error('assigned staff is required');
   }
 
+  const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  const requiresHumanAssignee = input.toStatus === 'assigned' && input.assigneeStaffId !== undefined;
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, 'followup.line_account_id');
+  const humanAssigneePredicate = await humanStaffAccountPredicate(db, 'followup.line_account_id');
+
+  let contact: MedicationFollowUpContactRecord | null = null;
+  let nextContactAt: string | null = null;
+  if (input.contact) {
+    if (input.actorType !== 'staff' || !validOpaqueKey(input.contact.idempotencyKey)) {
+      throw new Error('invalid medication follow-up contact');
+    }
+    nextContactAt = normalizeContactInput(input.contact);
+    contact = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.contact.idempotencyKey);
+    if (contact && !sameContactInput(contact, input.contact, nextContactAt, input.followUpId)) {
+      throw new Error('medication follow-up contact conflict');
+    }
+    if (!contact) requireFutureContactAt(nextContactAt, now);
+  }
+  const requiresResponseRecord =
+    input.toStatus === 'responded' || (input.toStatus === 'closed' && current.status === 'responded');
+  const hasExistingResponse = contact
+    ? contact.outcome_code !== 'no_answer'
+    : schema.contactRecords && requiresResponseRecord
+      ? await hasResponseRecord(db, input.lineAccountId, input.followUpId)
+      : false;
+  const createsResponseRecord = Boolean(
+    schema.contactRecords && input.contact && !contact && input.contact.outcomeCode !== 'no_answer',
+  );
+  if (schema.contactRecords && requiresResponseRecord && !hasExistingResponse && !createsResponseRecord) {
+    throw new Error('follow-up response record required');
+  }
+
+  const responseRecordGuard = schema.contactRecords
+    ? `
+          AND (
+            ? NOT IN ('responded', 'closed')
+            OR (? = 'closed' AND followup.status <> 'responded')
+            OR EXISTS (
+              SELECT 1 FROM pharmacy_medication_followup_contact_records AS contact
+               WHERE contact.line_account_id = followup.line_account_id
+                 AND contact.followup_id = followup.id
+                 AND contact.outcome_code <> 'no_answer'
+            )
+          )`
+    : '';
+  const contactMatchGuard = input.contact
+    ? `
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_medication_followup_contact_records AS exact_contact
+             WHERE exact_contact.line_account_id = followup.line_account_id
+               AND exact_contact.followup_id = followup.id
+               AND exact_contact.idempotency_key = ?
+               AND exact_contact.channel = ?
+               AND exact_contact.outcome_code = ?
+               AND exact_contact.next_contact_at IS ?
+          )`
+    : '';
+  const contactMatchValues = input.contact
+    ? [input.contact.idempotencyKey, input.contact.channel, input.contact.outcomeCode, nextContactAt]
+    : [];
+
   const eventId = crypto.randomUUID();
-  const timestamp = (input.now ?? new Date()).toISOString();
-  const results = await db.batch([
-    db.prepare(
+  const eventStatement = db
+    .prepare(
       `INSERT INTO pharmacy_medication_followup_events
-        (id, followup_id, line_account_id, event_type, from_status, to_status,
-         actor_type, actor_id, idempotency_key, occurred_at)
-       SELECT ?, id, line_account_id, ?, status, ?, ?, ?, ?, ?
-         FROM pharmacy_medication_followups
-        WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?`,
-    ).bind(
-      eventId, input.toStatus, input.toStatus, input.actorType, input.actorId,
-      idempotencyKey, timestamp, input.followUpId, input.lineAccountId,
-      current.status, input.expectedVersion,
-    ),
-    db.prepare(
-      `UPDATE pharmacy_medication_followups
+      (${
+        eventAssigneeColumn
+          ? 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at, assignee_staff_id'
+          : 'id, followup_id, line_account_id, event_type, from_status, to_status, actor_type, actor_id, idempotency_key, occurred_at'
+      })
+     SELECT ?, followup.id, followup.line_account_id, ?, followup.status, ?, ?, ?, ?, ?
+       ${eventAssigneeColumn ? ', ?' : ''}
+         FROM pharmacy_medication_followups AS followup
+         INNER JOIN pharmacy_patients AS patient
+           ON patient.id = followup.patient_id
+          AND patient.line_account_id = followup.line_account_id
+          AND patient.owner_friend_id = followup.owner_friend_id
+        WHERE followup.id = ? AND followup.line_account_id = ?
+          AND followup.status = ? AND followup.version = ?
+          AND (
+            ? <> 'patient'
+            OR (
+              patient.owner_friend_id = ?
+              AND patient.archived_at IS NULL
+              ${patientAuthorityPredicate}
+            )
+          )
+          AND (
+            ? <> 'staff'
+            OR ${staffAuthorityPredicate}
+          )
+          ${responseRecordGuard}
+          ${contactMatchGuard}
+          AND (
+            ? = 0
+            OR ${humanAssigneePredicate}
+          )`,
+    )
+    .bind(
+      eventId,
+      input.toStatus,
+      input.toStatus,
+      input.actorType,
+      input.actorId,
+      idempotencyKey,
+      timestamp,
+      ...(eventAssigneeColumn ? [input.assigneeStaffId ?? null] : []),
+      input.followUpId,
+      input.lineAccountId,
+      current.status,
+      input.expectedVersion,
+      input.actorType,
+      input.actorId,
+      input.actorId,
+      timestamp,
+      input.actorType,
+      input.actorId,
+      ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
+      ...contactMatchValues,
+      requiresHumanAssignee ? 1 : 0,
+      input.assigneeStaffId ?? input.actorId,
+    );
+  const contactStatement =
+    schema.contactRecords && input.contact && !contact
+      ? db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
+        (id, followup_id, line_account_id, channel, outcome_code, next_contact_at,
+         actor_staff_id, idempotency_key, occurred_at, created_at)
+       SELECT ?, followup.id, followup.line_account_id, ?, ?, ?, ?, ?, ?, ?
+         FROM pharmacy_medication_followups AS followup
+        WHERE followup.id = ? AND followup.line_account_id = ?
+          AND followup.status = ? AND followup.version = ?
+          AND ${staffAuthorityPredicate}
+          AND (
+            ? = 0
+            OR ${humanAssigneePredicate}
+          )`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            input.contact.channel,
+            input.contact.outcomeCode,
+            nextContactAt,
+            input.actorId,
+            input.contact.idempotencyKey,
+            timestamp,
+            timestamp,
+            input.followUpId,
+            input.lineAccountId,
+            current.status,
+            input.expectedVersion,
+            input.actorId,
+            requiresHumanAssignee ? 1 : 0,
+            input.assigneeStaffId ?? input.actorId,
+          )
+      : null;
+  const results = await db.batch([
+    ...(contactStatement ? [contactStatement] : []),
+    eventStatement,
+    db
+      .prepare(
+        `UPDATE pharmacy_medication_followups AS followup
           SET status = ?,
               delivered_at = CASE WHEN ? = 'delivered' THEN ? ELSE delivered_at END,
               responded_at = CASE WHEN ? IN ('no_issue','concern','pharmacist_requested')
@@ -239,23 +762,76 @@ export async function transitionMedicationFollowUp(
               closed_at = CASE WHEN ? IN ('closed','cancelled') THEN ? ELSE closed_at END,
               version = version + 1,
               updated_at = ?
-        WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?
+        WHERE followup.id = ? AND followup.line_account_id = ?
+          AND followup.status = ? AND followup.version = ?
           AND EXISTS (
             SELECT 1 FROM pharmacy_medication_followup_events
              WHERE id = ? AND followup_id = ? AND line_account_id = ?
+          )
+          AND (
+            ? <> 'patient'
+            OR EXISTS (
+              SELECT 1 FROM pharmacy_patients AS patient
+               WHERE patient.id = followup.patient_id
+                 AND patient.line_account_id = followup.line_account_id
+                 AND patient.owner_friend_id = followup.owner_friend_id
+                 AND patient.owner_friend_id = ?
+                 AND patient.archived_at IS NULL
+                 ${patientAuthorityPredicate}
+            )
+          )
+          AND (
+            ? <> 'staff'
+            OR ${staffAuthorityPredicate}
+          )
+          ${responseRecordGuard}
+          AND (
+            ? = 0
+            OR ${humanAssigneePredicate}
           )`,
-    ).bind(
-      input.toStatus,
-      input.toStatus, timestamp,
-      input.toStatus, timestamp,
-      input.toStatus, input.actorId,
-      input.toStatus, timestamp,
-      timestamp,
-      input.followUpId, input.lineAccountId, current.status, input.expectedVersion,
-      eventId, input.followUpId, input.lineAccountId,
-    ),
+      )
+      .bind(
+        input.toStatus,
+        input.toStatus,
+        timestamp,
+        input.toStatus,
+        timestamp,
+        input.toStatus,
+        input.assigneeStaffId ?? null,
+        input.toStatus,
+        timestamp,
+        timestamp,
+        input.followUpId,
+        input.lineAccountId,
+        current.status,
+        input.expectedVersion,
+        eventId,
+        input.followUpId,
+        input.lineAccountId,
+        input.actorType,
+        input.actorId,
+        input.actorId,
+        timestamp,
+        input.actorType,
+        input.actorId,
+        ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
+        requiresHumanAssignee ? 1 : 0,
+        input.assigneeStaffId ?? input.actorId,
+      ),
   ]);
-  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
+  const eventIndex = contactStatement ? 1 : 0;
+  const updateIndex = eventIndex + 1;
+  if ((results[eventIndex]?.meta?.changes ?? 0) !== 1 || (results[updateIndex]?.meta?.changes ?? 0) !== 1) {
+    if (input.contact) {
+      const racedContact = await getMedicationFollowUpContactByKey(
+        db,
+        input.lineAccountId,
+        input.contact.idempotencyKey,
+      );
+      if (racedContact && !sameContactInput(racedContact, input.contact, nextContactAt, input.followUpId)) {
+        throw new Error('medication follow-up contact conflict');
+      }
+    }
     throw new Error('medication follow-up transition conflict');
   }
   const saved = await getFollowUp(db, input.lineAccountId, input.followUpId);
@@ -263,14 +839,158 @@ export async function transitionMedicationFollowUp(
   return saved;
 }
 
+export async function recordMedicationFollowUpContact(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    followUpId: string;
+    channel: MedicationFollowUpContactChannel;
+    outcomeCode: MedicationFollowUpContactOutcome;
+    nextContactAt?: string | null;
+    actorStaffId: string;
+    idempotencyKey: string;
+    expectedVersion?: number;
+    now?: Date;
+  },
+): Promise<MedicationFollowUpContactRecord> {
+  if (
+    !input.lineAccountId ||
+    !input.followUpId ||
+    !input.actorStaffId ||
+    !validOpaqueKey(input.idempotencyKey) ||
+    (input.expectedVersion !== undefined && !Number.isInteger(input.expectedVersion))
+  ) {
+    throw new Error('invalid medication follow-up contact');
+  }
+  const schema = await medicationFollowUpSchema(db);
+  if (!schema.contactRecords) throw new Error('follow-up closure unavailable');
+  const now = input.now ?? new Date();
+  const nextContactAt = normalizeContactInput(input);
+  const contactInput: MedicationFollowUpContactInput = {
+    channel: input.channel,
+    outcomeCode: input.outcomeCode,
+    nextContactAt: input.nextContactAt,
+    idempotencyKey: input.idempotencyKey,
+  };
+  const existing = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
+  if (existing) {
+    if (!sameContactInput(existing, contactInput, nextContactAt, input.followUpId)) {
+      throw new Error('medication follow-up contact conflict');
+    }
+    return existing;
+  }
+  requireFutureContactAt(nextContactAt, now);
+
+  const versionPredicate = input.expectedVersion === undefined ? '' : ' AND followup.version = ?';
+  const timestamp = now.toISOString();
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, 'followup.line_account_id');
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
+      (id, followup_id, line_account_id, channel, outcome_code, next_contact_at,
+       actor_staff_id, idempotency_key, occurred_at, created_at)
+     SELECT ?, followup.id, followup.line_account_id, ?, ?, ?, ?, ?, ?, ?
+       FROM pharmacy_medication_followups AS followup
+      WHERE followup.id = ? AND followup.line_account_id = ?
+        AND followup.status NOT IN ('closed', 'cancelled')
+        ${versionPredicate}
+        AND ${staffAuthorityPredicate}`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      input.channel,
+      input.outcomeCode,
+      nextContactAt,
+      input.actorStaffId,
+      input.idempotencyKey,
+      timestamp,
+      timestamp,
+      input.followUpId,
+      input.lineAccountId,
+      ...(input.expectedVersion === undefined ? [] : [input.expectedVersion]),
+      input.actorStaffId,
+    )
+    .run();
+  if ((result.meta?.changes ?? 0) !== 1) {
+    const raced = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
+    if (raced) {
+      if (!sameContactInput(raced, contactInput, nextContactAt, input.followUpId)) {
+        throw new Error('medication follow-up contact conflict');
+      }
+      return raced;
+    }
+    if (!(await getFollowUp(db, input.lineAccountId, input.followUpId))) {
+      throw new Error('medication follow-up not found');
+    }
+    throw new Error('medication follow-up contact conflict');
+  }
+  const saved = await getMedicationFollowUpContactByKey(db, input.lineAccountId, input.idempotencyKey);
+  if (!saved) throw new Error('medication follow-up contact conflict');
+  return saved;
+}
+
+export async function listMedicationFollowUpContacts(
+  db: D1Database,
+  lineAccountId: string,
+  followUpId: string,
+): Promise<MedicationFollowUpContactRecord[]> {
+  const schema = await medicationFollowUpSchema(db);
+  if (!schema.contactRecords) throw new Error('follow-up closure unavailable');
+  const result = await db
+    .prepare(
+      `SELECT id, followup_id, line_account_id, channel, outcome_code,
+            next_contact_at, actor_staff_id, idempotency_key, occurred_at, created_at
+       FROM pharmacy_medication_followup_contact_records
+      WHERE line_account_id = ? AND followup_id = ?
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT 100`,
+    )
+    .bind(lineAccountId, followUpId)
+    .all<MedicationFollowUpContactRecord>();
+  return result.results ?? [];
+}
+
+export async function listMedicationFollowUpAssignees(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<MedicationFollowUpAssignee[]> {
+  const humanStaffPredicate = await pharmacyHumanStaffPredicate(db, 'staff');
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT staff.id, staff.name, membership.role
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account
+               ON account.id = mapping.line_account_id AND account.is_active = 1
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       INNER JOIN tenant_staff_memberships AS membership
+               ON membership.tenant_id = mapping.tenant_id AND membership.is_active = 1
+       INNER JOIN staff_members AS staff
+              ON staff.id = membership.staff_id
+             AND staff.is_active = 1
+              AND ${humanStaffPredicate}
+       INNER JOIN pharmacy_staff_accounts AS assignment
+               ON assignment.line_account_id = mapping.line_account_id
+              AND assignment.staff_id = staff.id
+              AND assignment.is_active = 1
+      WHERE mapping.line_account_id = ?
+      ORDER BY staff.name COLLATE NOCASE, staff.id`,
+    )
+    .bind(lineAccountId)
+    .all<MedicationFollowUpAssignee>();
+  return result.results ?? [];
+}
+
 export function parseMedicationFollowUpPostback(
   data: string,
 ): { followUpId: string; response: MedicationFollowUpPatientResponse } | null {
   const match = RESPONSE_RE.exec(data);
-  return match ? {
-    followUpId: match[1].toLowerCase(),
-    response: match[2].toLowerCase() as MedicationFollowUpPatientResponse,
-  } : null;
+  return match
+    ? {
+        followUpId: match[1].toLowerCase(),
+        response: match[2].toLowerCase() as MedicationFollowUpPatientResponse,
+      }
+    : null;
 }
 
 export async function respondToMedicationFollowUp(
@@ -286,14 +1006,31 @@ export async function respondToMedicationFollowUp(
   },
 ): Promise<MedicationFollowUp> {
   if (!validOpaqueKey(input.idempotencyKey, 160)) throw new Error('follow-up response unavailable');
-  const row = await db.prepare(
-    `${SELECT} WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
-  ).bind(input.followUpId, input.lineAccountId, input.friendId).first<MedicationFollowUp>();
+  const now = input.now ?? new Date();
+  const schema = await medicationFollowUpSchema(db);
+  const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  const row = await db
+    .prepare(
+      `SELECT ${followUpFields(schema, 'followup')}
+       FROM pharmacy_medication_followups AS followup
+       INNER JOIN pharmacy_patients AS patient
+         ON patient.id = followup.patient_id
+        AND patient.line_account_id = followup.line_account_id
+        AND patient.owner_friend_id = followup.owner_friend_id
+      WHERE followup.id = ? AND followup.line_account_id = ? AND followup.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+        ${patientAuthorityPredicate}`,
+    )
+    .bind(input.followUpId, input.lineAccountId, input.friendId, input.friendId, now.toISOString())
+    .first<MedicationFollowUp>();
   if (!row) throw new Error('follow-up response unavailable');
-  const replay = await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_medication_followup_events
+  const replay = await db
+    .prepare(
+      `SELECT 1 AS ok FROM pharmacy_medication_followup_events
       WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.followUpId, input.lineAccountId, input.idempotencyKey).first<{ ok: number }>();
+    )
+    .bind(input.followUpId, input.lineAccountId, input.idempotencyKey)
+    .first<{ ok: number }>();
   if (replay) return row;
   if (input.expectedVersion !== undefined && row.version !== input.expectedVersion) {
     throw new Error('medication follow-up transition conflict');
@@ -307,7 +1044,7 @@ export async function respondToMedicationFollowUp(
     actorType: 'patient',
     actorId: input.friendId,
     idempotencyKey: input.idempotencyKey,
-    now: input.now,
+    now,
   });
 }
 
@@ -333,28 +1070,34 @@ export async function recordMedicationFollowUpPatientResponse(
   });
 }
 
-const PATIENT_SELECT = `
-  SELECT f.id, f.line_account_id, f.owner_friend_id, f.patient_id,
-         f.source_submission_id, f.status, f.due_at, f.delivered_at,
-         f.responded_at, f.assigned_to, f.closed_at, f.version,
-         f.created_by, f.created_at, f.updated_at, patient.name AS patient_name
+function patientFollowUpSelect(schema: MedicationFollowUpSchema): string {
+  return `
+  SELECT ${followUpFields(schema, 'f')}, patient.name AS patient_name
     FROM pharmacy_medication_followups f
     INNER JOIN pharmacy_patients patient
       ON patient.id = f.patient_id
      AND patient.line_account_id = f.line_account_id
      AND patient.owner_friend_id = f.owner_friend_id`;
+}
 
 export async function listOwnerMedicationFollowUps(
   db: D1Database,
   lineAccountId: string,
   friendId: string,
 ): Promise<PatientMedicationFollowUp[]> {
-  const result = await db.prepare(
-    `${PATIENT_SELECT}
+  const schema = await medicationFollowUpSchema(db);
+  const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  const result = await db
+    .prepare(
+      `${patientFollowUpSelect(schema)}
       WHERE f.line_account_id = ? AND f.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+      ${patientAuthorityPredicate}
       ORDER BY f.created_at DESC, f.id DESC
       LIMIT 20`,
-  ).bind(lineAccountId, friendId).all<PatientMedicationFollowUp>();
+    )
+    .bind(lineAccountId, friendId, friendId, new Date().toISOString())
+    .all<PatientMedicationFollowUp>();
   return result.results ?? [];
 }
 
@@ -370,10 +1113,17 @@ export async function getOwnerMedicationFollowUp(
   friendId: string,
   followUpId: string,
 ): Promise<PatientMedicationFollowUp | null> {
-  return db.prepare(
-    `${PATIENT_SELECT}
-      WHERE f.id = ? AND f.line_account_id = ? AND f.owner_friend_id = ?`,
-  ).bind(followUpId, lineAccountId, friendId).first<PatientMedicationFollowUp>();
+  const schema = await medicationFollowUpSchema(db);
+  const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  return db
+    .prepare(
+      `${patientFollowUpSelect(schema)}
+      WHERE f.id = ? AND f.line_account_id = ? AND f.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+      ${patientAuthorityPredicate}`,
+    )
+    .bind(followUpId, lineAccountId, friendId, friendId, new Date().toISOString())
+    .first<PatientMedicationFollowUp>();
 }
 
 export async function listPatientMedicationFollowUps(
@@ -381,10 +1131,14 @@ export async function listPatientMedicationFollowUps(
   lineAccountId: string,
   patientId: string,
 ): Promise<MedicationFollowUp[]> {
-  const result = await db.prepare(
-    `${SELECT} WHERE line_account_id = ? AND patient_id = ?
+  const schema = await medicationFollowUpSchema(db);
+  const result = await db
+    .prepare(
+      `${followUpSelect(schema)} WHERE line_account_id = ? AND patient_id = ?
       ORDER BY created_at DESC, id DESC`,
-  ).bind(lineAccountId, patientId).all<MedicationFollowUp>();
+    )
+    .bind(lineAccountId, patientId)
+    .all<MedicationFollowUp>();
   return result.results ?? [];
 }
 
@@ -394,13 +1148,12 @@ export async function listDueMedicationFollowUps(
   limit = 50,
 ): Promise<DueMedicationFollowUp[]> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
-  const result = await db.prepare(
-    `SELECT f.id, f.line_account_id, f.owner_friend_id, f.patient_id,
-            f.source_submission_id, f.status, f.due_at, f.delivered_at,
-            f.responded_at, f.assigned_to, f.closed_at, f.version,
-            f.created_by, f.created_at, f.updated_at,
+  const schema = await medicationFollowUpSchema(db);
+  const result = await db
+    .prepare(
+      `SELECT ${followUpFields(schema, 'f')},
             friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id,
-            account.liff_id
+            account.liff_id${schema.notificationQueue ? ', f.notification_checked_at' : ''}
        FROM pharmacy_medication_followups f
        INNER JOIN friends friend
          ON friend.id = f.owner_friend_id AND friend.line_account_id = f.line_account_id
@@ -417,8 +1170,329 @@ export async function listDueMedicationFollowUps(
         )
       WHERE f.status IN ('scheduled','due') AND f.due_at <= ?
         AND friend.is_following = 1 AND account.is_active = 1
-      ORDER BY f.due_at, f.id
+      ORDER BY ${schema.notificationQueue ? 'COALESCE(f.notification_checked_at, f.due_at), ' : ''}f.due_at, f.id
       LIMIT ?`,
-  ).bind(now.toISOString(), boundedLimit).all<DueMedicationFollowUp>();
+    )
+    .bind(now.toISOString(), boundedLimit)
+    .all<DueMedicationFollowUp>();
   return result.results ?? [];
+}
+
+/** Rotate every inspected item, including paused/failed sends, without changing clinical state. */
+export async function markMedicationFollowUpNotificationChecked(
+  db: D1Database,
+  row: DueMedicationFollowUp,
+  now: Date,
+): Promise<boolean> {
+  // Old schemas retain their existing query and delivery contract during rollout.
+  if (!('notification_checked_at' in row)) return true;
+  const timestamp = now.toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_medication_followups
+        SET notification_checked_at = CASE
+          WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
+          ELSE notification_checked_at END
+      WHERE id = ? AND line_account_id = ? AND version = ?
+        AND status IN ('scheduled','due')
+        AND EXISTS (
+          SELECT 1 FROM tenant_line_accounts AS mapping
+          INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+          INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
+          WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_medication_followups.line_account_id
+        )`,
+    )
+    .bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care';
+
+export interface MedicationFollowUpOperationsOutlook {
+  serviceHoursText: string;
+  responseEstimateMinutes: number | null;
+  afterHoursMessageCode: FollowUpOperationsMessageCode;
+  emergencyMessageCode: FollowUpOperationsMessageCode;
+}
+
+// response_sla_json has no defined shape; only a bounded minute estimate is
+// patient-facing. Anything else in the JSON stays internal.
+const SLA_MINUTE_KEYS = new Set(['typical_minutes', 'sla_minutes', 'response_minutes', 'minutes', 'typical']);
+
+function patientSafeSlaMinutes(raw: string): number | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (
+        SLA_MINUTE_KEYS.has(key) &&
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value > 0 &&
+        value <= 10080
+      ) {
+        return value;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read-only patient projection of the tenant's follow-up operations config.
+ * Whitelisted fields only — staff ids and the raw SLA JSON stay internal.
+ * Returns null when operations are disabled or the table is unavailable.
+ */
+export async function getMedicationFollowUpOperationsOutlook(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<MedicationFollowUpOperationsOutlook | null> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT service_hours_text, response_sla_json, after_hours_message_code, emergency_message_code
+         FROM pharmacy_medication_followup_operations
+        WHERE line_account_id = ? AND enabled = 1
+        LIMIT 1`,
+      )
+      .bind(lineAccountId)
+      .first<{
+        service_hours_text: string;
+        response_sla_json: string;
+        after_hours_message_code: FollowUpOperationsMessageCode;
+        emergency_message_code: FollowUpOperationsMessageCode;
+      }>();
+    if (!row) return null;
+    return {
+      serviceHoursText: row.service_hours_text,
+      responseEstimateMinutes: patientSafeSlaMinutes(row.response_sla_json),
+      afterHoursMessageCode: row.after_hours_message_code,
+      emergencyMessageCode: row.emergency_message_code,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface MedicationFollowUpOperations {
+  line_account_id: string;
+  service_hours_text: string;
+  response_sla_json: string;
+  primary_staff_id: string;
+  backup_staff_id: string | null;
+  after_hours_message_code: FollowUpOperationsMessageCode;
+  emergency_message_code: FollowUpOperationsMessageCode;
+  enabled: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Per-status SLA minute keys plus the patient-facing typical estimate.
+// Values are whole minutes in 1..10080 (7 days).
+export const FOLLOWUP_OPERATIONS_SLA_KEYS = new Set([
+  'typical_minutes',
+  'concern_minutes',
+  'pharmacist_requested_minutes',
+  'assigned_minutes',
+  'escalated_minutes',
+  'responded_minutes',
+]);
+
+const FOLLOWUP_OPERATIONS_MESSAGE_CODES = new Set<FollowUpOperationsMessageCode>([
+  'contact_pharmacy_during_hours',
+  'seek_urgent_care',
+]);
+
+async function requireFollowUpOperationsTable(db: D1Database): Promise<void> {
+  let columns: Set<string>;
+  try {
+    columns = await tableColumns(db, 'pharmacy_medication_followup_operations');
+  } catch {
+    throw new Error('follow-up operations schema unavailable');
+  }
+  if (!columns.has('line_account_id') || !columns.has('version')) {
+    throw new Error('follow-up operations schema unavailable');
+  }
+}
+
+export async function getMedicationFollowUpOperations(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<MedicationFollowUpOperations | null> {
+  await requireFollowUpOperationsTable(db);
+  return db
+    .prepare(
+      `SELECT line_account_id, service_hours_text, response_sla_json,
+            primary_staff_id, backup_staff_id, after_hours_message_code,
+            emergency_message_code, enabled, version, created_at, updated_at
+       FROM pharmacy_medication_followup_operations
+      WHERE line_account_id = ?
+      LIMIT 1`,
+    )
+    .bind(lineAccountId)
+    .first<MedicationFollowUpOperations>();
+}
+
+function normalizeOperationsSla(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('invalid follow-up operations');
+  }
+  const normalized: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (
+      !FOLLOWUP_OPERATIONS_SLA_KEYS.has(key) ||
+      typeof raw !== 'number' ||
+      !Number.isInteger(raw) ||
+      raw < 1 ||
+      raw > 10080
+    ) {
+      throw new Error('invalid follow-up operations');
+    }
+    normalized[key] = raw;
+  }
+  const json = JSON.stringify(normalized);
+  if (json.length > 4096) throw new Error('invalid follow-up operations');
+  return json;
+}
+
+export async function saveMedicationFollowUpOperations(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    serviceHoursText: string;
+    responseSla: unknown;
+    primaryStaffId: string;
+    backupStaffId?: string | null;
+    afterHoursMessageCode: string;
+    emergencyMessageCode: string;
+    enabled: boolean;
+    expectedVersion: number;
+    actorStaffId: string;
+    now?: Date;
+  },
+): Promise<MedicationFollowUpOperations> {
+  const serviceHoursText = typeof input.serviceHoursText === 'string' ? input.serviceHoursText.trim() : '';
+  const backupStaffId = input.backupStaffId ?? null;
+  if (
+    !input.lineAccountId ||
+    serviceHoursText.length < 1 ||
+    serviceHoursText.length > 2048 ||
+    !Number.isInteger(input.expectedVersion) ||
+    input.expectedVersion < 0 ||
+    !validStaffId(input.actorStaffId) ||
+    !validStaffId(input.primaryStaffId) ||
+    (backupStaffId !== null && (!validStaffId(backupStaffId) || backupStaffId === input.primaryStaffId)) ||
+    !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(input.afterHoursMessageCode as FollowUpOperationsMessageCode) ||
+    !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(input.emergencyMessageCode as FollowUpOperationsMessageCode) ||
+    typeof input.enabled !== 'boolean'
+  ) {
+    throw new Error('invalid follow-up operations');
+  }
+  // serviceHoursText is shown verbatim to patients, so the same PHI-free
+  // fence that guards automated message text applies here.
+  try {
+    assertPharmacyAutomatedText(serviceHoursText);
+  } catch {
+    throw new Error('invalid follow-up operations');
+  }
+  const responseSlaJson = normalizeOperationsSla(input.responseSla);
+  // The patient outlook surfaces a typical estimate, so enabling operations
+  // without one would publish an incomplete read model.
+  if (input.enabled && typeof (input.responseSla as Record<string, unknown>).typical_minutes !== 'number') {
+    throw new Error('invalid follow-up operations');
+  }
+  await requireFollowUpOperationsTable(db);
+  const current = await getMedicationFollowUpOperations(db, input.lineAccountId);
+  if ((current?.version ?? 0) !== input.expectedVersion) {
+    throw new Error('follow-up operations conflict');
+  }
+  const nextVersion = input.expectedVersion + 1;
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const write = current
+    ? db
+        .prepare(
+          `UPDATE pharmacy_medication_followup_operations
+          SET service_hours_text = ?, response_sla_json = ?,
+              primary_staff_id = ?, backup_staff_id = ?,
+              after_hours_message_code = ?, emergency_message_code = ?,
+              enabled = ?, version = version + 1, updated_at = ?
+        WHERE line_account_id = ? AND version = ?`,
+        )
+        .bind(
+          serviceHoursText,
+          responseSlaJson,
+          input.primaryStaffId,
+          backupStaffId,
+          input.afterHoursMessageCode,
+          input.emergencyMessageCode,
+          input.enabled ? 1 : 0,
+          timestamp,
+          input.lineAccountId,
+          input.expectedVersion,
+        )
+    : db
+        .prepare(
+          `INSERT INTO pharmacy_medication_followup_operations
+        (line_account_id, service_hours_text, response_sla_json,
+         primary_staff_id, backup_staff_id, after_hours_message_code,
+         emergency_message_code, enabled, version, created_at, updated_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pharmacy_medication_followup_operations
+           WHERE line_account_id = ?
+        )`,
+        )
+        .bind(
+          input.lineAccountId,
+          serviceHoursText,
+          responseSlaJson,
+          input.primaryStaffId,
+          backupStaffId,
+          input.afterHoursMessageCode,
+          input.emergencyMessageCode,
+          input.enabled ? 1 : 0,
+          timestamp,
+          timestamp,
+          input.lineAccountId,
+        );
+  const audit = tenantAuditStatement(
+    db,
+    {
+      lineAccountId: input.lineAccountId,
+      actorStaffId: input.actorStaffId,
+      action: 'pharmacy_followup_operations_saved',
+      resourceType: 'medication_followup_operations',
+      resourceId: input.lineAccountId,
+      detail: { enabled: input.enabled, created: current === null },
+    },
+    {
+      sql: `EXISTS (
+      SELECT 1 FROM pharmacy_medication_followup_operations
+       WHERE line_account_id = ? AND version = ? AND updated_at = ?
+    )`,
+      bindings: [input.lineAccountId, nextVersion, timestamp],
+    },
+  );
+  let results: D1Result[];
+  try {
+    results = await db.batch([write, audit]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/STAFF_SCOPE_MISMATCH|ENABLED_STAFF_INVALID/.test(message)) {
+      throw new Error('invalid follow-up operations staff');
+    }
+    throw error;
+  }
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
+    throw new Error('follow-up operations conflict');
+  }
+  const saved = await getMedicationFollowUpOperations(db, input.lineAccountId);
+  if (!saved || saved.version !== nextVersion) {
+    throw new Error('follow-up operations conflict');
+  }
+  return saved;
 }

@@ -12,18 +12,10 @@ import {
   jstNow,
 } from '@line-crm/db';
 import type { Friend, LineAccount } from '@line-crm/db';
-import {
-  authenticateApiToken,
-  resolveAuthenticatedTenant,
-  TENANT_HEADER,
-} from '../../middleware/auth.js';
+import { authenticateApiToken, resolveAuthenticatedTenant, TENANT_HEADER } from '../../middleware/auth.js';
 import type { AuthenticatedStaff } from '../../middleware/auth.js';
 import { messageToLogPayload } from '../../services/step-delivery.js';
-import {
-  createBroadcastRetryKey,
-  createLineRetryKey,
-  isLineRetryKey,
-} from '../../services/broadcast-retry-key.js';
+import { createBroadcastRetryKey, createLineRetryKey, isLineRetryKey } from '../../services/broadcast-retry-key.js';
 import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 import type { Env } from '../../index.js';
 import {
@@ -99,8 +91,7 @@ const STATEMENTS_PER_BATCH = 25;
 const LOOKUP_CHUNK = 90;
 
 const AUTH_FAILED = {
-  message:
-    'Authentication failed. Confirm that the access token in the authorization header is valid.',
+  message: 'Authentication failed. Confirm that the access token in the authorization header is valid.',
 };
 
 // push/multicast の宛先のうち friend として記録できるのは実ユーザーのみ。
@@ -151,16 +142,13 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
   // harness API キー経路 — worker 側でチャネルトークンを解決する。
   const staff = await authenticateApiToken(c, token);
   if (staff) {
-    const identity = await resolveAuthenticatedTenant(
-      c.env.DB,
-      staff,
-      c.req.header(TENANT_HEADER),
-    );
+    const identity = await resolveAuthenticatedTenant(c.env.DB, staff, c.req.header(TENANT_HEADER));
     if (!identity) {
       return c.json({ message: 'Tenant access denied' }, 403);
     }
-    const tenantAccounts = (await getLineAccountsForTenant(c.env.DB, identity.tenant.id))
-      .filter((account) => account.is_active);
+    const tenantAccounts = (await getLineAccountsForTenant(c.env.DB, identity.tenant.id)).filter(
+      (account) => account.is_active,
+    );
 
     const requestedId = c.req.header('X-Line-Account-Id');
     let account: LineAccount | undefined;
@@ -172,15 +160,14 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
     } else if (tenantAccounts.length === 1) {
       account = tenantAccounts[0];
     } else if (tenantAccounts.length > 1) {
-      return c.json(
-        { message: 'Multiple LINE accounts registered — set the X-Line-Account-Id header' },
-        400,
-      );
+      return c.json({ message: 'Multiple LINE accounts registered — set the X-Line-Account-Id header' }, 400);
     }
 
     if (account) {
-      if (await isPharmacyModeAccount(c.env.DB, account.id) &&
-          !(await canAccessPharmacyAccount(c.env.DB, staff, account.id))) {
+      if (
+        (await isPharmacyModeAccount(c.env.DB, account.id)) &&
+        !(await canAccessPharmacyAccount(c.env.DB, staff, account.id))
+      ) {
         return c.json({ message: 'Pharmacy account access denied' }, 403);
       }
       const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
@@ -222,7 +209,9 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
              INNER JOIN line_accounts AS account
                      ON account.id = mapping.line_account_id AND account.is_active = 1
             WHERE mapping.tenant_id = ?`,
-        ).bind(credential.tenantId).first<{ count: number }>();
+        )
+          .bind(credential.tenantId)
+          .first<{ count: number }>();
         if (!count || !Number.isSafeInteger(count.count) || count.count < 1) {
           return c.json(AUTH_FAILED, 401);
         }
@@ -248,9 +237,9 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       if (await hasPharmacyModeAccount(c.env.DB)) {
         return c.json({ message: 'Account scope required in a pharmacy installation' }, 403);
       }
-      const count = await c.env.DB.prepare(
-        'SELECT COUNT(*) AS count FROM line_accounts WHERE is_active = 1',
-      ).first<{ count: number }>();
+      const count = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM line_accounts WHERE is_active = 1').first<{
+        count: number;
+      }>();
       if (!count || !Number.isSafeInteger(count.count) || count.count < 0) {
         return c.json(AUTH_FAILED, 401);
       }
@@ -277,7 +266,7 @@ async function rejectUnsafePharmacySend(
 ): Promise<PharmacySendAuthorization> {
   const lineAccountId = caller.lineAccountId;
   if (!lineAccountId) {
-    return await hasPharmacyModeAccount(c.env.DB)
+    return (await hasPharmacyModeAccount(c.env.DB))
       ? c.json({ message: 'Account scope required in a pharmacy installation' }, 403)
       : null;
   }
@@ -285,9 +274,7 @@ async function rejectUnsafePharmacySend(
     return null;
   }
   if (source === 'manual') {
-    return caller.staff
-      ? null
-      : c.json({ message: 'Manual pharmacy send requires assigned staff' }, 403);
+    return caller.staff ? null : c.json({ message: 'Manual pharmacy send requires assigned staff' }, 403);
   }
   if (path !== '/v2/bot/message/push' || !rawBody) {
     return c.json({ message: 'Generic automated send is disabled for pharmacy accounts' }, 403);
@@ -309,19 +296,24 @@ async function rejectUnsafePharmacySend(
        INNER JOIN friends f
          ON f.id = e.friend_id AND f.line_account_id = e.line_account_id
       WHERE e.id = ? AND e.line_account_id = ? AND e.outcome = 'attempted'`,
-  ).bind(eventId, lineAccountId).first<{
-    message_id: string;
-    idempotency_key: string;
-    line_user_id: string;
-  }>();
-  if (!event || parsed.to !== event.line_user_id || messages.length !== 1 ||
-      !isApprovedRenderedPharmacyMessage(event.message_id, messages[0])) {
+  )
+    .bind(eventId, lineAccountId)
+    .first<{
+      message_id: string;
+      idempotency_key: string;
+      line_user_id: string;
+    }>();
+  if (
+    !event ||
+    parsed.to !== event.line_user_id ||
+    messages.length !== 1 ||
+    !isApprovedRenderedPharmacyMessage(event.message_id, messages[0])
+  ) {
     return c.json({ message: 'Pharmacy notification payload rejected' }, 403);
   }
   const expectedRetryKey = await createLineRetryKey(event.idempotency_key);
   const suppliedRetryKey = c.req.header('X-Line-Retry-Key');
-  if (suppliedRetryKey && isLineRetryKey(suppliedRetryKey) &&
-      suppliedRetryKey.toLowerCase() !== expectedRetryKey) {
+  if (suppliedRetryKey && isLineRetryKey(suppliedRetryKey) && suppliedRetryKey.toLowerCase() !== expectedRetryKey) {
     return c.json({ message: 'Pharmacy notification retry key rejected' }, 403);
   }
   return { retryKey: expectedRetryKey };
@@ -387,19 +379,13 @@ async function createFriendForRecipient(
 }
 
 /** Multi-row INSERT keeps large broadcasts within the D1 subrequest budget. */
-async function insertLogRows(
-  db: D1Database,
-  rows: LogRow[],
-  source: ProxyLogSource,
-): Promise<void> {
+async function insertLogRows(db: D1Database, rows: LogRow[], source: ProxyLogSource): Promise<void> {
   if (rows.length === 0) return;
   const now = jstNow();
   const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
     const chunk = rows.slice(i, i + ROWS_PER_INSERT);
-    const values = chunk
-      .map(() => `(?, ?, 'outgoing', ?, ?, NULL, NULL, ?, ?, ?, ?)`)
-      .join(', ');
+    const values = chunk.map(() => `(?, ?, 'outgoing', ?, ?, NULL, NULL, ?, ?, ?, ?)`).join(', ');
     const params = chunk.flatMap((row) => [
       crypto.randomUUID(),
       row.friendId,
@@ -474,9 +460,7 @@ async function logProxySend(
 
     if (path === '/v2/bot/message/multicast' && Array.isArray(parsed.to)) {
       const userIds = [
-        ...new Set(
-          parsed.to.filter((t): t is string => typeof t === 'string' && LINE_USER_ID_RE.test(t)),
-        ),
+        ...new Set(parsed.to.filter((t): t is string => typeof t === 'string' && LINE_USER_ID_RE.test(t))),
       ];
       const known = await getFriendsByLineUserIds(db, userIds, lineAccountId);
       const rows: LogRow[] = [];
@@ -512,16 +496,12 @@ async function logProxySend(
         // Single active account: legacy rows may carry NULL account_id, but
         // rows pinned to a deactivated account are not this channel's followers.
         const result = await db
-          .prepare(
-            'SELECT id FROM friends WHERE is_following = 1 AND (line_account_id = ? OR line_account_id IS NULL)',
-          )
+          .prepare('SELECT id FROM friends WHERE is_following = 1 AND (line_account_id = ? OR line_account_id IS NULL)')
           .bind(lineAccountId)
           .all<{ id: string }>();
         friendIds = (result.results ?? []).map((r) => r.id);
       } else if (caller.accountCount <= 1) {
-        const result = await db
-          .prepare('SELECT id FROM friends WHERE is_following = 1')
-          .all<{ id: string }>();
+        const result = await db.prepare('SELECT id FROM friends WHERE is_following = 1').all<{ id: string }>();
         friendIds = (result.results ?? []).map((r) => r.id);
       } else if (lineAccountId) {
         const result = await db
@@ -545,9 +525,7 @@ async function logProxySend(
     }
 
     if (path === '/v2/bot/message/reply' || path === '/v2/bot/message/narrowcast') {
-      console.warn(
-        `[line-proxy] ${path} forwarded but not logged (recipient cannot be resolved)`,
-      );
+      console.warn(`[line-proxy] ${path} forwarded but not logged (recipient cannot be resolved)`);
     }
   } catch {
     log('line_proxy_send_log_failed', {}, 'error');
@@ -591,10 +569,7 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
         return c.json({ message: 'X-Line-Harness-Source must be manual' }, 400);
       }
       if (path !== '/v2/bot/message/push') {
-        return c.json(
-          { message: 'X-Line-Harness-Source: manual is only supported for push messages' },
-          400,
-        );
+        return c.json({ message: 'X-Line-Harness-Source: manual is only supported for push messages' }, 400);
       }
       logSource = 'manual';
     }
@@ -629,10 +604,10 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
       if (pharmacySendAuthorization instanceof Response) return pharmacySendAuthorization;
     }
 
-    const approvedPharmacyRetryKey = pharmacySendAuthorization &&
-      !(pharmacySendAuthorization instanceof Response)
-      ? pharmacySendAuthorization.retryKey
-      : null;
+    const approvedPharmacyRetryKey =
+      pharmacySendAuthorization && !(pharmacySendAuthorization instanceof Response)
+        ? pharmacySendAuthorization.retryKey
+        : null;
     const trackedPharmacyAutomated = approvedPharmacyRetryKey !== null;
 
     const headers: Record<string, string> = {
@@ -646,9 +621,7 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
     if (trackedPush && (!suppliedRetryKey || !isLineRetryKey(suppliedRetryKey))) {
       return c.json({ message: 'X-Line-Retry-Key must be a UUID for tracked pushes' }, 400);
     }
-    const retryKey = trackedPharmacyAutomated
-      ? approvedPharmacyRetryKey
-      : suppliedRetryKey;
+    const retryKey = trackedPharmacyAutomated ? approvedPharmacyRetryKey : suppliedRetryKey;
 
     const upstreamState: { response: Response | null } = { response: null };
     let acceptedRetry = false;
@@ -664,19 +637,18 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
         return c.json({ message: 'Invalid message payload' }, 400);
       }
       const messages = asMessages(parsed.messages);
-      if (!LINE_USER_ID_RE.test(String(parsed.to ?? '')) ||
-          !Array.isArray(parsed.messages) || parsed.messages.length !== 1 || messages.length !== 1) {
+      if (
+        !LINE_USER_ID_RE.test(String(parsed.to ?? '')) ||
+        !Array.isArray(parsed.messages) ||
+        parsed.messages.length !== 1 ||
+        messages.length !== 1
+      ) {
         return c.json({ message: 'Tracked push requires one user and one message' }, 400);
       }
       const to = parsed.to as string;
       const friend =
         (await getFriendByLineUserIdForAccount(c.env.DB, to, lineAccountId)) ??
-        (await createFriendForRecipient(
-          c.env.DB,
-          new LineClient(caller.upstreamToken),
-          to,
-          lineAccountId,
-        ));
+        (await createFriendForRecipient(c.env.DB, new LineClient(caller.upstreamToken), to, lineAccountId));
       if (!friend) return c.json({ message: 'Friend not found' }, 404);
 
       const logPayload = messageToLogPayload(messages[0]);
@@ -759,12 +731,7 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
     }
 
     const responseHeaders = new Headers();
-    for (const name of [
-      'content-type',
-      'x-line-request-id',
-      'x-line-accepted-request-id',
-      'retry-after',
-    ]) {
+    for (const name of ['content-type', 'x-line-request-id', 'x-line-accepted-request-id', 'retry-after']) {
       const value = upstream.headers.get(name);
       if (value) responseHeaders.set(name, value);
     }

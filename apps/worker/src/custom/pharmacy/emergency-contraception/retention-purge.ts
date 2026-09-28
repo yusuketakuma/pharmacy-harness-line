@@ -37,6 +37,8 @@
 // is gone, and age_band's CHECK constraint has no "redacted" member to move to.
 
 import { UTC_TIMESTAMP_GLOB } from '../prescriptions/retention-purge.js';
+// D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
+const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 
 export interface EmergencyRetentionPurgeOptions {
   now?: Date;
@@ -56,11 +58,37 @@ interface PurgeCandidateRow {
 }
 
 const PURGE_BATCH_LIMIT = 100;
+// Bind date/time GLOB parts. Validate whole seconds separately so valid legacy
+// fractional precision is preserved without SQLite rounding into the next second.
+const VALID_CREATED_AT = `COALESCE((
+  substr(intake.created_at, 1, 10) GLOB ?
+  AND substr(intake.created_at, 11) GLOB ?
+  AND strftime('%Y-%m-%dT%H:%M:%SZ', substr(intake.created_at, 1, 19) || 'Z', '+0 seconds')
+    = substr(intake.created_at, 1, 19) || 'Z'
+  AND (
+    length(intake.created_at) = 20
+    OR (length(intake.created_at) > 21
+      AND substr(intake.created_at, 20, 1) = '.'
+      AND substr(intake.created_at, 21, length(intake.created_at) - 21) NOT GLOB '*[^0-9]*')
+  )
+), 0)`;
+
+// Only use after VALID_CREATED_AT. Removing trailing fraction zeros makes equal
+// instants equal while preserving arbitrarily precise decimal ordering.
+const CREATED_AT_ORDER_KEY = `(substr(intake.created_at, 1, 19) || '.' || rtrim(
+  CASE WHEN length(intake.created_at) = 20 THEN ''
+    ELSE substr(intake.created_at, 21, length(intake.created_at) - 21) END, '0'))`;
+
 const ACTIVE_LEGAL_HOLD = `
   dsr.line_account_id = intake.line_account_id
   AND dsr.owner_friend_id = intake.owner_friend_id
   AND dsr.legal_hold = 1
-  AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)`;
+  AND NOT COALESCE((
+    length(dsr.legal_hold_release_at) = 24
+    AND strftime('%Y-%m-%dT%H:%M:%fZ', dsr.legal_hold_release_at, '+0 seconds')
+      = dsr.legal_hold_release_at
+    AND dsr.legal_hold_release_at <= ?
+  ), 0)`;
 
 /** Calendar-correct so leap days do not shift the boundary. */
 function retentionCutoff(now: Date, days: number): string {
@@ -82,9 +110,9 @@ export async function purgeEmergencyIntakesPastRetention(
   const nowIso = now.toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? PURGE_BATCH_LIMIT)));
 
-  const accounts = await db.prepare(
-    `SELECT line_account_id, retention_days FROM pharmacy_emergency_settings`,
-  ).all<AccountRetentionSetting>();
+  const accounts = await db
+    .prepare(`SELECT line_account_id, retention_days FROM pharmacy_emergency_settings`)
+    .all<AccountRetentionSetting>();
 
   const result = { purged: 0, failed: 0, skippedFormat: 0, skippedLegalHold: 0 };
 
@@ -93,67 +121,109 @@ export async function purgeEmergencyIntakesPastRetention(
   for (const account of accounts.results ?? []) {
     try {
       const cutoff = retentionCutoff(now, account.retention_days);
+      const cutoffOrderKey = cutoff.slice(0, -1).replace(/0+$/u, '');
 
-      const formatSkipped = await db.prepare(
-        `SELECT COUNT(*) AS n
+      const formatSkipped = await db
+        .prepare(
+          `SELECT COUNT(*) AS n
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND intake.created_at NOT GLOB ?
+            AND NOT (${VALID_CREATED_AT})
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
                  AND purged.resource_id = intake.id
             )`,
-      ).bind(account.line_account_id, UTC_TIMESTAMP_GLOB).first<{ n: number }>();
+        )
+        .bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB)
+        .first<{ n: number }>();
       result.skippedFormat += formatSkipped?.n ?? 0;
 
-      const due = await db.prepare(
-        `SELECT intake.id AS id, intake.created_at AS created_at,
+      const due = await db
+        .prepare(
+          `SELECT intake.id AS id, intake.created_at AS created_at,
                 EXISTS (
                   SELECT 1 FROM pharmacy_data_subject_requests dsr
                    WHERE ${ACTIVE_LEGAL_HOLD}
                 ) AS on_legal_hold
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND intake.created_at GLOB ?
-            AND intake.created_at < ?
+            AND ${VALID_CREATED_AT}
+            AND ${CREATED_AT_ORDER_KEY} < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
                  AND purged.resource_id = intake.id
             )
-          ORDER BY intake.created_at, intake.id
+          ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
           LIMIT ?`,
-      ).bind(nowIso, account.line_account_id, UTC_TIMESTAMP_GLOB, cutoff, limit)
+        )
+        .bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, limit)
         .all<PurgeCandidateRow>();
 
       const rows = due.results ?? [];
-      const toPurge = rows.filter((row) => !row.on_legal_hold);
-      result.skippedLegalHold += rows.length - toPurge.length;
+      // Keep the existing metric: held rows in the original limited window.
+      result.skippedLegalHold += rows.filter((row) => row.on_legal_hold).length;
+
+      // Exclude holds before limiting candidates so an old held window cannot
+      // prevent later, unheld intakes from reaching their retention deadline.
+      const eligible = await db
+        .prepare(
+          `SELECT intake.id AS id
+           FROM pharmacy_emergency_intakes intake
+          WHERE intake.line_account_id = ?
+            AND ${VALID_CREATED_AT}
+            AND ${CREATED_AT_ORDER_KEY} < ?
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+               WHERE purged.resource_type = 'emergency_intake'
+                 AND purged.resource_id = intake.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_data_subject_requests dsr
+               WHERE ${ACTIVE_LEGAL_HOLD}
+            )
+          ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
+          LIMIT ?`,
+        )
+        .bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso, limit)
+        .all<Pick<PurgeCandidateRow, 'id'>>();
+      const toPurge = eligible.results ?? [];
       if (toPurge.length === 0) continue;
 
       const statements = toPurge.flatMap((row) => [
         // Marker-first is safe because D1 batch is atomic. Rechecking the hold
         // here closes the gap between candidate selection and redaction.
-        db.prepare(
-          `INSERT OR IGNORE INTO pharmacy_emergency_retention_purge_log
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_emergency_retention_purge_log
              (id, line_account_id, resource_type, resource_id, age_reference_at,
               retention_days, purged_at)
            SELECT ?, intake.line_account_id, 'emergency_intake', intake.id,
                   intake.created_at, ?, ?
              FROM pharmacy_emergency_intakes AS intake
             WHERE intake.id = ? AND intake.line_account_id = ?
+              AND ${VALID_CREATED_AT} AND ${CREATED_AT_ORDER_KEY} < ?
               AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
               AND NOT EXISTS (
                 SELECT 1 FROM pharmacy_data_subject_requests dsr
                  WHERE ${ACTIVE_LEGAL_HOLD}
               )`,
-        ).bind(
-          crypto.randomUUID(), account.retention_days, nowIso,
-          row.id, account.line_account_id, nowIso,
-        ),
-        db.prepare(
-          `UPDATE pharmacy_emergency_intakes
+          )
+          .bind(
+            crypto.randomUUID(),
+            account.retention_days,
+            nowIso,
+            row.id,
+            account.line_account_id,
+            UTC_DATE_GLOB,
+            UTC_TIME_GLOB,
+            cutoffOrderKey,
+            nowIso,
+          ),
+        db
+          .prepare(
+            `UPDATE pharmacy_emergency_intakes
               SET encrypted_payload = '', risk_flags_json = '[]', updated_at = ?
             WHERE id = ? AND line_account_id = ?
               AND (encrypted_payload <> '' OR risk_flags_json <> '[]')
@@ -163,11 +233,12 @@ export async function purgeEmergencyIntakesPastRetention(
                    AND purged.line_account_id = pharmacy_emergency_intakes.line_account_id
                    AND purged.resource_id = pharmacy_emergency_intakes.id
               )`,
-        ).bind(nowIso, row.id, account.line_account_id),
+          )
+          .bind(nowIso, row.id, account.line_account_id),
       ]);
       const batchResults = await db.batch(statements);
       result.purged += batchResults.reduce(
-        (count, item, index) => count + (index % 2 === 1 ? item.meta?.changes ?? 0 : 0),
+        (count, item, index) => count + (index % 2 === 1 ? (item.meta?.changes ?? 0) : 0),
         0,
       );
     } catch {

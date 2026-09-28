@@ -1,9 +1,9 @@
-'use client'
-import { roleLabel, tenantStatusLabel } from '@/lib/platform-admin-labels'
-import { readinessStatusLabel } from '@/custom/pharmacy/growth-loop/FeatureSettingsPage'
-import { Suspense, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+'use client';
+import { roleLabel, tenantStatusLabel } from '@/lib/platform-admin-labels';
+import { readinessStatusLabel } from '@/custom/pharmacy/growth-loop/FeatureSettingsPage';
+import { Suspense, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   platformAdminApi,
   platformAdminErrorMessage,
@@ -12,13 +12,13 @@ import {
   type PlatformStaffMember,
   type PlatformTenantDetail,
   type PlatformTenantHealth,
-} from '@/lib/platform-admin-api'
-import { SupportModeStartForm } from '@/components/platform-admin/support-mode'
+} from '@/lib/platform-admin-api';
+import { SupportModeStartForm } from '@/components/platform-admin/support-mode';
 
 function ReasonCodes({ reasonCodes }: { reasonCodes: readonly string[] }) {
-  return reasonCodes.length > 0
-    ? <span className="mt-1 block font-mono text-[11px] text-gray-500">{reasonCodes.join(', ')}</span>
-    : null
+  return reasonCodes.length > 0 ? (
+    <span className="mt-1 block font-mono text-[11px] text-gray-500">{reasonCodes.join(', ')}</span>
+  ) : null;
 }
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
@@ -27,44 +27,66 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="mb-3 font-semibold">{title}</h2>
       {children}
     </section>
-  )
+  );
 }
 
-const ymd = (value: string | null) => value
-  ? new Intl.DateTimeFormat('ja-JP', {
-      dateStyle: 'short',
-      timeStyle: 'medium',
-      timeZone: 'Asia/Tokyo',
-    }).format(new Date(value))
-  : '—'
+const ymd = (value: string | null) =>
+  value
+    ? new Intl.DateTimeFormat('ja-JP', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'Asia/Tokyo',
+      }).format(new Date(value))
+    : '—';
 
 /** GET /tenants/:id/health — 稼働状況のスナップショット。 */
 function HealthPanel({ tenantId }: { tenantId: string }) {
-  const [health, setHealth] = useState<PlatformTenantHealth | null>(null)
-  const [error, setError] = useState('')
+  const [health, setHealth] = useState<PlatformTenantHealth | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    platformAdminApi.tenantHealth(tenantId)
+    platformAdminApi
+      .tenantHealth(tenantId)
       .then((res) => setHealth(res.data))
-      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
-  }, [tenantId])
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)));
+  }, [tenantId]);
 
   return (
     <Panel title="ヘルス">
-      {error && <p role="alert" className="text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          <strong>UNVERIFIED</strong> — {error}
+        </p>
+      )}
       {!health && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {health && (
         <div className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
-            <div><dt className="text-gray-500">Webhook成功(24h)</dt><dd>{health.webhook24h.success}</dd></div>
+            <div>
+              <dt className="text-gray-500">Webhook成功(24h)</dt>
+              <dd>{health.webhook24h.success}</dd>
+            </div>
             <div>
               <dt className="text-gray-500">Webhook失敗(24h)</dt>
               <dd>{health.webhook24h.failed}</dd>
-              {health.webhook24h.failed > 0 && <Link href="/platform-admin/logs" className="text-xs text-purple-800 underline">Webhookログを確認</Link>}
+              {health.webhook24h.failed > 0 && (
+                <Link href="/platform-admin/logs" className="text-xs text-purple-800 underline">
+                  Webhookログを確認
+                </Link>
+              )}
             </div>
-            <div><dt className="text-gray-500">有効スタッフ数</dt><dd>{health.activeStaffCount}</dd></div>
-            <div><dt className="text-gray-500">有効セッション数</dt><dd>{health.activeSessionCount}</dd></div>
-            <div className="col-span-2"><dt className="text-gray-500">最終管理者ログイン</dt><dd>{ymd(health.lastAdminLoginAt)}</dd></div>
+            <div>
+              <dt className="text-gray-500">有効スタッフ数</dt>
+              <dd>{health.activeStaffCount}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">有効セッション数</dt>
+              <dd>{health.activeSessionCount}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-gray-500">最終管理者ログイン</dt>
+              <dd>{ymd(health.lastAdminLoginAt)}</dd>
+            </div>
           </dl>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -86,7 +108,11 @@ function HealthPanel({ tenantId }: { tenantId: string }) {
                   </tr>
                 ))}
                 {health.lineAccounts.length === 0 && (
-                  <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-gray-500">
+                      LINEアカウントがありません
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -94,38 +120,43 @@ function HealthPanel({ tenantId }: { tenantId: string }) {
         </div>
       )}
     </Panel>
-  )
+  );
 }
 
 /** GET /tenants/:id/line-status + 行ごとの接続テスト。秘密情報は返らない。 */
 function LinePanel({ tenantId }: { tenantId: string }) {
-  const [accounts, setAccounts] = useState<PlatformLineStatus[] | null>(null)
-  const [probes, setProbes] = useState<Record<string, PlatformLineProbe | 'testing'>>({})
-  const [error, setError] = useState('')
+  const [accounts, setAccounts] = useState<PlatformLineStatus[] | null>(null);
+  const [probes, setProbes] = useState<Record<string, PlatformLineProbe | 'testing'>>({});
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    platformAdminApi.lineStatus(tenantId)
+    platformAdminApi
+      .lineStatus(tenantId)
       .then((res) => setAccounts(res.data))
-      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
-  }, [tenantId])
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)));
+  }, [tenantId]);
 
   const test = async (lineAccountId: string) => {
-    setProbes((current) => ({ ...current, [lineAccountId]: 'testing' }))
+    setProbes((current) => ({ ...current, [lineAccountId]: 'testing' }));
     try {
       // ok:false も HTTP 200 で返る（接続失敗は診断の正常な結果）。
-      const res = await platformAdminApi.testLineConnection(tenantId, lineAccountId)
-      setProbes((current) => ({ ...current, [lineAccountId]: res.data }))
+      const res = await platformAdminApi.testLineConnection(tenantId, lineAccountId);
+      setProbes((current) => ({ ...current, [lineAccountId]: res.data }));
     } catch (caught) {
       setProbes((current) => ({
         ...current,
         [lineAccountId]: { ok: false, error: platformAdminErrorMessage(caught) },
-      }))
+      }));
     }
-  }
+  };
 
   return (
     <Panel title="LINE連携">
-      {error && <p role="alert" className="text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          <strong>UNVERIFIED</strong> — {error}
+        </p>
+      )}
       {!accounts && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {accounts && (
         <div className="overflow-x-auto">
@@ -148,15 +179,18 @@ function LinePanel({ tenantId }: { tenantId: string }) {
             </thead>
             <tbody>
               {accounts.map((account) => {
-                const probe = probes[account.id]
+                const probe = probes[account.id];
                 return (
                   <tr key={account.id} className="border-t border-gray-100">
                     <td className="px-3 py-2">
                       <span>{account.name}</span>
                       <span className="mt-1 block text-xs text-gray-500">
-                        LIFF {account.liffIdConfigured ? '設定済み' : '未設定'} / LINEログイン {account.loginChannelConfigured ? '設定済み' : '未設定'}
+                        LIFF {account.liffIdConfigured ? '設定済み' : '未設定'} / LINEログイン{' '}
+                        {account.loginChannelConfigured ? '設定済み' : '未設定'}
                       </span>
-                      {account.expectedLiffEndpoint && <span className="block text-[11px] text-gray-500">LIFF endpoint設定あり</span>}
+                      {account.expectedLiffEndpoint && (
+                        <span className="block text-[11px] text-gray-500">LIFF endpoint設定あり</span>
+                      )}
                     </td>
                     <td className="px-3 py-2">{account.channelId ? '設定済み' : '未設定'}</td>
                     <td className="px-3 py-2">{account.isActive ? '有効' : '無効'}</td>
@@ -166,31 +200,51 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                       <span className="block">LINEログイン {account.loginCredentialReady ? '準備完了' : '要対応'}</span>
                     </td>
                     <td className="px-3 py-2">{ymd(account.lastWebhookReceivedAt)}</td>
-                    <td className="px-3 py-2">{readinessStatusLabel(account.liffEndpointEvidence.status)}<ReasonCodes reasonCodes={account.liffReasonCodes} /></td>
-                    <td className="px-3 py-2">{readinessStatusLabel(account.readiness?.electronicPrescription.status ?? 'BLOCKED')}<ReasonCodes reasonCodes={account.readiness?.electronicPrescription.reasonCodes ?? []} /></td>
-                    <td className="px-3 py-2">{readinessStatusLabel(account.readiness?.emergencyContraception.status ?? 'BLOCKED')}<ReasonCodes reasonCodes={account.readiness?.emergencyContraception.reasonCodes ?? []} /></td>
+                    <td className="px-3 py-2">
+                      {readinessStatusLabel(account.liffEndpointEvidence.status)}
+                      <ReasonCodes reasonCodes={account.liffReasonCodes} />
+                    </td>
+                    <td className="px-3 py-2">
+                      {readinessStatusLabel(account.readiness?.electronicPrescription.status ?? 'BLOCKED')}
+                      <ReasonCodes reasonCodes={account.readiness?.electronicPrescription.reasonCodes ?? []} />
+                    </td>
+                    <td className="px-3 py-2">
+                      {readinessStatusLabel(account.readiness?.emergencyContraception.status ?? 'BLOCKED')}
+                      <ReasonCodes reasonCodes={account.readiness?.emergencyContraception.reasonCodes ?? []} />
+                    </td>
                     <td className="px-3 py-2">
                       {readinessStatusLabel(account.readiness?.richMenu.status ?? 'BLOCKED')}
-                      {account.readiness?.richMenu && <span className="mt-1 block text-[11px] text-gray-500">
-                        同期状態 {account.readiness.richMenu.syncStatus === 'CURRENT' ? '同期済み' : '未同期'} /
-                        配置設定 {account.readiness.richMenu.layoutConfigured ? '済' : '未'} /
-                        下書き {account.readiness.richMenu.savedVersionAvailable ? '済' : '未'} /
-                        機能設定との整合 {account.readiness.richMenu.capabilityRevisionCurrent ? '最新' : '古い'} /
-                        画像アップロード {account.readiness.richMenu.uploadVerified ? '確認済' : '未確認'} /
-                        既定メニュー記録 {account.readiness.richMenu.currentDefaultRecorded ? '済' : '未'} /
-                        公開状態の確認 {account.readiness.richMenu.defaultReadbackVerified ? '確認済' : '未確認'}
-                      </span>}
+                      {account.readiness?.richMenu && (
+                        <span className="mt-1 block text-[11px] text-gray-500">
+                          同期状態 {account.readiness.richMenu.syncStatus === 'CURRENT' ? '同期済み' : '未同期'} /
+                          配置設定 {account.readiness.richMenu.layoutConfigured ? '済' : '未'} / 下書き{' '}
+                          {account.readiness.richMenu.savedVersionAvailable ? '済' : '未'} / 機能設定との整合{' '}
+                          {account.readiness.richMenu.capabilityRevisionCurrent ? '最新' : '古い'} / 画像アップロード{' '}
+                          {account.readiness.richMenu.uploadVerified ? '確認済' : '未確認'} / 既定メニュー記録{' '}
+                          {account.readiness.richMenu.currentDefaultRecorded ? '済' : '未'} / 公開状態の確認{' '}
+                          {account.readiness.richMenu.defaultReadbackVerified ? '確認済' : '未確認'}
+                        </span>
+                      )}
                       <ReasonCodes reasonCodes={account.readiness?.richMenu.reasonCodes ?? []} />
                     </td>
                     <td className="px-3 py-2 align-top">
                       <span className="font-medium">{readinessStatusLabel(account.configurationDoctor.status)}</span>
                       <ReasonCodes reasonCodes={account.configurationDoctor.reasonCodes} />
-                      <ul className="mt-2 space-y-2">{account.configurationDoctor.checks
-                        .filter((check) => check.required && check.status !== 'READY')
-                        .map((check) => <li key={check.key} className="text-xs text-gray-600">
-                          <span className="block">{check.impact}</span>
-                          <Link href={check.fixHref} className="inline-block min-h-11 py-2 text-purple-800 underline">設定を開く</Link>
-                        </li>)}</ul>
+                      <ul className="mt-2 space-y-2">
+                        {account.configurationDoctor.checks
+                          .filter((check) => check.required && check.status !== 'READY')
+                          .map((check) => (
+                            <li key={check.key} className="text-xs text-gray-600">
+                              <span className="block">{check.impact}</span>
+                              <Link
+                                href={check.fixHref}
+                                className="inline-block min-h-11 py-2 text-purple-800 underline"
+                              >
+                                設定を開く
+                              </Link>
+                            </li>
+                          ))}
+                      </ul>
                     </td>
                     <td className="px-3 py-2">
                       <button
@@ -208,72 +262,86 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                       )}
                     </td>
                   </tr>
-                )
+                );
               })}
               {accounts.length === 0 && (
-                <tr><td colSpan={12} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
+                <tr>
+                  <td colSpan={12} className="px-3 py-6 text-center text-gray-500">
+                    LINEアカウントがありません
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
       )}
     </Panel>
-  )
+  );
 }
 
 /** GET /tenants/:id/staff + 無効化 / 全セッション失効。 */
 function StaffPanel({ tenantId }: { tenantId: string }) {
-  const [staff, setStaff] = useState<PlatformStaffMember[] | null>(null)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [working, setWorking] = useState('')
+  const [staff, setStaff] = useState<PlatformStaffMember[] | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [working, setWorking] = useState('');
 
   const load = useCallback(() => {
-    platformAdminApi.staff(tenantId)
+    platformAdminApi
+      .staff(tenantId)
       .then((res) => setStaff(res.data))
-      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
-  }, [tenantId])
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)));
+  }, [tenantId]);
 
-  useEffect(load, [load])
+  useEffect(load, [load]);
 
   const disable = async (member: PlatformStaffMember) => {
     // staff_members はプラットフォーム横断。ここでの無効化は所属する全テナントに効く。
-    if (!window.confirm(`${member.name} を無効化します。所属する全テナントでログインできなくなり、このテナントのセッションは失効します。よろしいですか?`)) return
-    if (working) return
-    setWorking(member.staffId)
-    setError('')
-    setNotice('')
+    if (
+      !window.confirm(
+        `${member.name} を無効化します。所属する全テナントでログインできなくなり、このテナントのセッションは失効します。よろしいですか?`,
+      )
+    )
+      return;
+    if (working) return;
+    setWorking(member.staffId);
+    setError('');
+    setNotice('');
     try {
-      const res = await platformAdminApi.disableStaff(tenantId, member.staffId)
-      setNotice(`${member.name} を無効化しました（セッション ${res.data.sessionsRevoked} 件失効）`)
-      load()
+      const res = await platformAdminApi.disableStaff(tenantId, member.staffId);
+      setNotice(`${member.name} を無効化しました（セッション ${res.data.sessionsRevoked} 件失効）`);
+      load();
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught))
+      setError(platformAdminErrorMessage(caught));
     } finally {
-      setWorking('')
+      setWorking('');
     }
-  }
+  };
 
   const revokeAll = async () => {
-    if (!window.confirm('このテナントの管理画面セッションをすべて失効させます。よろしいですか?')) return
-    if (working) return
-    setWorking('all')
-    setError('')
-    setNotice('')
+    if (!window.confirm('このテナントの管理画面セッションをすべて失効させます。よろしいですか?')) return;
+    if (working) return;
+    setWorking('all');
+    setError('');
+    setNotice('');
     try {
-      const res = await platformAdminApi.revokeTenantSessions(tenantId)
-      setNotice(`${res.data.revoked} 件のセッションを失効させました`)
-      load()
+      const res = await platformAdminApi.revokeTenantSessions(tenantId);
+      setNotice(`${res.data.revoked} 件のセッションを失効させました`);
+      load();
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught))
+      setError(platformAdminErrorMessage(caught));
     } finally {
-      setWorking('')
+      setWorking('');
     }
-  }
+  };
 
   return (
     <Panel title="スタッフ・セッション">
-      {error && <p role="alert" className="mb-2 text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
+      {error && (
+        <p role="alert" className="mb-2 text-sm text-red-600">
+          <strong>UNVERIFIED</strong> — {error}
+        </p>
+      )}
       {notice && <p className="mb-2 text-sm text-green-700">{notice}</p>}
       {!staff && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {staff && (
@@ -316,7 +384,11 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
                   </tr>
                 ))}
                 {staff.length === 0 && (
-                  <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-500">スタッフがいません</td></tr>
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-gray-500">
+                      スタッフがいません
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -332,34 +404,103 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
         </>
       )}
     </Panel>
-  )
+  );
 }
 
-function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }: {
-  tenantId: string
-  outboundMessagingPausedAt: string | null
+function SharedLoginPanel({ tenantId, pharmacyCode }: { tenantId: string; pharmacyCode: string }) {
+  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState('');
+
+  const issue = async (reset: boolean) => {
+    if (
+      working ||
+      !window.confirm(reset ? '薬局共通ログインのパスワードを再発行しますか?' : '薬局共通ログインを初回発行しますか?')
+    )
+      return;
+    setWorking(true);
+    setError('');
+    setTemporaryPassword(null);
+    try {
+      const response = reset
+        ? await platformAdminApi.resetSharedLoginPassword(tenantId)
+        : await platformAdminApi.issueSharedLogin(tenantId);
+      setTemporaryPassword(response.data.temporaryPassword);
+    } catch (caught) {
+      setError(platformAdminErrorMessage(caught));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <Panel title="薬局共通ログイン">
+      <p className="mb-3 text-sm text-gray-600">
+        ログインは薬局コードとパスワードだけです。仮パスワードは発行時に一度だけ表示します。
+      </p>
+      <p className="mb-3 text-sm">
+        薬局コード: <code className="font-mono">{pharmacyCode}</code>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void issue(false)}
+          disabled={working}
+          className="rounded-lg bg-purple-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {working ? '発行中...' : '初回発行'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void issue(true)}
+          disabled={working}
+          className="rounded-lg border border-purple-300 px-3 py-2 text-sm text-purple-800 disabled:opacity-50"
+        >
+          再発行
+        </button>
+      </div>
+      {temporaryPassword && (
+        <p className="mt-3 break-all rounded bg-purple-50 p-3 font-mono text-sm" role="status">
+          仮パスワード（この画面で一度だけ表示）: {temporaryPassword}
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-sm text-red-600" role="alert">
+          {error}
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+function OutboundPanel({
+  tenantId,
+  outboundMessagingPausedAt: initialPausedAt,
+}: {
+  tenantId: string;
+  outboundMessagingPausedAt: string | null;
 }) {
-  const [outboundMessagingPausedAt, setOutboundMessagingPausedAt] = useState(initialPausedAt)
-  const [changing, setChanging] = useState(false)
-  const [result, setResult] = useState('')
-  const [error, setError] = useState('')
+  const [outboundMessagingPausedAt, setOutboundMessagingPausedAt] = useState(initialPausedAt);
+  const [changing, setChanging] = useState(false);
+  const [result, setResult] = useState('');
+  const [error, setError] = useState('');
 
   const set = async (paused: boolean) => {
-    const action = paused ? '一時停止' : '再開'
-    if (changing || !window.confirm(`自動配信を${action}します。よろしいですか?`)) return
-    setChanging(true)
-    setError('')
-    setResult('')
+    const action = paused ? '一時停止' : '再開';
+    if (changing || !window.confirm(`自動配信を${action}します。よろしいですか?`)) return;
+    setChanging(true);
+    setError('');
+    setResult('');
     try {
-      const res = await platformAdminApi.setOutboundMessaging(tenantId, paused)
-      setOutboundMessagingPausedAt(res.data.outboundMessagingPausedAt)
-      setResult(`送信を${action}しました`)
+      const res = await platformAdminApi.setOutboundMessaging(tenantId, paused);
+      setOutboundMessagingPausedAt(res.data.outboundMessagingPausedAt);
+      setResult(`送信を${action}しました`);
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught))
+      setError(platformAdminErrorMessage(caught));
     } finally {
-      setChanging(false)
+      setChanging(false);
     }
-  }
+  };
 
   return (
     <Panel title="患者向けLINE送信の一時停止">
@@ -367,9 +508,7 @@ function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }:
         自動配信（処方せん通知・服薬フォロー等）のみを止めます。Webhookの受信は続きます。
       </p>
       <p className="mb-3 text-sm font-medium">
-        現在: {outboundMessagingPausedAt
-          ? `一時停止中（${ymd(outboundMessagingPausedAt)} から）`
-          : '送信中'}
+        現在: {outboundMessagingPausedAt ? `一時停止中（${ymd(outboundMessagingPausedAt)} から）` : '送信中'}
       </p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -389,83 +528,119 @@ function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }:
           送信を再開
         </button>
       </div>
-      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {error}
+        </p>
+      )}
       {result && <p className="mt-2 text-sm text-green-700">{result}</p>}
     </Panel>
-  )
+  );
 }
 
 function TenantDetail({ tenantId }: { tenantId: string }) {
-  const router = useRouter()
-  const [tenant, setTenant] = useState<PlatformTenantDetail | null>(null)
-  const [displayName, setDisplayName] = useState('')
-  const [status, setStatus] = useState('active')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [saving, setSaving] = useState(false)
+  const router = useRouter();
+  const [tenant, setTenant] = useState<PlatformTenantDetail | null>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [status, setStatus] = useState('active');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
-    platformAdminApi.tenant(tenantId)
+    platformAdminApi
+      .tenant(tenantId)
       .then((res) => {
-        setTenant(res.data)
-        setDisplayName(res.data.displayName)
-        setStatus(res.data.status)
+        setTenant(res.data);
+        setDisplayName(res.data.displayName);
+        setStatus(res.data.status);
       })
-      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
-  }, [tenantId])
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)));
+  }, [tenantId]);
 
-  useEffect(load, [load])
+  useEffect(load, [load]);
 
   const save = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!tenant) return
+    event.preventDefault();
+    if (!tenant) return;
     // PATCH は displayName / status しか受け付けない (tenantCode は不変)。
     // 実際に変わったフィールドだけを送る。
-    const changes: { displayName?: string; status?: string } = {}
-    if (displayName !== tenant.displayName) changes.displayName = displayName
-    if (status !== tenant.status) changes.status = status
+    const changes: { displayName?: string; status?: string } = {};
+    if (displayName !== tenant.displayName) changes.displayName = displayName;
+    if (status !== tenant.status) changes.status = status;
     if (Object.keys(changes).length === 0) {
-      setNotice('変更がありません')
-      return
+      setNotice('変更がありません');
+      return;
     }
-    if (status === 'suspended' && tenant.status !== 'suspended' && !window.confirm(
-      'テナントを停止すると管理画面へのログインと患者向けLINE送信に影響します。停止しますか？',
-    )) return
-    setSaving(true)
-    setError('')
-    setNotice('')
+    if (
+      status === 'suspended' &&
+      tenant.status !== 'suspended' &&
+      !window.confirm('テナントを停止すると管理画面へのログインと患者向けLINE送信に影響します。停止しますか？')
+    )
+      return;
+    setSaving(true);
+    setError('');
+    setNotice('');
     try {
-      await platformAdminApi.updateTenant(tenant.id, changes)
-      setNotice('保存しました')
-      load()
+      await platformAdminApi.updateTenant(tenant.id, changes);
+      setNotice('保存しました');
+      load();
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught))
+      setError(platformAdminErrorMessage(caught));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
-  if (error && !tenant) return <p role="alert" className="text-sm text-red-600">{error}</p>
-  if (!tenant) return <p className="text-sm text-gray-500">読み込み中...</p>
+  if (error && !tenant)
+    return (
+      <p role="alert" className="text-sm text-red-600">
+        {error}
+      </p>
+    );
+  if (!tenant) return <p className="text-sm text-gray-500">読み込み中...</p>;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-        <Link href="/platform-admin/tenants" className="text-sm text-purple-800 underline">← テナント一覧</Link>
-        <h1 className="mt-2 text-xl font-bold">{tenant.displayName}</h1>
+          <Link href="/platform-admin/tenants" className="text-sm text-purple-800 underline">
+            ← テナント一覧
+          </Link>
+          <h1 className="mt-2 text-xl font-bold">{tenant.displayName}</h1>
         </div>
-        <button type="button" onClick={() => window.location.reload()} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">最新情報を再取得</button>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        >
+          最新情報を再取得
+        </button>
       </div>
 
       <section className="rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="mb-3 font-semibold">サマリー</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-          <div><dt className="text-gray-500">テナントコード</dt><dd className="font-mono">{tenant.tenantCode}</dd></div>
-          <div><dt className="text-gray-500">名称</dt><dd>{tenant.displayName}</dd></div>
-          <div><dt className="text-gray-500">ステータス</dt><dd>{tenantStatusLabel(tenant.status)}</dd></div>
-          <div><dt className="text-gray-500">LINEアカウント数</dt><dd>{tenant.lineAccountCount}</dd></div>
-          <div><dt className="text-gray-500">スタッフ数</dt><dd>{tenant.staffCount}</dd></div>
+          <div>
+            <dt className="text-gray-500">テナントコード</dt>
+            <dd className="font-mono">{tenant.tenantCode}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">名称</dt>
+            <dd>{tenant.displayName}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">ステータス</dt>
+            <dd>{tenantStatusLabel(tenant.status)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">LINEアカウント数</dt>
+            <dd>{tenant.lineAccountCount}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">スタッフ数</dt>
+            <dd>{tenant.staffCount}</dd>
+          </div>
         </dl>
       </section>
 
@@ -476,7 +651,8 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
             <span className="block text-gray-500">テナントコード（変更不可）</span>
             <span className="font-mono">{tenant.tenantCode}</span>
           </div>
-          <label className="block text-sm" htmlFor="tenant-display-name">名称
+          <label className="block text-sm" htmlFor="tenant-display-name">
+            名称
             <input
               id="tenant-display-name"
               type="text"
@@ -487,7 +663,8 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
               className="mt-1 w-full max-w-md rounded-lg border border-gray-300 px-3 py-2"
             />
           </label>
-          <label className="block text-sm" htmlFor="tenant-status">ステータス
+          <label className="block text-sm" htmlFor="tenant-status">
+            ステータス
             <select
               id="tenant-status"
               value={status}
@@ -498,9 +675,17 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
               <option value="suspended">停止中</option>
             </select>
           </label>
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
           {notice && <p className="text-sm text-green-700">{notice}</p>}
-          <button type="submit" disabled={saving} className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
             {saving ? '保存中...' : '保存'}
           </button>
         </form>
@@ -516,11 +701,9 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
 
       <HealthPanel tenantId={tenant.id} />
       <LinePanel tenantId={tenant.id} />
+      <SharedLoginPanel tenantId={tenant.id} pharmacyCode={tenant.tenantCode} />
       <StaffPanel tenantId={tenant.id} />
-      <OutboundPanel
-        tenantId={tenant.id}
-        outboundMessagingPausedAt={tenant.outboundMessagingPausedAt}
-      />
+      <OutboundPanel tenantId={tenant.id} outboundMessagingPausedAt={tenant.outboundMessagingPausedAt} />
 
       <Link
         href={`/platform-admin/tenants/patients?id=${encodeURIComponent(tenant.id)}`}
@@ -529,13 +712,13 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
         患者一覧を見る（個人の診療記録）→
       </Link>
     </div>
-  )
+  );
 }
 
 function TenantDetailRoute() {
-  const tenantId = useSearchParams().get('id')
-  if (!tenantId) return <p className="text-sm text-gray-500">テナント ID が指定されていません</p>
-  return <TenantDetail tenantId={tenantId} />
+  const tenantId = useSearchParams().get('id');
+  if (!tenantId) return <p className="text-sm text-gray-500">テナント ID が指定されていません</p>;
+  return <TenantDetail tenantId={tenantId} />;
 }
 
 export default function PlatformAdminTenantDetailPage() {
@@ -543,5 +726,5 @@ export default function PlatformAdminTenantDetailPage() {
     <Suspense fallback={<p className="text-sm text-gray-500">読み込み中...</p>}>
       <TenantDetailRoute />
     </Suspense>
-  )
+  );
 }

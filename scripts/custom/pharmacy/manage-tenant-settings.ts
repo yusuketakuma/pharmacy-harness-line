@@ -1,9 +1,10 @@
-import { open, readFile, unlink } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { required } from './cli-common.js';
 import {
   findPharmacyAdminApiCoverage,
   type PharmacyAdminApiCoverage,
@@ -15,18 +16,19 @@ type Writer = (line: string) => void;
 type CredentialReader = (service: string) => string | undefined;
 
 const VALUE_FLAGS = new Set([
-  'worker-url', 'tenant-id', 'account-id', 'method', 'path', 'input', 'content-type',
-  'secret-output',
-  'rich-menu-default', 'rich-menu-publish', 'rich-menu-rollback',
+  'worker-url',
+  'tenant-id',
+  'account-id',
+  'method',
+  'path',
+  'input',
+  'content-type',
+  'rich-menu-default',
+  'rich-menu-publish',
+  'rich-menu-rollback',
 ]);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const BLOCKED_PATH_PREFIXES = [
-  '/api/auth',
-  '/api/integrations',
-  '/api/liff',
-  '/api/platform',
-  '/api/public',
-];
+const BLOCKED_PATH_PREFIXES = ['/api/auth', '/api/integrations', '/api/liff', '/api/platform', '/api/public'];
 
 const HELP = `Usage:
   PHARMACY_PLATFORM_ADMIN_LOGIN_ID=... \\
@@ -42,11 +44,6 @@ Mutation (dry-run by default):
     --path /api/account-settings/link-base-url \\
     --input settings.json \\
     --apply
-
-Staff creation and password reset responses contain a one-time password. Save them to a new
-owner-only file with --secret-output FILE; the secret is never printed to stdout.
-If the response is lost, the file records UNKNOWN_OUTCOME and the command exits 2. Do not retry
-blindly; verify the staff record and issue an explicit password reset when recovery is needed.
 
 Set the published rich menu used by default:
   pnpm tenant:settings -- ... \\
@@ -70,7 +67,6 @@ Options:
   --method GET|POST|PUT|PATCH|DELETE (default: GET)
   --input FILE
   --content-type TYPE (default: application/json)
-  --secret-output FILE (required with --apply when the response contains a one-time password)
   --preflight --account-id LINE_ACCOUNT_ID (read-only activation check)
   --doctor --account-id LINE_ACCOUNT_ID (read-only config check; exits 0/2/3)
   --apply (required to send a mutation)
@@ -81,8 +77,12 @@ On macOS, ph-id and ph-pw are read from Keychain or ~/.config/pharmacy-harness w
 export function readCredentialFile(path: string): string | undefined {
   try {
     const stat = statSync(path);
-    if (!stat.isFile() || (stat.mode & 0o077) !== 0 ||
-        (typeof process.getuid === 'function' && stat.uid !== process.getuid())) return undefined;
+    if (
+      !stat.isFile() ||
+      (stat.mode & 0o077) !== 0 ||
+      (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    )
+      return undefined;
     return readFileSync(path, 'utf8').replace(/\r?\n$/u, '') || undefined;
   } catch {
     return undefined;
@@ -92,11 +92,10 @@ export function readCredentialFile(path: string): string | undefined {
 function readKeychainCredential(service: string): string | undefined {
   if (process.platform !== 'darwin') return undefined;
   try {
-    const value = execFileSync(
-      '/usr/bin/security',
-      ['find-generic-password', '-s', service, '-w'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    );
+    const value = execFileSync('/usr/bin/security', ['find-generic-password', '-s', service, '-w'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return value.replace(/\r?\n$/u, '') || undefined;
   } catch {
     return undefined;
@@ -104,8 +103,7 @@ function readKeychainCredential(service: string): string | undefined {
 }
 
 function readStoredCredential(service: string): string | undefined {
-  return readKeychainCredential(service) ??
-    readCredentialFile(join(homedir(), '.config', 'pharmacy-harness', service));
+  return readKeychainCredential(service) ?? readCredentialFile(join(homedir(), '.config', 'pharmacy-harness', service));
 }
 
 function parseArgs(argv: string[]) {
@@ -145,34 +143,33 @@ function parseArgs(argv: string[]) {
   return { values, apply, preflight, doctor, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
 function endpoint(workerUrl: string, path: string): URL {
   const origin = new URL(workerUrl);
-  if ((origin.protocol !== 'https:' && origin.hostname !== 'localhost') ||
-      origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) {
+  if (
+    (origin.protocol !== 'https:' && origin.hostname !== 'localhost') ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== '/' ||
+    origin.search ||
+    origin.hash
+  ) {
     throw new Error('--worker-url must be an HTTPS origin');
   }
   if (!path.startsWith('/api/') || path.startsWith('//')) {
     throw new Error('--path must be a relative /api/ tenant admin path');
   }
   const url = new URL(path, origin);
-  if (url.origin !== origin.origin || !url.pathname.startsWith('/api/') ||
-      BLOCKED_PATH_PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))) {
+  if (
+    url.origin !== origin.origin ||
+    !url.pathname.startsWith('/api/') ||
+    BLOCKED_PATH_PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))
+  ) {
     throw new Error('--path must be a relative /api/ tenant admin path');
   }
   return url;
 }
 
-function accountPin(
-  coverage: PharmacyAdminApiCoverage,
-  url: URL,
-  values: Record<string, string>,
-): string | undefined {
+function accountPin(coverage: PharmacyAdminApiCoverage, url: URL, values: Record<string, string>): string | undefined {
   const supplied = values['account-id']?.trim();
   if (coverage.accountScope === 'tenant') {
     if (supplied) throw new Error('--account-id is not supported for this tenant-scoped path');
@@ -192,10 +189,12 @@ function accountPin(
     return accountId;
   }
   const queryKey = coverage.accountScope.slice('query:'.length);
-  const scoped = ['accountId', 'account_id', 'line_account_id']
-    .flatMap((key) => url.searchParams.getAll(key));
-  if (url.searchParams.getAll(queryKey).length !== 1 ||
-      scoped.length === 0 || scoped.some((value) => value !== accountId)) {
+  const scoped = ['accountId', 'account_id', 'line_account_id'].flatMap((key) => url.searchParams.getAll(key));
+  if (
+    url.searchParams.getAll(queryKey).length !== 1 ||
+    scoped.length === 0 ||
+    scoped.some((value) => value !== accountId)
+  ) {
     throw new Error('--path account does not match --account-id');
   }
   return accountId;
@@ -204,8 +203,9 @@ function accountPin(
 type PlatformSession = { token: string; cookie: string; csrfToken: string };
 
 function setCookieValue(headers: Headers, name: string): string | null {
-  const values = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
-    ?? [headers.get('set-cookie') ?? ''];
+  const values = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? [
+    headers.get('set-cookie') ?? '',
+  ];
   const match = values.join(',').match(new RegExp(`(?:^|,\\s*)${name}=([^;,]+)`, 'u'));
   return match?.[1] ?? null;
 }
@@ -224,16 +224,22 @@ async function withPlatformSession<T>(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ loginId, password }),
   });
-  const payload = await login.json().catch(() => null) as {
+  const payload = (await login.json().catch(() => null)) as {
     success?: boolean;
     csrfToken?: unknown;
     data?: { mustChangePassword?: unknown };
   } | null;
   const token = setCookieValue(login.headers, 'lh_platform_admin_session');
   const csrfToken = payload?.csrfToken;
-  if (!login.ok || !payload?.success || payload.data?.mustChangePassword !== false ||
-      typeof token !== 'string' || !/^pas_[A-Za-z0-9_-]{43}$/u.test(token) ||
-      typeof csrfToken !== 'string' || !csrfToken) {
+  if (
+    !login.ok ||
+    !payload?.success ||
+    payload.data?.mustChangePassword !== false ||
+    typeof token !== 'string' ||
+    !/^pas_[A-Za-z0-9_-]{43}$/u.test(token) ||
+    typeof csrfToken !== 'string' ||
+    !csrfToken
+  ) {
     throw new Error('Platform administrator login failed');
   }
   const session = {
@@ -282,10 +288,15 @@ export async function runTenantSettings(
     if (parsed.preflight || parsed.doctor) {
       const command = parsed.doctor ? '--doctor' : '--preflight';
       if (parsed.apply) throw new Error(`${command} cannot be combined with --apply`);
-      if (parsed.values.method || parsed.values.path || parsed.values.input ||
-          parsed.values['content-type'] || parsed.values['secret-output'] ||
-          parsed.values['rich-menu-default'] ||
-          parsed.values['rich-menu-publish'] || parsed.values['rich-menu-rollback']) {
+      if (
+        parsed.values.method ||
+        parsed.values.path ||
+        parsed.values.input ||
+        parsed.values['content-type'] ||
+        parsed.values['rich-menu-default'] ||
+        parsed.values['rich-menu-publish'] ||
+        parsed.values['rich-menu-rollback']
+      ) {
         throw new Error(`${command} cannot be combined with request or mutation options`);
       }
       const accountId = required(parsed.values, 'account-id');
@@ -297,10 +308,12 @@ export async function runTenantSettings(
       if (parsed.doctor) url.searchParams.set('verifyLiffEndpoint', accountId);
       return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
         const response = await fetcher(url.toString(), {
-          method: 'GET', redirect: 'error', signal: AbortSignal.timeout(60_000),
+          method: 'GET',
+          redirect: 'error',
+          signal: AbortSignal.timeout(60_000),
           headers: { Cookie: session.cookie },
         });
-        const payload = await response.json().catch(() => null) as {
+        const payload = (await response.json().catch(() => null)) as {
           success?: boolean;
           data?: Array<{
             id?: unknown;
@@ -319,26 +332,35 @@ export async function runTenantSettings(
           return parsed.doctor ? 3 : 1;
         }
         const projection = account.configurationDoctor;
-        if (projection?.accountId !== accountId || typeof projection.checkedAt !== 'string' ||
-            !['READY', 'BLOCKED', 'UNVERIFIED'].includes(String(projection.status)) ||
-            !Array.isArray(projection.reasonCodes) ||
-            !projection.reasonCodes.every((value) => typeof value === 'string') ||
-            !Array.isArray(projection.checks)) {
+        if (
+          projection?.accountId !== accountId ||
+          typeof projection.checkedAt !== 'string' ||
+          !['READY', 'BLOCKED', 'UNVERIFIED'].includes(String(projection.status)) ||
+          !Array.isArray(projection.reasonCodes) ||
+          !projection.reasonCodes.every((value) => typeof value === 'string') ||
+          !Array.isArray(projection.checks)
+        ) {
           write('Configuration doctor projection unavailable.');
           return parsed.doctor ? 3 : 1;
         }
         const status = projection.status as 'READY' | 'BLOCKED' | 'UNVERIFIED';
-        write(JSON.stringify({
-          accountId: projection.accountId,
-          checkedAt: projection.checkedAt,
-          status,
-          reasonCodes: projection.reasonCodes,
-          checks: projection.checks,
-          localCredentials: {
-            loginIdConfigured: Boolean(loginId),
-            passwordConfigured: Boolean(password),
-          },
-        }, null, 2));
+        write(
+          JSON.stringify(
+            {
+              accountId: projection.accountId,
+              checkedAt: projection.checkedAt,
+              status,
+              reasonCodes: projection.reasonCodes,
+              checks: projection.checks,
+              localCredentials: {
+                loginIdConfigured: Boolean(loginId),
+                passwordConfigured: Boolean(password),
+              },
+            },
+            null,
+            2,
+          ),
+        );
         if (parsed.doctor) return status === 'READY' ? 0 : status === 'BLOCKED' ? 2 : 3;
         return status === 'READY' ? 0 : 1;
       });
@@ -351,13 +373,15 @@ export async function runTenantSettings(
     }
     const richMenuGroupId = richMenuDefault ?? richMenuPublish ?? richMenuRollback;
     if (richMenuGroupId) {
-      const option = richMenuDefault ? '--rich-menu-default'
-        : richMenuPublish ? '--rich-menu-publish' : '--rich-menu-rollback';
+      const option = richMenuDefault
+        ? '--rich-menu-default'
+        : richMenuPublish
+          ? '--rich-menu-publish'
+          : '--rich-menu-rollback';
       if (!/^[A-Za-z0-9_-]{1,128}$/u.test(richMenuGroupId)) {
         throw new Error(`${option} is invalid`);
       }
-      if (parsed.values.method || parsed.values.path || parsed.values.input ||
-          parsed.values['content-type'] || parsed.values['secret-output']) {
+      if (parsed.values.method || parsed.values.path || parsed.values.input || parsed.values['content-type']) {
         throw new Error(`${option} cannot be combined with request options`);
       }
       const accountId = required(parsed.values, 'account-id');
@@ -375,25 +399,28 @@ export async function runTenantSettings(
         return 0;
       }
       return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
-        const request = async (body: Record<string, unknown>) => fetcher(url.toString(), {
-          method: 'POST',
-          redirect: 'error',
-          signal: AbortSignal.timeout(60_000),
-          headers: {
-            Authorization: `Bearer ${session.token}`,
-            'X-Tenant-Id': tenantId,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        });
+        const request = async (body: Record<string, unknown>) =>
+          fetcher(url.toString(), {
+            method: 'POST',
+            redirect: 'error',
+            signal: AbortSignal.timeout(60_000),
+            headers: {
+              Authorization: `Bearer ${session.token}`,
+              'X-Tenant-Id': tenantId,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          });
         const previewBody = !richMenuPublish
           ? {
-              mode: 'set-default', enabled: true,
-              ...(richMenuRollback ? { intent: 'rollback' } : {}), dryRun: true,
+              mode: 'set-default',
+              enabled: true,
+              ...(richMenuRollback ? { intent: 'rollback' } : {}),
+              dryRun: true,
             }
           : { dryRun: true };
         const preview = await request(previewBody);
-        const previewPayload = await preview.json().catch(() => null) as {
+        const previewPayload = (await preview.json().catch(() => null)) as {
           success?: boolean;
           data?: { confirmationToken?: unknown };
         } | null;
@@ -402,23 +429,31 @@ export async function runTenantSettings(
           write(preview.ok ? 'Rich menu confirmation token was not returned.' : `Request failed (${preview.status}).`);
           return 1;
         }
-        const applied = await request(!richMenuPublish
-          ? {
-              mode: 'set-default', enabled: true,
-              ...(richMenuRollback ? { intent: 'rollback' } : {}),
-              dryRun: false, confirmationToken,
-            }
-          : { dryRun: false, confirmationToken });
-        const appliedPayload = await applied.json().catch(() => null) as { success?: boolean } | null;
+        const applied = await request(
+          !richMenuPublish
+            ? {
+                mode: 'set-default',
+                enabled: true,
+                ...(richMenuRollback ? { intent: 'rollback' } : {}),
+                dryRun: false,
+                confirmationToken,
+              }
+            : { dryRun: false, confirmationToken },
+        );
+        const appliedPayload = (await applied.json().catch(() => null)) as {
+          success?: boolean;
+        } | null;
         if (!applied.ok || !appliedPayload?.success) {
           write(`Request failed (${applied.status}).`);
           return 1;
         }
-        write(richMenuPublish
-          ? `Rich menu version published for tenant ${tenantId}.`
-          : richMenuRollback
-            ? `Rich menu rolled back for tenant ${tenantId}.`
-            : `Default rich menu updated for tenant ${tenantId}.`);
+        write(
+          richMenuPublish
+            ? `Rich menu version published for tenant ${tenantId}.`
+            : richMenuRollback
+              ? `Rich menu rolled back for tenant ${tenantId}.`
+              : `Default rich menu updated for tenant ${tenantId}.`,
+        );
         return 0;
       });
     }
@@ -427,7 +462,7 @@ export async function runTenantSettings(
     if (method !== 'GET' && !MUTATING_METHODS.has(method)) throw new Error('--method is invalid');
     const url = endpoint(workerUrl, required(parsed.values, 'path'));
     const coverage = findPharmacyAdminApiCoverage(method, url.pathname);
-    if (!coverage || (!coverage.safeOutput && !coverage.secretOutput)) {
+    if (!coverage || !coverage.safeOutput) {
       throw new Error('--path is not in pharmacy admin API coverage');
     }
     if (coverage.mutationGate === 'confirmation') {
@@ -435,15 +470,8 @@ export async function runTenantSettings(
     }
     const accountId = accountPin(coverage, url, parsed.values);
     const inputPath = parsed.values.input;
-    const secretOutputPath = parsed.values['secret-output']?.trim();
     if (method === 'GET' && inputPath) throw new Error('--input cannot be used with GET');
     if (method === 'GET' && parsed.apply) throw new Error('--apply cannot be used with GET');
-    if (secretOutputPath && !coverage.secretOutput) {
-      throw new Error('--secret-output is only supported for one-time credential responses');
-    }
-    if (coverage.secretOutput && parsed.apply && !secretOutputPath) {
-      throw new Error('--secret-output is required for this credential mutation');
-    }
 
     let body: Buffer | undefined;
     const contentType = parsed.values['content-type'] ?? 'application/json';
@@ -459,8 +487,12 @@ export async function runTenantSettings(
         if (typeof input !== 'object' || input === null || Array.isArray(input)) {
           throw new Error('--input must contain a JSON object');
         }
-        if (accountId && ['accountId', 'account_id', 'line_account_id'].some((key) =>
-          input[key] !== undefined && input[key] !== accountId)) {
+        if (
+          accountId &&
+          ['accountId', 'account_id', 'line_account_id'].some(
+            (key) => input[key] !== undefined && input[key] !== accountId,
+          )
+        ) {
           throw new Error('--input account does not match --account-id');
         }
       }
@@ -471,101 +503,42 @@ export async function runTenantSettings(
       return 0;
     }
 
-    let secretFile: Awaited<ReturnType<typeof open>> | undefined;
-    let keepSecretFile = false;
-    try {
-      if (secretOutputPath) {
-        try {
-          secretFile = await open(secretOutputPath, 'wx', 0o600);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-            throw new Error('--secret-output already exists');
-          }
-          throw new Error('--secret-output could not be created');
-        }
+    return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+      let response: Response;
+      try {
+        response = await fetcher(url.toString(), {
+          method,
+          redirect: 'error',
+          signal: AbortSignal.timeout(60_000),
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+            'X-Tenant-Id': tenantId,
+            ...(body ? { 'Content-Type': contentType } : {}),
+          },
+          body,
+        });
+      } catch {
+        throw new Error('Tenant settings request failed');
       }
-      return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
-        const writeUnknownCredentialOutcome = async (reason: string): Promise<number> => {
-          await secretFile!.writeFile(`${JSON.stringify({
-            status: 'UNKNOWN_OUTCOME',
-            reason,
-            tenantId,
-            method,
-            path: url.pathname,
-            recovery: 'verify_staff_then_reset_password',
-            recordedAt: new Date().toISOString(),
-          }, null, 2)}\n`, { encoding: 'utf8' });
-          await secretFile!.sync();
-          keepSecretFile = true;
-          write(`Credential mutation outcome is unknown. Marker written to ${secretOutputPath}. Do not retry blindly; verify staff state and issue an explicit password reset if needed.`);
-          return 2;
-        };
-        let response: Response;
-        try {
-          response = await fetcher(url.toString(), {
-            method,
-            redirect: 'error',
-            signal: AbortSignal.timeout(60_000),
-            headers: {
-              Authorization: `Bearer ${session.token}`,
-              'X-Tenant-Id': tenantId,
-              ...(body ? { 'Content-Type': contentType } : {}),
-            },
-            body,
-          });
-        } catch {
-          if (coverage.secretOutput) return writeUnknownCredentialOutcome('response_lost');
-          throw new Error('Tenant settings request failed');
-        }
-        if (!response.ok) {
-          write(`Request failed (${response.status}).`);
-          return 1;
-        }
-        if (coverage.secretOutput) {
-          let responseText: string;
-          try {
-            responseText = await response.text();
-          } catch {
-            return writeUnknownCredentialOutcome('response_body_lost');
-          }
-          const payload = (() => {
-            try {
-              return JSON.parse(responseText) as { success?: unknown; data?: { temporaryPassword?: unknown } };
-            } catch {
-              return null;
-            }
-          })();
-          if (payload?.success !== true || typeof payload.data?.temporaryPassword !== 'string' ||
-              !payload.data.temporaryPassword) {
-            return writeUnknownCredentialOutcome('unexpected_response');
-          }
-          await secretFile!.writeFile(`${responseText}\n`, { encoding: 'utf8' });
-          await secretFile!.sync();
-          keepSecretFile = true;
-          write(`${method} completed for tenant ${tenantId}. Secret response written to ${secretOutputPath}.`);
-          return 0;
-        }
-        if (method !== 'GET') {
-          write(`${method} completed for tenant ${tenantId}.`);
-          return 0;
-        }
-
-        const text = await response.text();
-        if (!text) return 0;
-        try {
-          write(JSON.stringify(JSON.parse(text), null, 2));
-        } catch {
-          write('Response was not safe JSON.');
-          return 1;
-        }
+      if (!response.ok) {
+        write(`Request failed (${response.status}).`);
+        return 1;
+      }
+      if (method !== 'GET') {
+        write(`${method} completed for tenant ${tenantId}.`);
         return 0;
-      });
-    } finally {
-      if (secretFile) {
-        await secretFile.close().catch(() => undefined);
-        if (!keepSecretFile && secretOutputPath) await unlink(secretOutputPath).catch(() => undefined);
       }
-    }
+
+      const text = await response.text();
+      if (!text) return 0;
+      try {
+        write(JSON.stringify(JSON.parse(text), null, 2));
+      } catch {
+        write('Response was not safe JSON.');
+        return 1;
+      }
+      return 0;
+    });
   } catch (error) {
     write(error instanceof Error ? error.message : 'Tenant settings request failed');
     return doctorRequested ? 3 : 1;
@@ -573,6 +546,7 @@ export async function runTenantSettings(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runTenantSettings(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runTenantSettings(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

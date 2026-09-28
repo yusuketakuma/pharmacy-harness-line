@@ -14,9 +14,13 @@ describe('custom_017_pharmacy_account_defaults.sql', () => {
       (id, channel_id, name, channel_access_token, channel_secret)
       VALUES ('account', 'channel', 'Account', 'token', 'secret')`).run();
 
-    expect(db.prepare(`SELECT line_account_id, mode
+    expect(
+      db
+        .prepare(`SELECT line_account_id, mode
       FROM pharmacy_account_capabilities
-      WHERE line_account_id = 'account'`).get()).toEqual({
+      WHERE line_account_id = 'account'`)
+        .get(),
+    ).toEqual({
       line_account_id: 'account',
       mode: 'pharmacy',
     });

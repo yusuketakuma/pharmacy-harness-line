@@ -37,39 +37,38 @@ describe('updateStaffMember tenant profile scope', () => {
   it('does not update a profile shared with another tenant', async () => {
     const sqlite = new Database(':memory:');
     schema(sqlite);
-    sqlite.prepare(`INSERT INTO staff_members
+    sqlite
+      .prepare(`INSERT INTO staff_members
       (id, name, role, api_key, is_active, created_at, updated_at)
-      VALUES ('staff-a', 'Shared Staff', 'staff', 'disabled:key', 1, 'now', 'now')`).run();
-    sqlite.prepare(`INSERT INTO tenant_staff_memberships (tenant_id, staff_id)
-      VALUES ('tenant-a', 'staff-a'), ('tenant-b', 'staff-a')`).run();
+      VALUES ('staff-a', 'Shared Staff', 'staff', 'disabled:key', 1, 'now', 'now')`)
+      .run();
+    sqlite
+      .prepare(`INSERT INTO tenant_staff_memberships (tenant_id, staff_id)
+      VALUES ('tenant-a', 'staff-a'), ('tenant-b', 'staff-a')`)
+      .run();
 
-    const result = await updateStaffMember(
-      d1From(sqlite),
-      'staff-a',
-      { name: 'Tenant A Staff' },
-      'tenant-a',
-    );
+    const result = await updateStaffMember(d1From(sqlite), 'staff-a', { name: 'Tenant A Staff' }, 'tenant-a');
 
     expect(result).toBeNull();
-    expect(sqlite.prepare(`SELECT name FROM staff_members WHERE id = 'staff-a'`).get())
-      .toEqual({ name: 'Shared Staff' });
+    expect(sqlite.prepare(`SELECT name FROM staff_members WHERE id = 'staff-a'`).get()).toEqual({
+      name: 'Shared Staff',
+    });
   });
 
   it('updates a profile when the authenticated tenant is its only membership', async () => {
     const sqlite = new Database(':memory:');
     schema(sqlite);
-    sqlite.prepare(`INSERT INTO staff_members
+    sqlite
+      .prepare(`INSERT INTO staff_members
       (id, name, role, api_key, is_active, created_at, updated_at)
-      VALUES ('staff-a', 'Staff', 'staff', 'disabled:key', 1, 'now', 'now')`).run();
-    sqlite.prepare(`INSERT INTO tenant_staff_memberships (tenant_id, staff_id)
-      VALUES ('tenant-a', 'staff-a')`).run();
+      VALUES ('staff-a', 'Staff', 'staff', 'disabled:key', 1, 'now', 'now')`)
+      .run();
+    sqlite
+      .prepare(`INSERT INTO tenant_staff_memberships (tenant_id, staff_id)
+      VALUES ('tenant-a', 'staff-a')`)
+      .run();
 
-    const result = await updateStaffMember(
-      d1From(sqlite),
-      'staff-a',
-      { name: 'Updated Staff' },
-      'tenant-a',
-    );
+    const result = await updateStaffMember(d1From(sqlite), 'staff-a', { name: 'Updated Staff' }, 'tenant-a');
 
     expect(result?.name).toBe('Updated Staff');
   });

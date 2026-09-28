@@ -20,19 +20,12 @@ import {
   syncConfirmedBookingToGoogle,
   verifyStaffCalendarConnection,
 } from '../../services/booking-calendar-sync.js';
-import {
-  findIdempotencyResponse,
-  saveIdempotencyResponse,
-} from '../../services/booking-idempotency.js';
+import { findIdempotencyResponse } from '../../services/booking-idempotency.js';
 import { sendBookingNotification } from '../../services/booking-notifier.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 import { insertConfirmationReminders } from '../../services/booking-confirm.js';
 import { attachTagAndFireSideEffects } from '../../services/friend-tag-attach.js';
-import {
-  DEFAULT_ACCOUNT_SETTINGS,
-  IDEMPOTENCY_TTL_MINUTES,
-  type BookingStatus,
-} from '../../services/booking-types.js';
+import { DEFAULT_ACCOUNT_SETTINGS, IDEMPOTENCY_TTL_MINUTES, type BookingStatus } from '../../services/booking-types.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { verifyCallerLineIdentity } from '../../services/liff-auth.js';
 import { GoogleCalendarClient } from '../../services/google-calendar.js';
@@ -44,6 +37,7 @@ import {
   signGoogleOAuthState,
   verifyGoogleOAuthState,
 } from '../../services/google-oauth.js';
+import { resolveActiveLineAccountIdByLiffId } from './liff-account.js';
 
 const booking = new Hono<Env>();
 const GOOGLE_OAUTH_CALLBACK_PATH = '/api/booking/google-calendar/oauth/callback';
@@ -68,10 +62,7 @@ function adminCalendarReturnUrl(
   result: 'connected' | 'denied' | 'error',
   adminOrigin?: string,
 ): string {
-  const url = new URL(
-    '/booking/staff/shifts',
-    adminOrigin ?? env.ADMIN_PUBLIC_URL ?? 'https://your-admin.pages.dev',
-  );
+  const url = new URL('/booking/staff/shifts', adminOrigin ?? env.ADMIN_PUBLIC_URL ?? 'https://your-admin.pages.dev');
   if (staffId) url.searchParams.set('staff_id', staffId);
   url.searchParams.set('google', result);
   return url.toString();
@@ -99,22 +90,9 @@ export function jstDayWindowUtc(jstDate: string): { startUtc: string; endUtc: st
   };
 }
 
-async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null> {
-  const liffId = c.req.query('liffId');
-  if (!liffId) return null;
-  const acc = await c.env.DB
-    .prepare(`SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1`)
-    .bind(liffId)
-    .first<{ id: string }>();
-  return acc?.id ?? null;
-}
-
 // LIFF が送る id_token を LINE Login API で verify し、認証済み LINE userId を返す。
 // token の audience が対象 active account/tenant と一致しない場合も null（呼び出し側で 401）。
-export async function verifyCallerLineUserId(
-  c: Context<Env>,
-  lineAccountId: string,
-): Promise<string | null> {
+export async function verifyCallerLineUserId(c: Context<Env>, lineAccountId: string): Promise<string | null> {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   return identity?.lineAccountId === lineAccountId ? identity.lineUserId : null;
 }
@@ -150,16 +128,11 @@ async function assertStaffInAccount(
 // マルチアカウント環境で、別 tenant の friend 行を再利用しないようにする。
 // line_account_id が NULL の旧データ（multi-account 化前）は account 一致が判定できないので
 // 安全側として除外（必要なら個別にバックフィルする）。
-async function resolveFriendId(
-  c: Context<Env>,
-  lineUserId: string,
-  accountId: string,
-): Promise<string | null> {
-  const f = await c.env.DB
-    .prepare(
-      `SELECT id FROM friends
+async function resolveFriendId(c: Context<Env>, lineUserId: string, accountId: string): Promise<string | null> {
+  const f = await c.env.DB.prepare(
+    `SELECT id FROM friends
         WHERE provider_line_user_id = ? AND line_account_id = ?`,
-    )
+  )
     .bind(lineUserId, accountId)
     .first<{ id: string }>();
   return f?.id ?? null;
@@ -214,9 +187,7 @@ async function notifyForBooking(
     friendId: row.friend_id,
     channelAccessToken: row.channel_access_token,
     toLineUserId: row.line_user_id,
-    retryKey: await createBroadcastRetryKey(
-      'booking-notification', bookingId, kind,
-    ),
+    retryKey: await createBroadcastRetryKey('booking-notification', bookingId, kind),
     kind,
     ctx: {
       menuName: row.menu_name,
@@ -232,29 +203,27 @@ async function notifyForBooking(
 // ================================================================
 
 booking.get('/api/liff/booking/menus', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT id, name, category_label, description,
+  const rows = await c.env.DB.prepare(
+    `SELECT id, name, category_label, description,
               duration_minutes, buffer_after_minutes,
               base_price, sort_order
          FROM menus
         WHERE line_account_id = ? AND is_active = 1 AND deleted_at IS NULL
         ORDER BY sort_order ASC, id ASC`,
-    )
+  )
     .bind(accountId)
     .all();
   return c.json({ menus: rows.results });
 });
 
 booking.get('/api/liff/booking/menus/:id/staff', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const menuId = c.req.param('id');
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT s.id, s.display_name, s.role, s.profile_image_url, s.bio,
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.display_name, s.role, s.profile_image_url, s.bio,
               s.is_designation_optional,
               COALESCE(sm.override_price, m.base_price) AS price,
               COALESCE(sm.override_duration_minutes, m.duration_minutes) AS duration_minutes
@@ -263,14 +232,14 @@ booking.get('/api/liff/booking/menus/:id/staff', async (c) => {
          INNER JOIN menus m ON m.id = ?2
         WHERE s.line_account_id = ?1 AND s.is_active = 1 AND s.deleted_at IS NULL
         ORDER BY s.is_designation_optional DESC, s.sort_order ASC, s.id ASC`,
-    )
+  )
     .bind(accountId, menuId)
     .all();
   return c.json({ staff: rows.results });
 });
 
 booking.get('/api/liff/booking/availability', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const menuId = c.req.query('menu_id');
   const staffId = c.req.query('staff_id') || undefined;
@@ -298,7 +267,7 @@ booking.get('/api/liff/booking/availability', async (c) => {
 });
 
 booking.post('/api/liff/booking/requests', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const idemKey = c.req.header('Idempotency-Key');
   if (!idemKey) return c.json({ error: 'missing_idempotency_key' }, 400);
@@ -332,8 +301,7 @@ booking.post('/api/liff/booking/requests', async (c) => {
   }
 
   // Block check: customer cannot book
-  const friend = await c.env.DB
-    .prepare(`SELECT is_following FROM friends WHERE id = ?`)
+  const friend = await c.env.DB.prepare(`SELECT is_following FROM friends WHERE id = ?`)
     .bind(friendId)
     .first<{ is_following: number }>();
   if (!friend || friend.is_following === 0) {
@@ -341,9 +309,8 @@ booking.post('/api/liff/booking/requests', async (c) => {
   }
 
   // Menu + staff_menu lookup (must be offered)
-  const menuRow = await c.env.DB
-    .prepare(
-      `SELECT m.id, m.duration_minutes, m.buffer_after_minutes, m.base_price,
+  const menuRow = await c.env.DB.prepare(
+    `SELECT m.id, m.duration_minutes, m.buffer_after_minutes, m.base_price,
               m.auto_tag_id,
               COALESCE(sm.override_duration_minutes, m.duration_minutes) AS dur,
               COALESCE(sm.override_price, m.base_price) AS price,
@@ -352,9 +319,16 @@ booking.post('/api/liff/booking/requests', async (c) => {
          LEFT JOIN staff_menus sm ON sm.menu_id = m.id AND sm.staff_id = ?2
         WHERE m.id = ?1 AND m.line_account_id = ?3
           AND m.deleted_at IS NULL AND m.is_active = 1`,
-    )
+  )
     .bind(body.menu_id, body.staff_id, accountId)
-    .first<{ duration_minutes: number; buffer_after_minutes: number; auto_tag_id: string | null; dur: number; price: number; is_offered: number | null }>();
+    .first<{
+      duration_minutes: number;
+      buffer_after_minutes: number;
+      auto_tag_id: string | null;
+      dur: number;
+      price: number;
+      is_offered: number | null;
+    }>();
   if (!menuRow || menuRow.is_offered !== 1) {
     return c.json({ error: 'menu_not_offered' }, 422);
   }
@@ -386,15 +360,35 @@ booking.post('/api/liff/booking/requests', async (c) => {
   const slotMatched = latestAvailability.by_staff[0]?.slots.some(
     (slot) => slot.date === startJstDate && slot.start === startJstHHMM,
   );
-  if (!slotMatched) return c.json({ error: 'slot_not_available' }, 422);
+  if (!slotMatched) {
+    // Another request with this key may have committed after the first cache lookup.
+    const completed = await findIdempotencyResponse(c.env.DB, {
+      key: idemKey,
+      lineAccountId: accountId,
+      friendId,
+      now: new Date(),
+    });
+    if (completed) return c.json(completed.body as Record<string, unknown>, completed.status as 201 | 409);
+    return c.json({ error: 'slot_not_available' }, 422);
+  }
 
   const bookingId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
-  // 競合チェックと INSERT を 1 ステートメントで原子化する。
+  const responseBody = { booking_id: bookingId, status: 'requested' };
+  const expiresAt = new Date(Date.parse(nowIso) + IDEMPOTENCY_TTL_MINUTES * 60_000).toISOString();
+  // 予約と再送応答を D1 の単一 transaction にまとめる。receipt 書込み失敗なら予約も戻す。
   // INSERT ... SELECT WHERE NOT EXISTS パターンで、同一スタッフの overlap 行がある場合は
   // 0 行 INSERT に落とす。changes=0 を 409 として扱う。
-  const insertResult = await c.env.DB
-    .prepare(
+  const [, , insertResult, receiptResult] = await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM booking_idempotency_keys WHERE key = ? AND expires_at <= ?`).bind(idemKey, nowIso),
+    c.env.DB.prepare(`DELETE FROM booking_idempotency_scoped
+                      WHERE line_account_id = ? AND friend_id = ? AND key = ? AND expires_at <= ?`).bind(
+      accountId,
+      friendId,
+      idemKey,
+      nowIso,
+    ),
+    c.env.DB.prepare(
       `INSERT INTO bookings
         (id, line_account_id, friend_id, staff_id, menu_id,
          starts_at, ends_at, block_ends_at, status,
@@ -406,9 +400,12 @@ booking.post('/api/liff/booking/requests', async (c) => {
              AND status IN ('requested','confirmed')
              AND starts_at < ?
              AND block_ends_at > ?
-        )`,
-    )
-    .bind(
+        )
+          AND NOT EXISTS (SELECT 1 FROM booking_idempotency_keys
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM booking_idempotency_scoped
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)`,
+    ).bind(
       bookingId,
       accountId,
       friendId,
@@ -425,21 +422,55 @@ booking.post('/api/liff/booking/requests', async (c) => {
       body.staff_id,
       blockEndsAt.toISOString(),
       startsAt.toISOString(),
-    )
-    .run();
+      idemKey,
+      accountId,
+      friendId,
+      idemKey,
+      accountId,
+      friendId,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO booking_idempotency_scoped
+         (line_account_id, friend_id, key, response_status, response_body, expires_at)
+       SELECT ?, ?, ?, CASE WHEN changes() = 1 THEN 201 ELSE 409 END,
+              CASE WHEN changes() = 1 THEN ? ELSE ? END, ?
+        WHERE NOT EXISTS (SELECT 1 FROM booking_idempotency_keys
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)
+       ON CONFLICT DO NOTHING`,
+    ).bind(
+      accountId,
+      friendId,
+      idemKey,
+      JSON.stringify(responseBody),
+      JSON.stringify({ error: 'slot_conflict' }),
+      expiresAt,
+      idemKey,
+      accountId,
+      friendId,
+    ),
+    // Previous-version workers only read raw keys. Mirror the first caller's
+    // receipt when that key is free; a different caller keeps its scoped one.
+    c.env.DB.prepare(
+      `INSERT INTO booking_idempotency_keys
+         (key, line_account_id, friend_id, response_status, response_body, expires_at)
+       SELECT ?, line_account_id, friend_id, response_status, response_body, expires_at
+         FROM booking_idempotency_scoped WHERE key = ? AND line_account_id = ? AND friend_id = ?
+       ON CONFLICT(key) DO NOTHING`,
+    ).bind(idemKey, idemKey, accountId, friendId),
+  ]);
   if ((insertResult.meta?.changes ?? 0) === 0) {
-    const err = { error: 'slot_conflict' };
-    await saveIdempotencyResponse(c.env.DB, {
+    const cachedAfterCommit = await findIdempotencyResponse(c.env.DB, {
       key: idemKey,
       lineAccountId: accountId,
       friendId,
-      status: 409,
-      body: err,
-      ttlMinutes: IDEMPOTENCY_TTL_MINUTES,
       now: new Date(),
     });
-    return c.json(err, 409);
+    if (cachedAfterCommit) {
+      return c.json(cachedAfterCommit.body as Record<string, unknown>, cachedAfterCommit.status as 201 | 409);
+    }
+    return c.json({ error: 'slot_conflict' }, 409);
   }
+  if ((receiptResult.meta?.changes ?? 0) !== 1) throw new Error('booking receipt missing');
 
   c.executionCtx.waitUntil(
     awardActivityMileage(c.env.DB, {
@@ -475,21 +506,11 @@ booking.post('/api/liff/booking/requests', async (c) => {
     );
   }
 
-  const responseBody = { booking_id: bookingId, status: 'requested' };
-  await saveIdempotencyResponse(c.env.DB, {
-    key: idemKey,
-    lineAccountId: accountId,
-    friendId,
-    status: 201,
-    body: responseBody,
-    ttlMinutes: IDEMPOTENCY_TTL_MINUTES,
-    now: new Date(),
-  });
   return c.json(responseBody, 201);
 });
 
 booking.get('/api/liff/booking/me', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   // 履歴も idToken 検証必須。query の lineUserId に頼ると他人の履歴を覗けてしまう。
   const callerLineUserId = await verifyCallerLineUserId(c, accountId);
@@ -497,9 +518,8 @@ booking.get('/api/liff/booking/me', async (c) => {
   const friendId = await resolveFriendId(c, callerLineUserId, accountId);
   if (!friendId) return c.json({ upcoming: [], past: [] });
 
-  const upcoming = await c.env.DB
-    .prepare(
-      `SELECT b.id, b.starts_at, b.status, b.customer_note,
+  const upcoming = await c.env.DB.prepare(
+    `SELECT b.id, b.starts_at, b.status, b.customer_note,
               m.name AS menu_name,
               s.display_name AS staff_name, s.profile_image_url
          FROM bookings b
@@ -509,13 +529,12 @@ booking.get('/api/liff/booking/me', async (c) => {
           AND b.status IN ('requested','confirmed')
           AND b.starts_at >= ?
         ORDER BY b.starts_at ASC`,
-    )
+  )
     .bind(friendId, accountId, new Date().toISOString())
     .all();
 
-  const past = await c.env.DB
-    .prepare(
-      `SELECT b.id, b.starts_at, b.status,
+  const past = await c.env.DB.prepare(
+    `SELECT b.id, b.starts_at, b.status,
               m.name AS menu_name,
               s.display_name AS staff_name, s.profile_image_url
          FROM bookings b
@@ -525,7 +544,7 @@ booking.get('/api/liff/booking/me', async (c) => {
           AND (b.status NOT IN ('requested','confirmed') OR b.starts_at < ?)
         ORDER BY b.requested_at DESC
         LIMIT 50`,
-    )
+  )
     .bind(friendId, accountId, new Date().toISOString())
     .all();
 
@@ -543,15 +562,14 @@ booking.get('/api/liff/booking/me', async (c) => {
 booking.get('/api/booking/admin/menus', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT id, name, category_label, description,
+  const rows = await c.env.DB.prepare(
+    `SELECT id, name, category_label, description,
               duration_minutes, buffer_after_minutes,
               base_price, sort_order, is_active, auto_tag_id
          FROM menus
         WHERE line_account_id = ? AND deleted_at IS NULL
         ORDER BY sort_order ASC, id ASC`,
-    )
+  )
     .bind(accountId)
     .all();
   return c.json({ menus: rows.results });
@@ -572,20 +590,16 @@ booking.post('/api/booking/admin/menus', async (c) => {
   }>();
   const autoTagId = (b.auto_tag_id ?? '').trim() === '' ? null : (b.auto_tag_id as string);
   if (autoTagId) {
-    const tagExists = await c.env.DB
-      .prepare(`SELECT 1 FROM tags WHERE id = ?`)
-      .bind(autoTagId)
-      .first<{ 1: number }>();
+    const tagExists = await c.env.DB.prepare(`SELECT 1 FROM tags WHERE id = ?`).bind(autoTagId).first<{ 1: number }>();
     if (!tagExists) return c.json({ error: 'tag_not_found' }, 400);
   }
   const id = crypto.randomUUID();
-  await c.env.DB
-    .prepare(
-      `INSERT INTO menus
+  await c.env.DB.prepare(
+    `INSERT INTO menus
         (id, line_account_id, name, category_label, description,
          duration_minutes, buffer_after_minutes, base_price, sort_order, auto_tag_id)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    )
+  )
     .bind(
       id,
       accountId,
@@ -621,26 +635,20 @@ booking.put('/api/booking/admin/menus/:id', async (c) => {
   // null として書き込むと既存設定を消してしまうため、key 存在チェックで「明示的に送られた
   // ときだけ」更新する。
   const hasAutoTagId = Object.prototype.hasOwnProperty.call(b, 'auto_tag_id');
-  const autoTagId = hasAutoTagId
-    ? ((b.auto_tag_id ?? '').trim() === '' ? null : (b.auto_tag_id as string))
-    : null;
+  const autoTagId = hasAutoTagId ? ((b.auto_tag_id ?? '').trim() === '' ? null : (b.auto_tag_id as string)) : null;
   if (hasAutoTagId && autoTagId) {
-    const tagExists = await c.env.DB
-      .prepare(`SELECT 1 FROM tags WHERE id = ?`)
-      .bind(autoTagId)
-      .first<{ 1: number }>();
+    const tagExists = await c.env.DB.prepare(`SELECT 1 FROM tags WHERE id = ?`).bind(autoTagId).first<{ 1: number }>();
     if (!tagExists) return c.json({ error: 'tag_not_found' }, 400);
   }
   if (hasAutoTagId) {
-    await c.env.DB
-      .prepare(
-        `UPDATE menus
+    await c.env.DB.prepare(
+      `UPDATE menus
             SET name = ?, category_label = ?, description = ?,
                 duration_minutes = ?, buffer_after_minutes = ?,
                 base_price = ?, sort_order = ?, is_active = ?, auto_tag_id = ?,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
           WHERE id = ? AND line_account_id = ?`,
-      )
+    )
       .bind(
         b.name,
         b.category_label ?? null,
@@ -656,15 +664,14 @@ booking.put('/api/booking/admin/menus/:id', async (c) => {
       )
       .run();
   } else {
-    await c.env.DB
-      .prepare(
-        `UPDATE menus
+    await c.env.DB.prepare(
+      `UPDATE menus
             SET name = ?, category_label = ?, description = ?,
                 duration_minutes = ?, buffer_after_minutes = ?,
                 base_price = ?, sort_order = ?, is_active = ?,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
           WHERE id = ? AND line_account_id = ?`,
-      )
+    )
       .bind(
         b.name,
         b.category_label ?? null,
@@ -686,12 +693,11 @@ booking.delete('/api/booking/admin/menus/:id', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
   const id = c.req.param('id');
-  await c.env.DB
-    .prepare(
-      `UPDATE menus
+  await c.env.DB.prepare(
+    `UPDATE menus
           SET deleted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
         WHERE id = ? AND line_account_id = ?`,
-    )
+  )
     .bind(id, accountId)
     .run();
   return c.json({ ok: true });
@@ -705,9 +711,8 @@ booking.get('/api/booking/admin/menus/:id/staff', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
   const menuId = c.req.param('id');
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT s.id, s.display_name, s.role, s.profile_image_url, s.bio,
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.display_name, s.role, s.profile_image_url, s.bio,
               s.is_designation_optional,
               COALESCE(sm.override_price, m.base_price) AS price,
               COALESCE(sm.override_duration_minutes, m.duration_minutes) AS duration_minutes
@@ -716,7 +721,7 @@ booking.get('/api/booking/admin/menus/:id/staff', async (c) => {
          INNER JOIN menus m ON m.id = ?2
         WHERE s.line_account_id = ?1 AND s.is_active = 1 AND s.deleted_at IS NULL
         ORDER BY s.is_designation_optional DESC, s.sort_order ASC, s.id ASC`,
-    )
+  )
     .bind(accountId, menuId)
     .all();
   return c.json({ staff: rows.results });
@@ -771,8 +776,7 @@ booking.post('/api/booking/admin/bookings', async (c) => {
     return c.json({ error: 'missing_params' }, 400);
   }
 
-  const friend = await c.env.DB
-    .prepare(`SELECT id, is_following FROM friends WHERE id = ? AND line_account_id = ?`)
+  const friend = await c.env.DB.prepare(`SELECT id, is_following FROM friends WHERE id = ? AND line_account_id = ?`)
     .bind(body.friend_id, accountId)
     .first<{ id: string; is_following: number }>();
   if (!friend) return c.json({ error: 'friend_not_found' }, 404);
@@ -783,9 +787,8 @@ booking.post('/api/booking/admin/bookings', async (c) => {
     return c.json({ error: 'staff_not_found' }, 404);
   }
 
-  const menuRow = await c.env.DB
-    .prepare(
-      `SELECT m.id, m.duration_minutes, m.buffer_after_minutes, m.base_price,
+  const menuRow = await c.env.DB.prepare(
+    `SELECT m.id, m.duration_minutes, m.buffer_after_minutes, m.base_price,
               COALESCE(sm.override_duration_minutes, m.duration_minutes) AS dur,
               COALESCE(sm.override_price, m.base_price) AS price,
               sm.is_offered
@@ -793,9 +796,15 @@ booking.post('/api/booking/admin/bookings', async (c) => {
          LEFT JOIN staff_menus sm ON sm.menu_id = m.id AND sm.staff_id = ?2
         WHERE m.id = ?1 AND m.line_account_id = ?3
           AND m.deleted_at IS NULL AND m.is_active = 1`,
-    )
+  )
     .bind(body.menu_id, body.staff_id, accountId)
-    .first<{ duration_minutes: number; buffer_after_minutes: number; dur: number; price: number; is_offered: number | null }>();
+    .first<{
+      duration_minutes: number;
+      buffer_after_minutes: number;
+      dur: number;
+      price: number;
+      is_offered: number | null;
+    }>();
   if (!menuRow || menuRow.is_offered !== 1) {
     return c.json({ error: 'menu_not_offered' }, 422);
   }
@@ -823,17 +832,16 @@ booking.post('/api/booking/admin/bookings', async (c) => {
     minLeadTimeMinutes: 0,
     googleCredentials: googleCredentials(c.env),
   });
-  if (!latestAvailability.by_staff[0]?.slots.some(
-    (slot) => slot.date === startJstDate && slot.start === startJstHHMM,
-  )) {
+  if (
+    !latestAvailability.by_staff[0]?.slots.some((slot) => slot.date === startJstDate && slot.start === startJstHHMM)
+  ) {
     return c.json({ error: 'slot_not_available' }, 422);
   }
 
   const bookingId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
-  const insertResult = await c.env.DB
-    .prepare(
-      `INSERT INTO bookings
+  const insertResult = await c.env.DB.prepare(
+    `INSERT INTO bookings
         (id, line_account_id, friend_id, staff_id, menu_id,
          starts_at, ends_at, block_ends_at, status,
          customer_note, price_at_booking, requested_at, decided_at)
@@ -845,7 +853,7 @@ booking.post('/api/booking/admin/bookings', async (c) => {
              AND starts_at < ?
              AND block_ends_at > ?
         )`,
-    )
+  )
     .bind(
       bookingId,
       accountId,
@@ -877,11 +885,7 @@ booking.post('/api/booking/admin/bookings', async (c) => {
   });
   let calendarSync: 'not_configured' | 'synced' | 'failed' = 'not_configured';
   try {
-    const synced = await syncConfirmedBookingToGoogle(
-      c.env.DB,
-      googleCredentials(c.env),
-      bookingId,
-    );
+    const synced = await syncConfirmedBookingToGoogle(c.env.DB, googleCredentials(c.env), bookingId);
     calendarSync = synced.synced ? 'synced' : 'not_configured';
   } catch (error) {
     calendarSync = 'failed';
@@ -898,14 +902,13 @@ booking.post('/api/booking/admin/bookings', async (c) => {
 booking.get('/api/booking/admin/staff', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT id, name, display_name, role, profile_image_url, bio,
+  const rows = await c.env.DB.prepare(
+    `SELECT id, name, display_name, role, profile_image_url, bio,
               sort_order, is_designation_optional, is_active
          FROM staff
         WHERE line_account_id = ? AND deleted_at IS NULL
         ORDER BY sort_order ASC, id ASC`,
-    )
+  )
     .bind(accountId)
     .all();
   return c.json({ staff: rows.results });
@@ -924,13 +927,12 @@ booking.post('/api/booking/admin/staff', async (c) => {
     is_designation_optional?: boolean;
   }>();
   const id = crypto.randomUUID();
-  await c.env.DB
-    .prepare(
-      `INSERT INTO staff
+  await c.env.DB.prepare(
+    `INSERT INTO staff
         (id, line_account_id, name, display_name, role, profile_image_url, bio,
          sort_order, is_designation_optional)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-    )
+  )
     .bind(
       id,
       accountId,
@@ -960,14 +962,13 @@ booking.put('/api/booking/admin/staff/:id', async (c) => {
     is_designation_optional?: boolean;
     is_active?: boolean;
   }>();
-  await c.env.DB
-    .prepare(
-      `UPDATE staff
+  await c.env.DB.prepare(
+    `UPDATE staff
           SET name = ?, display_name = ?, role = ?, profile_image_url = ?, bio = ?,
               sort_order = ?, is_designation_optional = ?, is_active = ?,
               updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
         WHERE id = ? AND line_account_id = ?`,
-    )
+  )
     .bind(
       b.name,
       b.display_name,
@@ -988,12 +989,11 @@ booking.delete('/api/booking/admin/staff/:id', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
   const id = c.req.param('id');
-  await c.env.DB
-    .prepare(
-      `UPDATE staff
+  await c.env.DB.prepare(
+    `UPDATE staff
           SET deleted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
         WHERE id = ? AND line_account_id = ?`,
-    )
+  )
     .bind(id, accountId)
     .run();
   return c.json({ ok: true });
@@ -1008,9 +1008,8 @@ booking.get('/api/booking/admin/staff/:id/menus', async (c) => {
   if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT m.id AS menu_id, m.name,
+  const rows = await c.env.DB.prepare(
+    `SELECT m.id AS menu_id, m.name,
               COALESCE(sm.is_offered, 0) AS is_offered,
               sm.override_duration_minutes,
               sm.override_price
@@ -1018,7 +1017,7 @@ booking.get('/api/booking/admin/staff/:id/menus', async (c) => {
          LEFT JOIN staff_menus sm ON sm.staff_id = ?2 AND sm.menu_id = m.id
         WHERE m.line_account_id = ?1 AND m.deleted_at IS NULL
         ORDER BY m.sort_order ASC`,
-    )
+  )
     .bind(accountId, staffId)
     .all();
   return c.json({ matrix: rows.results });
@@ -1042,8 +1041,7 @@ booking.put('/api/booking/admin/staff/:id/menus', async (c) => {
   // menu_id も同 account のものに限定。account 外の menu_id は無視。
   const validMenuIds = new Set(
     (
-      await c.env.DB
-        .prepare(`SELECT id FROM menus WHERE line_account_id = ? AND deleted_at IS NULL`)
+      await c.env.DB.prepare(`SELECT id FROM menus WHERE line_account_id = ? AND deleted_at IS NULL`)
         .bind(accountId)
         .all<{ id: string }>()
     ).results.map((r) => r.id),
@@ -1052,19 +1050,11 @@ booking.put('/api/booking/admin/staff/:id/menus', async (c) => {
   const filtered = b.menus.filter((m) => validMenuIds.has(m.menu_id));
   if (filtered.length > 0) {
     const stmts = filtered.map((m) =>
-      c.env.DB
-        .prepare(
-          `INSERT INTO staff_menus
+      c.env.DB.prepare(
+        `INSERT INTO staff_menus
             (staff_id, menu_id, is_offered, override_duration_minutes, override_price)
            VALUES (?,?,?,?,?)`,
-        )
-        .bind(
-          staffId,
-          m.menu_id,
-          m.is_offered ? 1 : 0,
-          m.override_duration_minutes ?? null,
-          m.override_price ?? null,
-        ),
+      ).bind(staffId, m.menu_id, m.is_offered ? 1 : 0, m.override_duration_minutes ?? null, m.override_price ?? null),
     );
     await c.env.DB.batch(stmts);
   }
@@ -1080,13 +1070,12 @@ booking.get('/api/booking/admin/staff/:id/availability-rules', async (c) => {
   if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
-  const rows = await c.env.DB
-    .prepare(
-      `SELECT id, weekday, start_time, end_time, is_active
+  const rows = await c.env.DB.prepare(
+    `SELECT id, weekday, start_time, end_time, is_active
          FROM staff_availability_rules
         WHERE staff_id = ?
         ORDER BY weekday ASC`,
-    )
+  )
     .bind(staffId)
     .all();
   return c.json({ rules: rows.results });
@@ -1118,13 +1107,11 @@ booking.put('/api/booking/admin/staff/:id/availability-rules', async (c) => {
   const statements: D1PreparedStatement[] = [
     c.env.DB.prepare(`DELETE FROM staff_availability_rules WHERE staff_id = ?`).bind(staffId),
     ...body.rules.map((rule) =>
-      c.env.DB
-        .prepare(
-          `INSERT INTO staff_availability_rules
+      c.env.DB.prepare(
+        `INSERT INTO staff_availability_rules
             (id, staff_id, weekday, start_time, end_time, is_active)
            VALUES (?, ?, ?, ?, ?, 1)`,
-        )
-        .bind(crypto.randomUUID(), staffId, rule.weekday, rule.start_time, rule.end_time),
+      ).bind(crypto.randomUUID(), staffId, rule.weekday, rule.start_time, rule.end_time),
     ),
   ];
   await c.env.DB.batch(statements);
@@ -1145,15 +1132,18 @@ booking.post('/api/booking/admin/staff/:id/google-calendar/oauth/start', async (
   if (!googleOAuthConfigured(credentials)) {
     return c.json({ error: 'google_oauth_not_configured' }, 503);
   }
-  const state = await signGoogleOAuthState({
-    accountId,
-    staffId,
-    expiresAt: Date.now() + GOOGLE_OAUTH_STATE_TTL_MS,
-    adminOrigin: (() => {
-      const origin = c.req.header('Origin');
-      return resolveCorsOrigin(c.env, origin, c.req.url) === origin ? origin : undefined;
-    })(),
-  }, c.env.API_KEY);
+  const state = await signGoogleOAuthState(
+    {
+      accountId,
+      staffId,
+      expiresAt: Date.now() + GOOGLE_OAUTH_STATE_TTL_MS,
+      adminOrigin: (() => {
+        const origin = c.req.header('Origin');
+        return resolveCorsOrigin(c.env, origin, c.req.url) === origin ? origin : undefined;
+      })(),
+    },
+    c.env.API_KEY,
+  );
   const authorizationUrl = buildGoogleOAuthAuthorizationUrl({
     clientId: credentials.oauthClientId!,
     redirectUri: googleOAuthRedirectUri(c.req.url),
@@ -1181,11 +1171,10 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
     if (!code || !googleOAuthConfigured(credentials)) {
       throw new Error('google_oauth_callback_invalid');
     }
-    const mappedTenant = await c.env.DB
-      .prepare(
-        `SELECT tenant_id FROM tenant_line_accounts
+    const mappedTenant = await c.env.DB.prepare(
+      `SELECT tenant_id FROM tenant_line_accounts
           WHERE line_account_id = ? LIMIT 1`,
-      )
+    )
       .bind(payload.accountId)
       .first<{ tenant_id: string }>();
     const tenantId = c.get('tenantId') ?? mappedTenant?.tenant_id;
@@ -1200,27 +1189,28 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
     });
 
     // Verify the granted account immediately before persisting the long-lived token.
-    const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: token.accessToken });
+    const client = new GoogleCalendarClient({
+      calendarId: 'primary',
+      accessToken: token.accessToken,
+    });
     const now = new Date();
     await client.getFreeBusy(now.toISOString(), new Date(now.getTime() + 60_000).toISOString());
 
-    const existing = await c.env.DB
-      .prepare(
-        `SELECT id FROM google_calendar_connections
+    const existing = await c.env.DB.prepare(
+      `SELECT id FROM google_calendar_connections
           WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? LIMIT 1`,
-      )
+    )
       .bind(tenantId, payload.accountId, payload.staffId)
       .first<{ id: string }>();
     const connectionId = existing?.id ?? crypto.randomUUID();
     const nowIso = now.toISOString();
     if (existing) {
-      await c.env.DB
-        .prepare(
-          `UPDATE google_calendar_connections
+      await c.env.DB.prepare(
+        `UPDATE google_calendar_connections
             SET calendar_id='primary', auth_type='oauth', access_token=?, refresh_token=?,
                   api_key=NULL, is_active=1, last_verified_at=?, last_error=NULL, updated_at=?
             WHERE id=? AND tenant_id=? AND line_account_id=? AND staff_id=?`,
-        )
+      )
         .bind(
           token.accessToken,
           token.refreshToken,
@@ -1233,13 +1223,12 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
         )
         .run();
     } else {
-      await c.env.DB
-        .prepare(
-          `INSERT INTO google_calendar_connections
+      await c.env.DB.prepare(
+        `INSERT INTO google_calendar_connections
             (id, tenant_id, calendar_id, line_account_id, staff_id, access_token, refresh_token,
              auth_type, is_active, last_verified_at, created_at, updated_at)
            VALUES (?, ?, 'primary', ?, ?, ?, ?, 'oauth', 1, ?, ?, ?)`,
-        )
+      )
         .bind(
           connectionId,
           tenantId,
@@ -1268,21 +1257,18 @@ booking.get('/api/booking/admin/staff/:id/google-calendar', async (c) => {
   if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
-  const connection = await c.env.DB
-    .prepare(
-      `SELECT id, calendar_id, auth_type, is_active, last_verified_at, last_error
+  const connection = await c.env.DB.prepare(
+    `SELECT id, calendar_id, auth_type, is_active, last_verified_at, last_error
          FROM google_calendar_connections
         WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1
         LIMIT 1`,
-    )
+  )
     .bind(tenantId, accountId, staffId)
     .first();
   return c.json({
     connection,
     service_account: {
-      configured: Boolean(
-        c.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && c.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-      ),
+      configured: Boolean(c.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && c.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY),
       email: c.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? null,
     },
     oauth: {
@@ -1304,22 +1290,24 @@ booking.put('/api/booking/admin/staff/:id/google-calendar', async (c) => {
   if (!calendarId || calendarId.length > 1024 || /[\r\n]/.test(calendarId)) {
     return c.json({ error: 'invalid_calendar_id' }, 422);
   }
-  const existing = await c.env.DB
-    .prepare(
-      `SELECT id FROM google_calendar_connections
+  const existing = await c.env.DB.prepare(
+    `SELECT id FROM google_calendar_connections
         WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? LIMIT 1`,
-    )
+  )
     .bind(tenantId, accountId, staffId)
     .first<{ id: string }>();
   const connectionId = existing?.id ?? crypto.randomUUID();
   try {
-    await verifyStaffCalendarConnection({
-      id: connectionId,
-      calendar_id: calendarId,
-      auth_type: 'service_account',
-      access_token: null,
-      refresh_token: null,
-    }, googleCredentials(c.env));
+    await verifyStaffCalendarConnection(
+      {
+        id: connectionId,
+        calendar_id: calendarId,
+        auth_type: 'service_account',
+        access_token: null,
+        refresh_token: null,
+      },
+      googleCredentials(c.env),
+    );
   } catch (error) {
     console.error('Google Calendar verification failed:', error);
     const message = error instanceof Error ? error.message : String(error);
@@ -1328,24 +1316,22 @@ booking.put('/api/booking/admin/staff/:id/google-calendar', async (c) => {
   }
   const now = new Date().toISOString();
   if (existing) {
-    await c.env.DB
-      .prepare(
-        `UPDATE google_calendar_connections
+    await c.env.DB.prepare(
+      `UPDATE google_calendar_connections
             SET calendar_id = ?, auth_type = 'service_account',
                 access_token = NULL, refresh_token = NULL, is_active = 1,
                 last_verified_at = ?, last_error = NULL, updated_at = ?
           WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND staff_id = ?`,
-      )
+    )
       .bind(calendarId, now, now, connectionId, tenantId, accountId, staffId)
       .run();
   } else {
-    await c.env.DB
-      .prepare(
-        `INSERT INTO google_calendar_connections
+    await c.env.DB.prepare(
+      `INSERT INTO google_calendar_connections
           (id, tenant_id, calendar_id, line_account_id, staff_id, auth_type, is_active,
            last_verified_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'service_account', 1, ?, ?, ?)`,
-      )
+    )
       .bind(connectionId, tenantId, calendarId, accountId, staffId, now, now, now)
       .run();
   }
@@ -1360,13 +1346,12 @@ booking.delete('/api/booking/admin/staff/:id/google-calendar', async (c) => {
   if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
-  const connection = await c.env.DB
-    .prepare(
-      `SELECT auth_type, access_token, refresh_token
+  const connection = await c.env.DB.prepare(
+    `SELECT auth_type, access_token, refresh_token
          FROM google_calendar_connections
         WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1
         LIMIT 1`,
-    )
+  )
     .bind(tenantId, accountId, staffId)
     .first<{
       auth_type: string;
@@ -1377,16 +1362,16 @@ booking.delete('/api/booking/admin/staff/:id/google-calendar', async (c) => {
     const token = connection.refresh_token ?? connection.access_token;
     if (token) {
       await revokeGoogleOAuthToken(token).catch((error) =>
-        console.error('Google OAuth revoke failed during disconnect:', error));
+        console.error('Google OAuth revoke failed during disconnect:', error),
+      );
     }
   }
-  await c.env.DB
-    .prepare(
-      `UPDATE google_calendar_connections
+  await c.env.DB.prepare(
+    `UPDATE google_calendar_connections
           SET is_active = 0, access_token = NULL, refresh_token = NULL,
               updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
         WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1`,
-    )
+  )
     .bind(tenantId, accountId, staffId)
     .run();
   return c.json({ ok: true });
@@ -1401,12 +1386,13 @@ booking.get('/api/booking/admin/staff/:id/shifts', async (c) => {
   }
   const from = c.req.query('from');
   const to = c.req.query('to');
-  const sql = from && to
-    ? `SELECT id, work_date, start_time, end_time
+  const sql =
+    from && to
+      ? `SELECT id, work_date, start_time, end_time
          FROM staff_shifts
         WHERE staff_id = ? AND work_date BETWEEN ? AND ?
         ORDER BY work_date ASC`
-    : `SELECT id, work_date, start_time, end_time
+      : `SELECT id, work_date, start_time, end_time
          FROM staff_shifts
         WHERE staff_id = ?
         ORDER BY work_date ASC`;
@@ -1427,15 +1413,14 @@ booking.put('/api/booking/admin/staff/:id/shifts', async (c) => {
   }>();
   // Upsert each row
   for (const s of b.shifts) {
-    await c.env.DB
-      .prepare(
-        `INSERT INTO staff_shifts (id, staff_id, work_date, start_time, end_time)
+    await c.env.DB.prepare(
+      `INSERT INTO staff_shifts (id, staff_id, work_date, start_time, end_time)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(staff_id, work_date) DO UPDATE
             SET start_time = excluded.start_time,
                 end_time = excluded.end_time,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')`,
-      )
+    )
       .bind(crypto.randomUUID(), staffId, s.work_date, s.start_time, s.end_time)
       .run();
   }
@@ -1450,10 +1435,7 @@ booking.delete('/api/booking/admin/staff/:id/shifts/:shiftId', async (c) => {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
   const shiftId = c.req.param('shiftId');
-  await c.env.DB
-    .prepare(`DELETE FROM staff_shifts WHERE id = ? AND staff_id = ?`)
-    .bind(shiftId, staffId)
-    .run();
+  await c.env.DB.prepare(`DELETE FROM staff_shifts WHERE id = ? AND staff_id = ?`).bind(shiftId, staffId).run();
   return c.json({ ok: true });
 });
 
@@ -1484,13 +1466,11 @@ booking.post('/api/booking/admin/staff/:id/shifts/generate', async (c) => {
     const tpl = b.weekly_template[dayKeys[d.getUTCDay()]];
     if (!tpl) continue;
     stmts.push(
-      c.env.DB
-        .prepare(
-          `INSERT INTO staff_shifts (id, staff_id, work_date, start_time, end_time)
+      c.env.DB.prepare(
+        `INSERT INTO staff_shifts (id, staff_id, work_date, start_time, end_time)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(staff_id, work_date) DO NOTHING`,
-        )
-        .bind(crypto.randomUUID(), staffId, d.toISOString().slice(0, 10), tpl.start, tpl.end),
+      ).bind(crypto.randomUUID(), staffId, d.toISOString().slice(0, 10), tpl.start, tpl.end),
     );
   }
   if (stmts.length === 0) return c.json({ inserted: 0 });
@@ -1504,8 +1484,9 @@ booking.get('/api/booking/admin/requests', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
   const status = c.req.query('status');
-  const sql = status === 'all'
-    ? `SELECT b.*,
+  const sql =
+    status === 'all'
+      ? `SELECT b.*,
               m.name AS menu_name,
               s.display_name AS staff_name,
               f.display_name AS friend_name
@@ -1516,7 +1497,7 @@ booking.get('/api/booking/admin/requests', async (c) => {
         WHERE b.line_account_id = ?
         ORDER BY b.requested_at DESC
         LIMIT 500`
-    : `SELECT b.*,
+      : `SELECT b.*,
               m.name AS menu_name,
               s.display_name AS staff_name,
               f.display_name AS friend_name
@@ -1529,8 +1510,11 @@ booking.get('/api/booking/admin/requests', async (c) => {
         LIMIT 500`;
   const stmt = c.env.DB.prepare(sql);
   const rows = await (status === 'all' || !status
-    ? (status === 'all' ? stmt.bind(accountId) : stmt.bind(accountId, 'requested'))
-    : stmt.bind(accountId, status)).all();
+    ? status === 'all'
+      ? stmt.bind(accountId)
+      : stmt.bind(accountId, 'requested')
+    : stmt.bind(accountId, status)
+  ).all();
   return c.json({ requests: rows.results });
 });
 
@@ -1539,8 +1523,7 @@ booking.patch('/api/booking/admin/requests/:id', async (c) => {
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
   const id = c.req.param('id');
   const b = await c.req.json<{ action: BookingAction }>();
-  const row = await c.env.DB
-    .prepare(`SELECT id, status, starts_at FROM bookings WHERE id = ? AND line_account_id = ?`)
+  const row = await c.env.DB.prepare(`SELECT id, status, starts_at FROM bookings WHERE id = ? AND line_account_id = ?`)
     .bind(id, accountId)
     .first<{ id: string; status: BookingStatus; starts_at: string }>();
   if (!row) return c.json({ error: 'not_found' }, 404);
@@ -1550,12 +1533,11 @@ booking.patch('/api/booking/admin/requests/:id', async (c) => {
   const next = nextStatus(row.status, b.action);
   // 条件付き UPDATE: 同時 PATCH の race を防ぐ。changes=0 のときは別オペレータが先に
   // 状態を変えたので 409 を返し、副作用（reminders 作成・通知）は走らせない。
-  const updateResult = await c.env.DB
-    .prepare(
-      `UPDATE bookings SET status = ?, decided_at = ?,
+  const updateResult = await c.env.DB.prepare(
+    `UPDATE bookings SET status = ?, decided_at = ?,
                             updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
         WHERE id = ? AND status = ?`,
-    )
+  )
     .bind(next, new Date().toISOString(), id, row.status)
     .run();
   if ((updateResult.meta?.changes ?? 0) === 0) {
@@ -1585,10 +1567,9 @@ booking.patch('/api/booking/admin/requests/:id', async (c) => {
       ),
     );
   } else if (next === 'cancelled' || next === 'expired') {
-    await c.env.DB
-      .prepare(
-        `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status IN ('pending','failed','processing')`,
-      )
+    await c.env.DB.prepare(
+      `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status IN ('pending','failed','processing')`,
+    )
       .bind(id)
       .run();
     c.executionCtx.waitUntil(
@@ -1605,11 +1586,10 @@ booking.patch('/api/booking/admin/requests/:id', async (c) => {
 booking.get('/api/booking/admin/pending-count', async (c) => {
   const accountId = await resolveAccountIdAdmin(c);
   if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
-  const row = await c.env.DB
-    .prepare(
-      `SELECT COUNT(*) AS cnt FROM bookings
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS cnt FROM bookings
         WHERE line_account_id = ? AND status = 'requested'`,
-    )
+  )
     .bind(accountId)
     .first<{ cnt: number }>();
   return c.json({ count: row?.cnt ?? 0 });

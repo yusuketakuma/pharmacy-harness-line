@@ -22,18 +22,20 @@ function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const mynaApi = {
-  active: () => request<{ handoff: MynaHandoff | null }>(
-    '/api/liff/pharmacy/myna-handoffs/active',
-  ),
+  active: () => request<{ handoff: MynaHandoff | null }>('/api/liff/pharmacy/myna-handoffs/active'),
   create: (method: MynaMethod, correlationId: string, patientId?: string) =>
-    post<{ handoff: MynaHandoff; launchUrl: string | null }>(
-      '/api/liff/pharmacy/myna-handoffs',
-      { method, correlationId, ...(patientId ? { patientId } : {}) },
+    post<{ handoff: MynaHandoff; launchUrl: string | null }>('/api/liff/pharmacy/myna-handoffs', {
+      method,
+      correlationId,
+      ...(patientId ? { patientId } : {}),
+    }),
+  launch: (handoffId: string) =>
+    post<{ handoff: MynaHandoff; launchUrl: string }>(
+      `/api/liff/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}/launch`,
+      {},
     ),
-  launch: (handoffId: string) => post<{ handoff: MynaHandoff; launchUrl: string }>(
-    `/api/liff/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}/launch`, {},
-  ),
-  report: (handoffId: string, result: MynaPatientReport) => post<{ handoff: MynaHandoff }>(
-    `/api/liff/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}/patient-report`, { result },
-  ),
+  report: (handoffId: string, result: MynaPatientReport) =>
+    post<{ handoff: MynaHandoff }>(`/api/liff/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}/patient-report`, {
+      result,
+    }),
 };

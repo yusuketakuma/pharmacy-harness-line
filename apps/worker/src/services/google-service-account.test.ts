@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import {
-  getGoogleServiceAccountToken,
-  resetGoogleServiceAccountTokenCacheForTest,
-} from './google-service-account.js';
+import { getGoogleServiceAccountToken, resetGoogleServiceAccountTokenCacheForTest } from './google-service-account.js';
 
 function base64(bytes: Uint8Array): string {
   let binary = '';
@@ -12,17 +9,22 @@ function base64(bytes: Uint8Array): string {
 
 function decodeJwtPart(part: string): Record<string, unknown> {
   const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   return JSON.parse(atob(padded));
 }
 
 async function makeCredentials() {
-  const keys = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+  const keys = (await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify'],
-  ) as CryptoKeyPair;
-  const exported = await crypto.subtle.exportKey('pkcs8', keys.privateKey) as ArrayBuffer;
+  )) as CryptoKeyPair;
+  const exported = (await crypto.subtle.exportKey('pkcs8', keys.privateKey)) as ArrayBuffer;
   const privateKey = `-----BEGIN PRIVATE KEY-----\n${base64(new Uint8Array(exported))}\n-----END PRIVATE KEY-----`;
   return { email: 'calendar@example.iam.gserviceaccount.com', privateKey };
 }
@@ -68,9 +70,10 @@ describe('getGoogleServiceAccountToken', () => {
 
   test('token endpoint response body を Error へ含めない', async () => {
     const credentials = await makeCredentials();
-    vi.stubGlobal('fetch', vi.fn(async () =>
-      new Response('sensitive-upstream-detail', { status: 401 }),
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('sensitive-upstream-detail', { status: 401 })),
+    );
 
     const error = await getGoogleServiceAccountToken(credentials).catch((caught: unknown) => caught);
 

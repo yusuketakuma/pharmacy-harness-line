@@ -1,19 +1,22 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import PatientIntakePage, { canSubmitIntake } from './PatientIntakePage.js';
+import PatientIntakePage, {
+  canSubmitIntake,
+  isCurrentPatientReady,
+  retainPatientIntakeOperation,
+} from './PatientIntakePage.js';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   emptyPatientProfileDraft,
+  PATIENT_PROXY_TERMS_HASH,
+  PATIENT_PROXY_TERMS_TEXT,
   PatientProfileForm,
   patientProfileErrors,
 } from './PatientProfileForm.js';
-import {
-  INITIAL_INTAKE_ANSWERS,
-  PatientQuestionnaire,
-  safetyUnansweredKeys,
-} from './PatientQuestionnaire.js';
+import { INITIAL_INTAKE_ANSWERS, PatientQuestionnaire, safetyUnansweredKeys } from './PatientQuestionnaire.js';
 
 const answers = {
   allergiesStatus: 'none' as const,
@@ -27,12 +30,17 @@ const answers = {
   medicationAdherence: 'unknown' as const,
 };
 
-const source = readFileSync(
-  fileURLToPath(new URL('./PatientIntakePage.tsx', import.meta.url).href),
-  'utf8',
-);
+const source = readFileSync(fileURLToPath(new URL('./PatientIntakePage.tsx', import.meta.url).href), 'utf8');
 
 describe('patient intake UI contract', () => {
+  it("does not reuse another patient's loading or error state for an action", () => {
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'ready' })).toBe(true);
+    expect(isCurrentPatientReady('patient-b', { patientId: 'patient-a', status: 'ready' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'loading' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'error' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', null)).toBe(false);
+  });
+
   it('requires both consents and a complete status answer', () => {
     expect(canSubmitIntake(answers, false, true, false, true)).toBe(false);
     expect(canSubmitIntake(answers, true, false, false, true)).toBe(false);
@@ -42,31 +50,43 @@ describe('patient intake UI contract', () => {
   });
 
   it('renders family registration and pharmacy-safe questionnaire labels', () => {
-    const page = renderToStaticMarkup(<MemoryRouter><PatientIntakePage /></MemoryRouter>);
-    const profile = [false, true].map((showAddress) => renderToStaticMarkup(
-      <PatientProfileForm
-        draft={emptyPatientProfileDraft('child')}
-        editing={false}
-        busy={false}
-        showAddress={showAddress}
-        onChange={() => undefined}
-        onToggleAddress={() => undefined}
-        onSubmit={() => undefined}
-      />,
-    )).join('');
-    const questionnaire = [1, 2].map((step) => renderToStaticMarkup(<PatientQuestionnaire
-      answers={step === 2
-        ? { ...INITIAL_INTAKE_ANSWERS, medicalHistoryStatus: 'yes' }
-        : INITIAL_INTAKE_ANSWERS}
-      step={step}
-      busy={false}
-      showPregnancyQuestions
-      representativeConsent={false}
-      privacyConsent={false}
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />)).join('');
+    const page = renderToStaticMarkup(
+      <MemoryRouter>
+        <PatientIntakePage />
+      </MemoryRouter>,
+    );
+    const profile = [false, true]
+      .map((showAddress) =>
+        renderToStaticMarkup(
+          <PatientProfileForm
+            draft={emptyPatientProfileDraft('child')}
+            editing={false}
+            busy={false}
+            showAddress={showAddress}
+            onChange={() => undefined}
+            onToggleAddress={() => undefined}
+            onSubmit={() => undefined}
+          />,
+        ),
+      )
+      .join('');
+    const questionnaire = [1, 2]
+      .map((step) =>
+        renderToStaticMarkup(
+          <PatientQuestionnaire
+            answers={step === 2 ? { ...INITIAL_INTAKE_ANSWERS, medicalHistoryStatus: 'yes' } : INITIAL_INTAKE_ANSWERS}
+            step={step}
+            busy={false}
+            showPregnancyQuestions
+            representativeConsent={false}
+            privacyConsent={false}
+            onAnswersChange={() => undefined}
+            onRepresentativeConsentChange={() => undefined}
+            onPrivacyConsentChange={() => undefined}
+          />,
+        ),
+      )
+      .join('');
     const html = page + profile + questionnaire;
 
     expect(html).toContain('患者アンケート');
@@ -87,17 +107,19 @@ describe('patient intake UI contract', () => {
   });
 
   it('names radio groups by answer key and marks the chosen option', () => {
-    const html = renderToStaticMarkup(<PatientQuestionnaire
-      answers={INITIAL_INTAKE_ANSWERS}
-      step={1}
-      busy={false}
-      showPregnancyQuestions={false}
-      representativeConsent={false}
-      privacyConsent={false}
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />);
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={INITIAL_INTAKE_ANSWERS}
+        step={1}
+        busy={false}
+        showPregnancyQuestions={false}
+        representativeConsent={false}
+        privacyConsent={false}
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
     expect(html).toContain('name="allergiesStatus"');
     expect(html).toContain('name="medicationStatus"');
     expect(html).not.toContain('name="アレルギー"');
@@ -111,25 +133,27 @@ describe('patient intake UI contract', () => {
   });
 
   it('shows the pharmacy-authored purpose of use in the consent section', () => {
-    const html = renderToStaticMarkup(<PatientQuestionnaire
-      answers={INITIAL_INTAKE_ANSWERS}
-      step={3}
-      busy={false}
-      showPregnancyQuestions={false}
-      representativeConsent={false}
-      privacyConsent={false}
-      privacyPolicy={{
-        purpose_text: '調剤・服薬指導および必要な連絡のために利用します。',
-        purpose_url: 'https://pharmacy-a.example/privacy',
-        contact_point: '〇〇薬局 個人情報相談窓口 03-0000-0000',
-        entrustment_text: 'システム運営を外部事業者に委託しています。',
-        policy_version: 2,
-        content_hash: 'a'.repeat(64),
-      }}
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />);
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={INITIAL_INTAKE_ANSWERS}
+        step={3}
+        busy={false}
+        showPregnancyQuestions={false}
+        representativeConsent={false}
+        privacyConsent={false}
+        privacyPolicy={{
+          purpose_text: '調剤・服薬指導および必要な連絡のために利用します。',
+          purpose_url: 'https://pharmacy-a.example/privacy',
+          contact_point: '〇〇薬局 個人情報相談窓口 03-0000-0000',
+          entrustment_text: 'システム運営を外部事業者に委託しています。',
+          policy_version: 2,
+          content_hash: 'a'.repeat(64),
+        }}
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
 
     expect(html).toContain('調剤・服薬指導および必要な連絡のために利用します。');
     expect(html).toContain('https://pharmacy-a.example/privacy');
@@ -139,18 +163,20 @@ describe('patient intake UI contract', () => {
   });
 
   it('does not allow submission without a pharmacy privacy policy', () => {
-    const html = renderToStaticMarkup(<PatientQuestionnaire
-      answers={INITIAL_INTAKE_ANSWERS}
-      step={3}
-      busy={false}
-      showPregnancyQuestions={false}
-      representativeConsent={false}
-      privacyConsent={false}
-      privacyPolicy={null}
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />);
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={INITIAL_INTAKE_ANSWERS}
+        step={3}
+        busy={false}
+        showPregnancyQuestions={false}
+        representativeConsent={false}
+        privacyConsent={false}
+        privacyPolicy={null}
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
 
     expect(html).toContain('薬局にお問い合わせください');
     expect(html).toContain('disabled=""');
@@ -162,16 +188,69 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('privacyPolicyVersion: privacyPolicy.policy_version');
     expect(source).toContain('privacyPolicyHash: privacyPolicy.content_hash');
     expect(source).toContain('status === 409');
-    expect(source).toContain('await loadPrivacyPolicy()');
-    expect(source).toContain('setPrivacyConsent(false);\n      setPrivacyPolicy(result.policy);');
+    expect(source).toContain('await loadPrivacyPolicy();');
+    // Consent resets only when the policy fingerprint actually changed —
+    // never on a plain reconnect re-read.
+    expect(source).toMatch(
+      /policyFingerprintRef\.current !== fingerprint[\s\S]*?setPrivacyConsent\(false\)[\s\S]*?setPrivacyPolicy\(result\.policy\)/,
+    );
+    expect(source).toContain('intakeOperationEpochRef');
+    expect(source).toContain('retainPatientIntakeOperation');
+    expect(source).toContain('cloneJsonValue(nextAnswers)');
   });
 
   it('offers a confirmed one-tap update from the last saved answers', () => {
     expect(source).toContain('前回から変更なしで更新');
-    expect(source).toContain('if (!latestAnswers || busy || !privacyPolicy || !window.confirm(');
+    expect(source).toMatch(
+      /if \(\s*!latestAnswers \|\|\s*busy \|\|\s*!privacyPolicy \|\|\s*!intakeReady \|\|\s*!window\.confirm\(/,
+    );
     expect(source).toContain('本人または代理人として');
     expect(source).toContain('個人情報の利用目的');
     expect(source).toContain('saveIntake(latestAnswers, true, true)');
+  });
+
+  it('resets patient-bound controls before loading a newly selected patient', () => {
+    expect(source).toContain(
+      '未送信の入力があります。切り替えてもこの端末には下書きが残ります。患者を切り替えますか？',
+    );
+    expect(source).toContain("setIntakeLoadState(nextId ? { patientId: nextId, status: 'loading' } : null);");
+    expect(source).toContain('setAccessState(null);');
+    expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');
+    expect(source).toContain('if (!selectedPatient || !accessState || !accessReady || busy) return;');
+  });
+
+  it('releases the profile-save lock even when a quiet refresh superseded the operation', () => {
+    // busy/profileSaveInFlightRef are mutexes — a quiet patient-list refresh
+    // may invalidate the operation mid-flight, so the finally cleanup must
+    // not be gated on the operation still being current. All three
+    // profile-save sites (create, edit, pending-retry) release directly.
+    const unlocks = source.match(/profileSaveInFlightRef\.current = false;\s*setBusy\(false\);/g) ?? [];
+    expect(unlocks.length).toBe(3);
+    expect(source).not.toMatch(/finally \{[^}]*isCurrentProfileSave/);
+    // The whole profile form freezes for the busy window too — an edit made
+    // mid-save would be discarded when the save result resets the draft.
+    expect(source).toContain('disabled={Boolean(pendingProfileSave) || busy}');
+  });
+});
+
+describe('patient intake idempotent operations', () => {
+  const input = {
+    answers,
+    representativeConsent: true,
+    privacyConsent: true,
+    privacyPolicyVersion: 1,
+    privacyPolicyHash: 'hash',
+  };
+
+  it('freezes key and payload, then starts a new operation for changed scope, epoch, or data', () => {
+    const first = retainPatientIntakeOperation(null, 'patient-a', 1, input);
+    const retry = retainPatientIntakeOperation(first, 'patient-a', 1, structuredClone(input));
+    expect(retry).toBe(first);
+    expect(retry.body.answers).not.toBe(input.answers);
+    expect(retry.body).toMatchObject({ ...input, idempotencyKey: expect.any(String) });
+    expect(retainPatientIntakeOperation(first, 'patient-b', 1, input)).not.toBe(first);
+    expect(retainPatientIntakeOperation(first, 'patient-a', 2, input)).not.toBe(first);
+    expect(retainPatientIntakeOperation(first, 'patient-a', 1, { ...input, privacyPolicyVersion: 2 })).not.toBe(first);
   });
 });
 
@@ -183,44 +262,52 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(INITIAL_INTAKE_ANSWERS.medicalHistoryStatus).toBe('');
     expect(canSubmitIntake(INITIAL_INTAKE_ANSWERS, true, true, false, true)).toBe(false);
     expect(safetyUnansweredKeys(INITIAL_INTAKE_ANSWERS, 1)).toEqual([
-      'allergiesStatus', 'adverseReactionStatus', 'medicationStatus',
+      'allergiesStatus',
+      'adverseReactionStatus',
+      'medicationStatus',
     ]);
-    expect(safetyUnansweredKeys({ ...INITIAL_INTAKE_ANSWERS, allergiesStatus: 'none' }, 1))
-      .toEqual(['adverseReactionStatus', 'medicationStatus']);
+    expect(safetyUnansweredKeys({ ...INITIAL_INTAKE_ANSWERS, allergiesStatus: 'none' }, 1)).toEqual([
+      'adverseReactionStatus',
+      'medicationStatus',
+    ]);
     expect(safetyUnansweredKeys(INITIAL_INTAKE_ANSWERS, 2)).toEqual(['medicalHistoryStatus']);
     expect(safetyUnansweredKeys(answers, 1)).toEqual([]);
   });
 
   it('marks required safety questions and shows a field-level message when skipped', () => {
-    const html = renderToStaticMarkup(<PatientQuestionnaire
-      answers={INITIAL_INTAKE_ANSWERS}
-      step={1}
-      busy={false}
-      showPregnancyQuestions={false}
-      representativeConsent={false}
-      privacyConsent={false}
-      showErrors
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />);
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={INITIAL_INTAKE_ANSWERS}
+        step={1}
+        busy={false}
+        showPregnancyQuestions={false}
+        representativeConsent={false}
+        privacyConsent={false}
+        showErrors
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
     expect(html).toContain('必須');
     expect(html).toContain('どれか1つを選んでください');
     expect(source).toContain('safetyUnansweredKeys(answers, intakeStep)');
   });
 
   it('shows the full answer summary before sending', () => {
-    const html = renderToStaticMarkup(<PatientQuestionnaire
-      answers={{ ...answers, allergiesStatus: 'yes', smokingStatus: 'never' }}
-      step={3}
-      busy={false}
-      showPregnancyQuestions={false}
-      representativeConsent={false}
-      privacyConsent={false}
-      onAnswersChange={() => undefined}
-      onRepresentativeConsentChange={() => undefined}
-      onPrivacyConsentChange={() => undefined}
-    />);
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={{ ...answers, allergiesStatus: 'yes', smokingStatus: 'never' }}
+        step={3}
+        busy={false}
+        showPregnancyQuestions={false}
+        representativeConsent={false}
+        privacyConsent={false}
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
     expect(html).toContain('送信内容の確認');
     expect(html).toContain('アレルギー');
     expect(html).toContain('吸わない');
@@ -233,17 +320,44 @@ describe('patient intake submit flow (WP-12)', () => {
       nameKana: '氏名カナを入力してください',
       birthDate: '生年月日を入力してください',
     });
-    expect(patientProfileErrors({
-      ...emptyPatientProfileDraft('self'), name: '山田', nameKana: 'ヤマダ', birthDate: '1950-01-01', postalCode: '12',
-    })).toEqual({
+    expect(
+      patientProfileErrors({
+        ...emptyPatientProfileDraft('self'),
+        name: '山田',
+        nameKana: 'ヤマダ',
+        birthDate: '1950-01-01',
+        postalCode: '12',
+      }),
+    ).toEqual({
       postalCode: '郵便番号は 000-0000 の形式で入力してください',
       prefecture: '都道府県を選んでください',
       city: '市区町村を入力してください',
       addressLine1: '番地を入力してください',
     });
-    expect(patientProfileErrors({
-      ...emptyPatientProfileDraft('self'), name: '山田', nameKana: 'ヤマダ', birthDate: '1950-01-01',
-    })).toEqual({});
+    expect(
+      patientProfileErrors({
+        ...emptyPatientProfileDraft('self'),
+        name: '山田',
+        nameKana: 'ヤマダ',
+        birthDate: '1950-01-01',
+      }),
+    ).toEqual({});
+    expect(
+      patientProfileErrors({
+        ...emptyPatientProfileDraft('child'),
+        name: '子',
+        nameKana: 'コ',
+        birthDate: '2018-01-01',
+      }),
+    ).toMatchObject({ proxyConsentAccepted: '代理入力の条件を確認して同意してください' });
+    expect(
+      patientProfileErrors({
+        ...emptyPatientProfileDraft('spouse'),
+        name: '配偶者',
+        nameKana: 'ハイグウシャ',
+        birthDate: '2000-01-01',
+      }),
+    ).toMatchObject({ relationship: '成人のご家族は薬局で本人確認が必要です' });
   });
 
   it('renders required badges and field-level errors in the profile form', () => {
@@ -262,6 +376,50 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(html).toContain('必須');
     expect(html).toContain('氏名を入力してください');
     expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('90日間');
+    expect(html).toContain('自動更新されず');
+    expect(html).toContain('いつでも取り消せます');
+  });
+
+  it('blocks an adult child in place and keeps the displayed terms hash-bound', () => {
+    const html = renderToStaticMarkup(
+      <PatientProfileForm
+        draft={{
+          ...emptyPatientProfileDraft('child'),
+          birthDate: '2000-01-01',
+          proxyConsentAccepted: true,
+        }}
+        editing={false}
+        busy={false}
+        showAddress={false}
+        onChange={() => undefined}
+        onToggleAddress={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(html).toContain('18歳以上のご家族は薬局で本人確認が必要です');
+    expect(html).not.toContain(PATIENT_PROXY_TERMS_TEXT);
+    expect(html).toContain('disabled=""');
+    expect(createHash('sha256').update(PATIENT_PROXY_TERMS_TEXT).digest('hex')).toBe(PATIENT_PROXY_TERMS_HASH);
+  });
+
+  it('wires explicit proxy consent and immediate revocation into the patient flow', () => {
+    expect(source).toMatch(
+      /proxyConsent: \{\s*accepted: proxyConsentAccepted,\s*termsVersion: 1,\s*termsHash: PATIENT_PROXY_TERMS_HASH,?\s*\}/,
+    );
+    expect(source).toContain('patientIntakeApi.revokeProxy(selectedPatient.id)');
+    expect(source).toContain('代理権限を取り消す');
+    expect(source).toContain('registrationIdempotencyKey: registrationIdempotencyKeyRef.current');
+    expect(source).toContain("selectedPatient.relationship === 'self'");
+    expect(source).toContain('result.proxyGrant.expiresAt');
+  });
+
+  it('loads and updates patient notification preferences independently', () => {
+    expect(source).toMatch(/patientIntakeApi\s*\.\s*access\(selectedId\)/);
+    expect(source).toContain('patientIntakeApi.setNotifications(selectedPatient.id');
+    expect(source).toContain('お知らせを停止する');
+    expect(source).toContain('お知らせを再開する');
+    expect(source).toContain('代理権限や個人情報の同意状態は変わりません');
   });
 
   it('shows a success card with next steps and scrolls to top', () => {

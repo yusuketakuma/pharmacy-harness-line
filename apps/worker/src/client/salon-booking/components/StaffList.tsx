@@ -57,9 +57,7 @@ export default function StaffList({
     return (
       <div className="space-y-5 sb-fade-in">
         <BackButton onBack={onBack} />
-        <div className="sb-card text-center text-sm text-gray-500">
-          このメニューを担当できるスタッフがいません
-        </div>
+        <div className="sb-card text-center text-sm text-gray-500">このメニューを担当できるスタッフがいません</div>
       </div>
     );
   }
@@ -100,14 +98,10 @@ export default function StaffList({
               <div className="text-left flex-1 min-w-0">
                 <div className="font-semibold text-gray-900">{s.display_name}</div>
                 {s.role && <div className="text-xs text-gray-500 mt-0.5">{s.role}</div>}
-                {s.is_designation_optional ? (
-                  <div className="text-xs text-purple-600 mt-1">指名なし枠</div>
-                ) : null}
+                {s.is_designation_optional ? <div className="text-xs text-purple-600 mt-1">指名なし枠</div> : null}
               </div>
               <div className="text-right shrink-0">
-                <div className="text-sm font-semibold sb-line-green-text tabular-nums">
-                  ¥{s.price.toLocaleString()}
-                </div>
+                <div className="text-sm font-semibold sb-line-green-text tabular-nums">¥{s.price.toLocaleString()}</div>
                 {s.price !== basePrice && <div className="text-xs text-gray-300">〜</div>}
               </div>
             </button>

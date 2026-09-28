@@ -1,19 +1,10 @@
-import * as p from "@clack/prompts";
-import {
-  writeFileSync,
-  existsSync,
-  readFileSync,
-  unlinkSync,
-  mkdirSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
-import { execa } from "execa";
-import { wrangler, WranglerError } from "../lib/wrangler.js";
-import {
-  renderInstalledWranglerToml,
-  type InstalledWranglerConfig,
-} from "../lib/installed-wrangler.js";
-import { repoPnpm } from "../lib/pnpm.js";
+import * as p from '@clack/prompts';
+import { writeFileSync, existsSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { execa } from 'execa';
+import { wrangler, WranglerError } from '../lib/wrangler.js';
+import { renderInstalledWranglerToml, type InstalledWranglerConfig } from '../lib/installed-wrangler.js';
+import { repoPnpm } from '../lib/pnpm.js';
 
 const WORKERS_DEV_URL = /(https:\/\/[^\s]+\.workers\.dev)/;
 const TTY_REQUIRED = /non[- ]?interactive|cloudflare_api_token|consent denied|authentication error|expired/i;
@@ -22,13 +13,12 @@ const TTY_REQUIRED = /non[- ]?interactive|cloudflare_api_token|consent denied|au
 // through our pipe), so it would otherwise take the TTY-retry path below and
 // lose the message getHelp() keys on — rethrow immediately instead.
 const WORKERS_DEV_SUBDOMAIN_UNREGISTERED = /register a workers\.dev subdomain/i;
-const RETRYABLE_NETWORK_ERROR =
-  /fetch failed|connectivity issue|network connectivity|connection reset|socket hang up/i;
+const RETRYABLE_NETWORK_ERROR = /fetch failed|connectivity issue|network connectivity|connection reset|socket hang up/i;
 const MAX_DEPLOY_ATTEMPTS = 3;
 
 /** Path (relative to apps/worker) where the official release Worker
  *  artifact is placed. The generated wrangler.toml points main at it. */
-export const RELEASE_ARTIFACT_RELPATH = "dist/release/index.js";
+export const RELEASE_ARTIFACT_RELPATH = 'dist/release/index.js';
 
 interface DeployWorkerOptions {
   repoDir: string;
@@ -59,21 +49,15 @@ interface SyncInstalledWorkerConfigOptions extends InstalledWranglerConfig {
 }
 
 /** Write the release Worker artifact into the clone. */
-export function writeReleaseArtifact(
-  workerDir: string,
-  bundleWorkerJs: Buffer,
-): void {
+export function writeReleaseArtifact(workerDir: string, bundleWorkerJs: Buffer): void {
   const artifactPath = join(workerDir, RELEASE_ARTIFACT_RELPATH);
   mkdirSync(dirname(artifactPath), { recursive: true });
   writeFileSync(artifactPath, bundleWorkerJs);
 }
 
-async function deployWorkerBundle(
-  workerDir: string,
-  workerName: string,
-): Promise<string> {
+async function deployWorkerBundle(workerDir: string, workerName: string): Promise<string> {
   const deployAndParseUrl = async (): Promise<string> => {
-    const output = await wrangler(["deploy"], { cwd: workerDir });
+    const output = await wrangler(['deploy'], { cwd: workerDir });
     const match = output.match(WORKERS_DEV_URL);
     if (!match) {
       throw new Error(`Worker URL を出力からパースできません:\n${output}`);
@@ -82,12 +66,10 @@ async function deployWorkerBundle(
   };
 
   const isSubdomainUnregisteredError = (error: unknown): boolean =>
-    error instanceof WranglerError &&
-    WORKERS_DEV_SUBDOMAIN_UNREGISTERED.test(`${error.message}\n${error.stderr}`);
+    error instanceof WranglerError && WORKERS_DEV_SUBDOMAIN_UNREGISTERED.test(`${error.message}\n${error.stderr}`);
 
   const isAuthError = (error: unknown): boolean =>
-    error instanceof WranglerError &&
-    TTY_REQUIRED.test(`${error.message}\n${error.stderr}`);
+    error instanceof WranglerError && TTY_REQUIRED.test(`${error.message}\n${error.stderr}`);
 
   const isRetryableNetworkError = (error: unknown): boolean => {
     const text =
@@ -99,8 +81,7 @@ async function deployWorkerBundle(
     return RETRYABLE_NETWORK_ERROR.test(text);
   };
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   for (let attempt = 1; attempt <= MAX_DEPLOY_ATTEMPTS; attempt++) {
     try {
@@ -114,10 +95,8 @@ async function deployWorkerBundle(
       }
 
       if (isAuthError(firstError)) {
-        p.log.warn(
-          "wrangler の認証を更新するため、対話モードで再実行します（出力が表示されます）...",
-        );
-        await wrangler(["deploy"], { cwd: workerDir, tty: true });
+        p.log.warn('wrangler の認証を更新するため、対話モードで再実行します（出力が表示されます）...');
+        await wrangler(['deploy'], { cwd: workerDir, tty: true });
 
         try {
           return await deployAndParseUrl();
@@ -125,10 +104,7 @@ async function deployWorkerBundle(
           if (isSubdomainUnregisteredError(urlError)) {
             throw urlError;
           }
-          if (
-            isRetryableNetworkError(urlError) &&
-            attempt < MAX_DEPLOY_ATTEMPTS
-          ) {
+          if (isRetryableNetworkError(urlError) && attempt < MAX_DEPLOY_ATTEMPTS) {
             p.log.warn(
               `Worker デプロイ後の確認中に一時的な通信エラーが発生したため再試行します (${attempt}/${MAX_DEPLOY_ATTEMPTS})...`,
             );
@@ -136,17 +112,16 @@ async function deployWorkerBundle(
             continue;
           }
 
-          const reason =
-            urlError instanceof Error ? urlError.message : String(urlError);
+          const reason = urlError instanceof Error ? urlError.message : String(urlError);
           throw new Error(
             [
-              "Worker のデプロイは完了しましたが URL を取得できませんでした。",
+              'Worker のデプロイは完了しましたが URL を取得できませんでした。',
               `理由: ${reason}`,
-              "",
-              "対処:",
-              "  1. もう一度同じコマンドを実行すると、worker ステップが再試行され URL を取得します。",
+              '',
+              '対処:',
+              '  1. もう一度同じコマンドを実行すると、worker ステップが再試行され URL を取得します。',
               `  2. または \`npx wrangler deployments list --name ${workerName}\` で URL を確認してください。`,
-            ].join("\n"),
+            ].join('\n'),
           );
         }
       }
@@ -163,19 +138,15 @@ async function deployWorkerBundle(
     }
   }
 
-  throw new Error("Worker デプロイの再試行回数を超えました");
+  throw new Error('Worker デプロイの再試行回数を超えました');
 }
 
-export async function deployWorker(
-  options: DeployWorkerOptions,
-): Promise<DeployWorkerResult> {
-  const workerDir = join(options.repoDir, "apps/worker");
-  const tomlPath = join(workerDir, "wrangler.toml");
+export async function deployWorker(options: DeployWorkerOptions): Promise<DeployWorkerResult> {
+  const workerDir = join(options.repoDir, 'apps/worker');
+  const tomlPath = join(workerDir, 'wrangler.toml');
 
   // Backup existing wrangler.toml
-  const originalToml = existsSync(tomlPath)
-    ? readFileSync(tomlPath, "utf-8")
-    : null;
+  const originalToml = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : null;
 
   // Deploy config template. `main` differs between the build pass (the
   // @cloudflare/vite-plugin needs the source entry to produce dist/client)
@@ -183,7 +154,7 @@ export async function deployWorker(
   // verbatim via no_bundle).
   const renderDeployToml = (main: string, noBundle: boolean) => `name = "${options.workerName}"
 main = "${main}"
-${noBundle ? 'no_bundle = true\n' : ""}compatibility_date = "2024-12-01"
+${noBundle ? 'no_bundle = true\n' : ''}compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 account_id = "${options.accountId}"
@@ -210,35 +181,35 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
 `;
 
   // Build pass config: vite needs the source entrypoint.
-  writeFileSync(tomlPath, renderDeployToml("src/index.ts", false));
+  writeFileSync(tomlPath, renderDeployToml('src/index.ts', false));
 
   // Write .env for Vite build (LIFF client env vars)
-  const envPath = join(workerDir, ".env");
+  const envPath = join(workerDir, '.env');
   const envContent = `VITE_LIFF_ID=${options.liffId}\nVITE_BOT_BASIC_ID=${options.botBasicId}\n`;
   writeFileSync(envPath, envContent);
 
   const buildSpinner = p.spinner();
-  buildSpinner.start("Worker ビルド中...");
+  buildSpinner.start('Worker ビルド中...');
   try {
     // Build workspace dependencies that the worker needs
     await repoPnpm(
       options.repoDir,
       [
-        "-r",
-        "--filter",
-        "./packages/shared",
-        "--filter",
-        "./packages/line-sdk",
-        "--filter",
-        "./packages/db",
-        "--filter",
-        "./packages/update-engine",
-        "build",
+        '-r',
+        '--filter',
+        './packages/shared',
+        '--filter',
+        './packages/line-sdk',
+        '--filter',
+        './packages/db',
+        '--filter',
+        './packages/update-engine',
+        'build',
       ],
       { cwd: options.repoDir },
     );
-    await execa("npx", ["vite", "build"], { cwd: workerDir });
-    buildSpinner.stop("Worker ビルド完了");
+    await execa('npx', ['vite', 'build'], { cwd: workerDir });
+    buildSpinner.stop('Worker ビルド完了');
 
     if (options.bundleWorkerJs) {
       // Deploy the OFFICIAL release Worker bytes (not the local build).
@@ -259,7 +230,7 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
   } catch (error) {
     // Make sure the spinner is stopped before the error bubbles up
     try {
-      buildSpinner.stop("Worker デプロイ失敗");
+      buildSpinner.stop('Worker デプロイ失敗');
     } catch {
       // already stopped
     }
@@ -270,23 +241,19 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
       writeFileSync(tomlPath, originalToml);
     }
     // Clean up .env
-    const deployEnvPath = join(workerDir, ".env");
+    const deployEnvPath = join(workerDir, '.env');
     if (existsSync(deployEnvPath)) {
       unlinkSync(deployEnvPath);
     }
   }
 }
 
-export async function syncInstalledWorkerConfig(
-  options: SyncInstalledWorkerConfigOptions,
-): Promise<void> {
-  const workerDir = join(options.repoDir, "apps/worker");
-  const tomlPath = join(workerDir, "wrangler.toml");
-  if (options.workerDeployMode === "bundle") {
+export async function syncInstalledWorkerConfig(options: SyncInstalledWorkerConfigOptions): Promise<void> {
+  const workerDir = join(options.repoDir, 'apps/worker');
+  const tomlPath = join(workerDir, 'wrangler.toml');
+  if (options.workerDeployMode === 'bundle') {
     if (!options.bundleWorkerJs) {
-      throw new Error(
-        "internal: workerDeployMode=bundle なのに bundleWorkerJs がありません",
-      );
+      throw new Error('internal: workerDeployMode=bundle なのに bundleWorkerJs がありません');
     }
     // This is the FINAL deploy of setup — make sure the artifact the
     // generated toml points at is the release bytes (a resumed run may
@@ -296,12 +263,12 @@ export async function syncInstalledWorkerConfig(
   writeFileSync(tomlPath, renderInstalledWranglerToml(options));
 
   const s = p.spinner();
-  s.start("Worker 設定反映中...");
+  s.start('Worker 設定反映中...');
   try {
     await deployWorkerBundle(workerDir, options.workerName);
-    s.stop("Worker 設定反映完了");
+    s.stop('Worker 設定反映完了');
   } catch (error) {
-    s.stop("Worker 設定反映失敗");
+    s.stop('Worker 設定反映失敗');
     throw error;
   }
 }

@@ -2,33 +2,43 @@ import { describe, expect, it, vi } from 'vitest';
 import { runPlatformAdminBootstrap } from './bootstrap-platform-admin.js';
 
 const args = [
-  '--worker-url', 'https://api.example.test',
-  '--admin-id', 'platform-owner',
-  '--admin-name', 'Platform Owner',
-  '--admin-email', 'platform@example.test',
+  '--worker-url',
+  'https://api.example.test',
+  '--admin-id',
+  'platform-owner',
+  '--admin-name',
+  'Platform Owner',
+  '--admin-email',
+  'platform@example.test',
 ];
 const environment = { PHARMACY_PLATFORM_ADMIN_KEY: 'platform-secret-value' };
 
 function created(status = 201) {
-  return new Response(JSON.stringify({
-    success: true,
-    data: { staffId: 'staff-1', adminLoginId: 'platform-owner', replayed: false },
-  }), { status, headers: { 'content-type': 'application/json' } });
+  return new Response(
+    JSON.stringify({
+      success: true,
+      data: { staffId: 'staff-1', adminLoginId: 'platform-owner', replayed: false },
+    }),
+    { status, headers: { 'content-type': 'application/json' } },
+  );
 }
 
 function replayed() {
-  return new Response(JSON.stringify({
-    success: true,
-    data: { staffId: 'staff-1', adminLoginId: 'platform-owner', replayed: true },
-  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  return new Response(
+    JSON.stringify({
+      success: true,
+      data: { staffId: 'staff-1', adminLoginId: 'platform-owner', replayed: true },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
 }
 
 describe('platform admin bootstrap CLI', () => {
   it('dry-runs without sending or printing the platform key', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
-    const exitCode = await runPlatformAdminBootstrap(
-      [...args, '--dry-run'], environment, fetcher, (line) => output.push(line),
+    const exitCode = await runPlatformAdminBootstrap([...args, '--dry-run'], environment, fetcher, (line) =>
+      output.push(line),
     );
 
     expect(exitCode).toBe(0);
@@ -50,16 +60,15 @@ describe('platform admin bootstrap CLI', () => {
   it('posts to the CLI provisioning namespace and prints the one-time password', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(created());
-    const exitCode = await runPlatformAdminBootstrap(
-      args, environment, fetcher, (line) => output.push(line),
-    );
+    const exitCode = await runPlatformAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(0);
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe('https://api.example.test/api/platform/pharmacy/platform-admins');
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' });
-    expect((init?.headers as Record<string, string>).Authorization)
-      .toBe(`Bearer ${environment.PHARMACY_PLATFORM_ADMIN_KEY}`);
+    expect((init?.headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${environment.PHARMACY_PLATFORM_ADMIN_KEY}`,
+    );
     const body = JSON.parse(String(init?.body)) as { temporaryPassword: string; loginId: string };
     expect(body.loginId).toBe('platform-owner');
     expect(body.temporaryPassword).toMatch(/^Tmp-[A-Za-z0-9_-]{32}$/);
@@ -75,8 +84,9 @@ describe('platform admin bootstrap CLI', () => {
     await runPlatformAdminBootstrap(withKey, environment, fetcher, () => {});
     await runPlatformAdminBootstrap(withKey, environment, fetcher, () => {});
 
-    const [first, second] = fetcher.mock.calls
-      .map(([, init]) => JSON.parse(String(init?.body)).temporaryPassword as string);
+    const [first, second] = fetcher.mock.calls.map(
+      ([, init]) => JSON.parse(String(init?.body)).temporaryPassword as string,
+    );
     // Same key, same login id, same idempotency key — a holder of all three
     // must still be unable to recompute the credential offline.
     expect(first).not.toBe(second);
@@ -86,9 +96,7 @@ describe('platform admin bootstrap CLI', () => {
   it('prints no credential on a replay, only how to recover one', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(replayed());
-    const exitCode = await runPlatformAdminBootstrap(
-      args, environment, fetcher, (line) => output.push(line),
-    );
+    const exitCode = await runPlatformAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(0);
     const sent = JSON.parse(String(fetcher.mock.calls[0][1]?.body)).temporaryPassword as string;
@@ -98,14 +106,10 @@ describe('platform admin bootstrap CLI', () => {
     expect(rendered).toContain('再発行');
   });
 
-  it('prints this run\'s password when a lost first attempt is what created the admin', async () => {
+  it("prints this run's password when a lost first attempt is what created the admin", async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
-      .mockRejectedValueOnce(new Error('network'))
-      .mockResolvedValueOnce(replayed());
-    const exitCode = await runPlatformAdminBootstrap(
-      args, environment, fetcher, (line) => output.push(line),
-    );
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(replayed());
+    const exitCode = await runPlatformAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(0);
     const sent = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).temporaryPassword as string;
@@ -114,13 +118,13 @@ describe('platform admin bootstrap CLI', () => {
 
   it('prints no credential when the server rejects the key', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
-      JSON.stringify({ success: false, error: 'Unauthorized' }),
-      { status: 401, headers: { 'content-type': 'application/json' } },
-    ));
-    const exitCode = await runPlatformAdminBootstrap(
-      args, environment, fetcher, (line) => output.push(line),
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
     );
+    const exitCode = await runPlatformAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(1);
     const rendered = output.join('\n');
@@ -130,12 +134,11 @@ describe('platform admin bootstrap CLI', () => {
 
   it('retries a network failure once and reports failure without a credential', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockRejectedValueOnce(new Error('network'))
       .mockRejectedValueOnce(new Error('network'));
-    const exitCode = await runPlatformAdminBootstrap(
-      args, environment, fetcher, (line) => output.push(line),
-    );
+    const exitCode = await runPlatformAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(1);
     expect(fetcher).toHaveBeenCalledTimes(2);

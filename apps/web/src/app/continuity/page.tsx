@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/continuity/ContinuityAdminPage' // custom:pharmacy-continuity
+export { default } from '@/custom/pharmacy/continuity/ContinuityAdminPage'; // custom:pharmacy-continuity

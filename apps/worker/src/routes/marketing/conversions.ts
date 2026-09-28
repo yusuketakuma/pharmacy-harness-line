@@ -55,16 +55,19 @@ conversions.post('/api/conversions/points', async (c) => {
     }
 
     const point = await createConversionPoint(c.env.DB, body);
-    return c.json({
-      success: true,
-      data: {
-        id: point.id,
-        name: point.name,
-        eventType: point.event_type,
-        value: point.value,
-        createdAt: point.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: point.id,
+          name: point.name,
+          eventType: point.event_type,
+          value: point.value,
+          createdAt: point.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/conversions/points error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -96,10 +99,7 @@ conversions.post('/api/conversions/track', async (c) => {
     }>();
 
     if (!body.conversionPointId || !body.friendId) {
-      return c.json(
-        { success: false, error: 'conversionPointId and friendId are required' },
-        400,
-      );
+      return c.json({ success: false, error: 'conversionPointId and friendId are required' }, 400);
     }
 
     const event = await trackConversion(c.env.DB, {
@@ -110,18 +110,21 @@ conversions.post('/api/conversions/track', async (c) => {
       metadata: body.metadata ? JSON.stringify(body.metadata) : null,
     });
 
-    return c.json({
-      success: true,
-      data: {
-        id: event.id,
-        conversionPointId: event.conversion_point_id,
-        friendId: event.friend_id,
-        userId: event.user_id,
-        affiliateCode: event.affiliate_code,
-        metadata: event.metadata,
-        createdAt: event.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: event.id,
+          conversionPointId: event.conversion_point_id,
+          friendId: event.friend_id,
+          userId: event.user_id,
+          affiliateCode: event.affiliate_code,
+          metadata: event.metadata,
+          createdAt: event.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/conversions/track error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -187,10 +190,7 @@ conversions.get('/api/conversions/approvals', async (c) => {
   try {
     const status = c.req.query('status') ?? 'pending';
     if (!APPROVAL_STATUSES.has(status)) {
-      return c.json(
-        { success: false, error: 'status must be pending, approved, or rejected' },
-        400,
-      );
+      return c.json({ success: false, error: 'status must be pending, approved, or rejected' }, 400);
     }
 
     const limit = Math.min(500, Math.max(1, Number.parseInt(c.req.query('limit') ?? '', 10) || 200));
@@ -213,39 +213,23 @@ conversions.get('/api/conversions/approvals', async (c) => {
 // PATCH /api/conversions/events/:id/approval - approve/reject an attributed CV
 conversions.patch('/api/conversions/events/:id/approval', async (c) => {
   try {
-    const body = await c.req
-      .json<{ status?: string }>()
-      .catch(() => ({}) as { status?: string });
+    const body = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
 
     if (body.status !== 'approved' && body.status !== 'rejected') {
-      return c.json(
-        { success: false, error: 'status must be approved or rejected' },
-        400,
-      );
+      return c.json({ success: false, error: 'status must be approved or rejected' }, 400);
     }
 
-    const updated = await setConversionApproval(
-      c.env.DB,
-      c.req.param('id'),
-      body.status,
-    );
+    const updated = await setConversionApproval(c.env.DB, c.req.param('id'), body.status);
     if (updated === false) {
       // Missing event OR non-attributed CV (approval flow only applies to
       // affiliate-attributed rows) — both surface as 404.
-      return c.json(
-        { success: false, error: 'Attributed conversion event not found' },
-        404,
-      );
+      return c.json({ success: false, error: 'Attributed conversion event not found' }, 404);
     }
 
     // Mileage projection is retry-safe and runs even for `already_set`. This is
     // deliberate: if an earlier request updated the approval row but failed
     // before writing the ledger, the operator's retry repairs the partial work.
-    await syncAffiliateConversionMileage(
-      c.env.DB,
-      c.req.param('id'),
-      body.status,
-    );
+    await syncAffiliateConversionMileage(c.env.DB, c.req.param('id'), body.status);
 
     if (updated === 'already_set') {
       // Idempotent re-click: the status is already set to the requested value.

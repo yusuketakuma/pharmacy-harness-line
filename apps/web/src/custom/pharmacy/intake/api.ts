@@ -1,90 +1,110 @@
-import { fetchApi } from '../../../lib/api'
-import { accountQuery } from '../api'
-import type { MedicationFollowUp } from '../medication-followup/api'
+import { fetchApi } from '../../../lib/api';
+import { accountQuery } from '../api';
+import type { MedicationFollowUp } from '../medication-followup/api';
 
 export type PharmacyPatient = {
-  id: string
-  relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other'
-  name: string
-  name_kana: string
-  birth_date: string
-  sex: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null
-  contact_phone: string | null
-  postal_code: string | null
-  prefecture: string | null
-  city: string | null
-  address_line1: string | null
-  address_line2: string | null
-  archived_at: string | null
-  updated_at: string
-}
+  id: string;
+  relationship: 'self' | 'child' | 'spouse' | 'parent' | 'other';
+  name: string;
+  name_kana: string;
+  birth_date: string;
+  sex: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
+  contact_phone: string | null;
+  postal_code: string | null;
+  prefecture: string | null;
+  city: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  archived_at: string | null;
+  updated_at: string;
+};
 
 export type PatientIntakeHistoryDetail = {
-  id: string
-  patient_id: string
-  revision: number
-  schema_version: number
-  representative_consent_at: string
-  privacy_consent_at: string
-  created_at: string
-  answers: Record<string, unknown>
-}
+  id: string;
+  patient_id: string;
+  revision: number;
+  schema_version: number;
+  representative_consent_at: string;
+  privacy_consent_at: string;
+  created_at: string;
+  answers: Record<string, unknown>;
+};
 
 export type PharmacyPatientHistory = {
-  patient: PharmacyPatient
-  intakes: Array<Omit<PatientIntakeHistoryDetail, 'answers'>>
-  latestIntake: PatientIntakeHistoryDetail | null
+  patient: PharmacyPatient;
+  intakes: Array<Omit<PatientIntakeHistoryDetail, 'answers'>>;
+  latestIntake: PatientIntakeHistoryDetail | null;
   prescriptions: Array<{
-    id: string
-    status: string
-    active_revision: number | null
-    desired_pickup_at: string | null
-    requested_at: string | null
-    closed_at: string | null
-    created_at: string
-    updated_at: string
-  }>
+    id: string;
+    status: string;
+    active_revision: number | null;
+    desired_pickup_at: string | null;
+    requested_at: string | null;
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
   quotes: Array<{
-    id: string
-    submission_id: string
-    decision: string
-    estimated_ready_at: string | null
-    status: string | null
-    fulfillment_method: string | null
-    created_at: string
-  }>
+    id: string;
+    submission_id: string;
+    decision: string;
+    estimated_ready_at: string | null;
+    status: string | null;
+    fulfillment_method: string | null;
+    created_at: string;
+  }>;
   continuity: Array<{
-    id: string
-    status: string
-    expected_next_from: string
-    expected_next_to: string
-    next_contact_at: string
-    reminder_count: number
-    created_at: string
-    updated_at: string
-  }>
-  medicationFollowUps: MedicationFollowUp[]
+    id: string;
+    status: string;
+    expected_next_from: string;
+    expected_next_to: string;
+    next_contact_at: string;
+    reminder_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  medicationFollowUps: Array<
+    MedicationFollowUp & {
+      contacts: Array<{
+        id: string;
+        channel: 'line' | 'phone';
+        outcome_code: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated';
+        next_contact_at: string | null;
+        occurred_at: string;
+      }>;
+    }
+  >;
   timeline: Array<{
-    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna'
-    occurred_at: string
-    label: string
-    status?: string | null
-  }>
-}
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna';
+    occurred_at: string;
+    label: string;
+    status?: string | null;
+  }>;
+};
 
 export const pharmacyIntakeAdminApi = {
-  list: (accountId: string, signal?: AbortSignal) => fetchApi<{ patients: PharmacyPatient[] }>(
-    `/api/custom/pharmacy/patients?${accountQuery(accountId)}`,
-    { signal },
-  ),
-  detail: (accountId: string, patientId: string) => fetchApi<{ patient: PharmacyPatient }>(
-    `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}?${accountQuery(accountId)}`,
-  ),
-  latest: (accountId: string, patientId: string) => fetchApi<{ intake: PatientIntakeHistoryDetail | null }>(
-    `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/intake?${accountQuery(accountId)}`,
-  ),
-  history: (accountId: string, patientId: string, signal?: AbortSignal) => fetchApi<{ history: PharmacyPatientHistory }>(
-    `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/history?${accountQuery(accountId)}`,
-    { signal },
-  ),
-}
+  list: (accountId: string, signal?: AbortSignal) =>
+    fetchApi<{ patients: PharmacyPatient[] }>(`/api/custom/pharmacy/patients?${accountQuery(accountId)}`, { signal }),
+  detail: (accountId: string, patientId: string) =>
+    fetchApi<{ patient: PharmacyPatient }>(
+      `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}?${accountQuery(accountId)}`,
+    ),
+  latest: (accountId: string, patientId: string) =>
+    fetchApi<{ intake: PatientIntakeHistoryDetail | null }>(
+      `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/intake?${accountQuery(accountId)}`,
+    ),
+  history: (accountId: string, patientId: string, signal?: AbortSignal) =>
+    fetchApi<{ history: PharmacyPatientHistory }>(
+      `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/history?${accountQuery(accountId)}`,
+      { signal },
+    ),
+  suspendBinding: (accountId: string, patientId: string) =>
+    fetchApi<{
+      status: 'suspended';
+      controlVersion: number;
+      nextAction: 'recreate_under_verified_owner';
+    }>(`/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/binding-suspension?${accountQuery(accountId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ reasonCode: 'wrong_line_binding' }),
+    }),
+};

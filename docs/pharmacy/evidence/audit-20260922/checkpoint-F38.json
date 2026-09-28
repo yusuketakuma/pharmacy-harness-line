@@ -1,0 +1,20 @@
+{
+  "head": "f6a88eedd15094ea52162ac168856647de0aedc8",
+  "branch": "dev",
+  "previous_turn": "progress: F36/F37 integrated",
+  "this_turn": "progress: F38 integrated and F39 native candidate failure reproduced",
+  "goal": "active; global coverage PARTIAL",
+  "preserved": [
+    "PLANS.md",
+    "docs/pharmacy/evidence/audit-20260922/"
+  ],
+  "next": "F39 retention candidate/preflight GLOB 77 bytes exceeds native limit; preserve public export/3 consumers/scope/period and add actualD1 regression",
+  "remaining": [
+    "F-DIST-01 trusted legacy hashes unknown",
+    "whole repository coverage/refactor queue",
+    "fresh-context final independent review",
+    "CI Node22"
+  ],
+  "child": "audit_db reused, records accepted; no close API",
+  "external_mutations": false
+}

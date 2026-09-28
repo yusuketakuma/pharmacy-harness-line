@@ -30,7 +30,8 @@ const tenantDb = {
     const statement = {
       bind: () => statement,
       first: async () => {
-        if (sql.includes('FROM tenants')) return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
+        if (sql.includes('FROM tenants'))
+          return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
         return null;
       },
@@ -51,9 +52,13 @@ function app() {
 }
 
 function call(path: string) {
-  return app().request(path, {
-    headers: { Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' },
-  }, env);
+  return app().request(
+    path,
+    {
+      headers: { Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' },
+    },
+    env,
+  );
 }
 
 beforeEach(() => {
@@ -93,11 +98,9 @@ describe('GET /api/friends/:id/mileage', () => {
     expect(body.data.summary.available).toBe(750);
     expect(body.data.history[0].amount).toBe(750);
     expect(dbMocks.getMileageSummaryForFriend).toHaveBeenCalledWith(env.DB, 'friend-1');
-    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(
-      env.DB,
-      'friend-1',
-      { limit: 3 },
-    );
+    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(env.DB, 'friend-1', {
+      limit: 3,
+    });
   });
 
   it('returns 404 without querying the wallet for an unknown friend', async () => {
@@ -114,10 +117,8 @@ describe('GET /api/friends/:id/mileage', () => {
     dbMocks.getMileageHistoryForFriend.mockResolvedValue([]);
     const res = await call('/api/friends/friend-1/mileage?limit=9999');
     expect(res.status).toBe(200);
-    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(
-      env.DB,
-      'friend-1',
-      { limit: 100 },
-    );
+    expect(dbMocks.getMileageHistoryForFriend).toHaveBeenCalledWith(env.DB, 'friend-1', {
+      limit: 100,
+    });
   });
 });

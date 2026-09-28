@@ -57,10 +57,7 @@ import {
   WebinarConsultationError,
 } from '../../services/webinar-consultation-booking.js';
 import { signWebinarToken, verifyWebinarToken } from '../../lib/webinar-token.js';
-import {
-  awardWebinarCtaMileage,
-  awardWebinarPositionMileage,
-} from '../../services/webinar-mileage.js';
+import { awardWebinarCtaMileage, awardWebinarPositionMileage } from '../../services/webinar-mileage.js';
 import type { Env } from '../../index.js';
 
 const webinarRoutes = new Hono<Env>();
@@ -102,17 +99,12 @@ async function resolveWebinarCaller(
   if (!lineUserId) return c.json({ error: 'unauthorized' }, 401);
   const loaded = await loadActiveWebinar(c, slug);
   if (loaded instanceof Response) return loaded;
-  const friend = await getFriendByLineUserIdForAccount(
-    c.env.DB, lineUserId, loaded.webinar.account_id,
-  );
+  const friend = await getFriendByLineUserIdForAccount(c.env.DB, lineUserId, loaded.webinar.account_id);
   if (!friend) return c.json({ error: 'friend_not_found' }, 403);
   return { webinar: loaded.webinar, friendId: friend.id };
 }
 
-async function loadActiveWebinar(
-  c: Context<Env>,
-  slug: string,
-): Promise<{ webinar: Webinar } | Response> {
+async function loadActiveWebinar(c: Context<Env>, slug: string): Promise<{ webinar: Webinar } | Response> {
   const webinar = await getWebinarBySlug(c.env.DB, slug);
   if (!webinar || webinar.status !== 'active') {
     return c.json({ error: 'not_found' }, 404);
@@ -138,34 +130,22 @@ webinarRoutes.get('/api/liff/webinars/:slug', async (c) => {
     // LIFF で本人確認した上で、同じ webinar×friend×session の予約行が
     // 実在する場合だけ予約パスとして扱う。URL を転送しても他人は通らない。
     const requestedSessionRaw = c.req.query('sessionStartAt');
-    const requestedSessionStartAt = requestedSessionRaw === undefined
-      ? null
-      : Number(requestedSessionRaw);
+    const requestedSessionStartAt = requestedSessionRaw === undefined ? null : Number(requestedSessionRaw);
     const admissionReg =
-      requestedSessionStartAt !== null &&
-      Number.isInteger(requestedSessionStartAt) &&
-      requestedSessionStartAt > 0
-        ? await getWebinarRegistration(
-            c.env.DB, webinar.id, auth.friendId, requestedSessionStartAt,
-          )
+      requestedSessionStartAt !== null && Number.isInteger(requestedSessionStartAt) && requestedSessionStartAt > 0
+        ? await getWebinarRegistration(c.env.DB, webinar.id, auth.friendId, requestedSessionStartAt)
         : null;
 
     // 配信終了後でも、専用リンクを持つ予約済み本人には
     // その回を先頭から再生する。アセットトークンは開くたびに再発行するため、
     // 入場リンク自体に期限を持たせない。
-    if (
-      admissionReg &&
-      requestedSessionStartAt !== null &&
-      now >= requestedSessionStartAt + webinar.duration_seconds
-    ) {
-      await upsertWebinarViewer(
-        c.env.DB, webinar.id, auth.friendId, requestedSessionStartAt,
-      );
+    if (admissionReg && requestedSessionStartAt !== null && now >= requestedSessionStartAt + webinar.duration_seconds) {
+      await upsertWebinarViewer(c.env.DB, webinar.id, auth.friendId, requestedSessionStartAt);
       if (webinar.tag_on_attend) {
         c.executionCtx.waitUntil(
-          Promise.resolve(
-            attachTagAndFireSideEffects(c.env.DB, auth.friendId, webinar.tag_on_attend),
-          ).catch((err) => console.error('webinar replay attend tag error:', err)),
+          Promise.resolve(attachTagAndFireSideEffects(c.env.DB, auth.friendId, webinar.tag_on_attend)).catch((err) =>
+            console.error('webinar replay attend tag error:', err),
+          ),
         );
       }
 
@@ -213,11 +193,7 @@ webinarRoutes.get('/api/liff/webinars/:slug', async (c) => {
       // タグ・再生トークンはライブ開始まで発行しない。未予約者は待機ルームへ
       // 直行させず、必ずセッション選択メニューを表示する。
       const next = session.nextSessionAt;
-      if (
-        next !== null &&
-        next - now <= WAITING_ROOM_SECONDS &&
-        reg?.session_start_at === next
-      ) {
+      if (next !== null && next - now <= WAITING_ROOM_SECONDS && reg?.session_start_at === next) {
         const comments = await getWebinarComments(c.env.DB, webinar.id);
         return c.json({
           live: false,
@@ -258,9 +234,7 @@ webinarRoutes.get('/api/liff/webinars/:slug', async (c) => {
     // 開始5分以内だけ現在回を新規予約できる。一方、すでにこの回を
     // 予約済みの本人は、LIFF を閉じた後でも配信終了まで再入場できる。
     if (!currentReg) {
-      const bookable = withinJoinGrace
-        ? [session.sessionStartAt!, ...liveUpcoming].slice(0, 48)
-        : liveUpcoming;
+      const bookable = withinJoinGrace ? [session.sessionStartAt!, ...liveUpcoming].slice(0, 48) : liveUpcoming;
       if (!liveReg && bookable.length > 0) {
         await recordWebinarPickerOpen(c.env.DB, webinar.id, auth.friendId);
       }
@@ -276,9 +250,9 @@ webinarRoutes.get('/api/liff/webinars/:slug', async (c) => {
     await upsertWebinarViewer(c.env.DB, webinar.id, auth.friendId, session.sessionStartAt!);
     if (webinar.tag_on_attend) {
       c.executionCtx.waitUntil(
-        Promise.resolve(
-          attachTagAndFireSideEffects(c.env.DB, auth.friendId, webinar.tag_on_attend),
-        ).catch((err) => console.error('webinar attend tag error:', err)),
+        Promise.resolve(attachTagAndFireSideEffects(c.env.DB, auth.friendId, webinar.tag_on_attend)).catch((err) =>
+          console.error('webinar attend tag error:', err),
+        ),
       );
     }
 
@@ -340,16 +314,16 @@ webinarRoutes.post('/api/liff/webinars/:slug/heartbeat', async (c) => {
     ) {
       return c.json({ error: 'invalid_body' }, 422);
     }
-    await updateWebinarViewerPosition(
-      c.env.DB, loaded.webinar.id, auth.friendId, sessionStartAt, positionSeconds,
+    await updateWebinarViewerPosition(c.env.DB, loaded.webinar.id, auth.friendId, sessionStartAt, positionSeconds);
+    c.executionCtx.waitUntil(
+      awardWebinarPositionMileage(c.env.DB, {
+        webinarId: loaded.webinar.id,
+        friendId: auth.friendId,
+        sessionStartAt,
+        positionSeconds,
+        durationSeconds: loaded.webinar.duration_seconds,
+      }),
     );
-    c.executionCtx.waitUntil(awardWebinarPositionMileage(c.env.DB, {
-      webinarId: loaded.webinar.id,
-      friendId: auth.friendId,
-      sessionStartAt,
-      positionSeconds,
-      durationSeconds: loaded.webinar.duration_seconds,
-    }));
     return c.json({ ok: true });
   } catch (err) {
     console.error('POST heartbeat error:', err);
@@ -364,14 +338,19 @@ webinarRoutes.post('/api/liff/webinars/:slug/comments', async (c) => {
     const loaded = { webinar: auth.webinar };
 
     const body = await c.req.json<{
-      sessionStartAt?: unknown; atSeconds?: unknown; body?: unknown;
+      sessionStartAt?: unknown;
+      atSeconds?: unknown;
+      body?: unknown;
     }>();
     const sessionStartAt = Number(body.sessionStartAt);
     const atSeconds = Math.floor(Number(body.atSeconds));
     const text = typeof body.body === 'string' ? body.body.trim() : '';
     if (
-      !Number.isFinite(sessionStartAt) || !Number.isFinite(atSeconds) ||
-      atSeconds < COMMENT_MIN_AT_SECONDS || text.length === 0 || text.length > COMMENT_MAX
+      !Number.isFinite(sessionStartAt) ||
+      !Number.isFinite(atSeconds) ||
+      atSeconds < COMMENT_MIN_AT_SECONDS ||
+      text.length === 0 ||
+      text.length > COMMENT_MAX
     ) {
       return c.json({ error: 'invalid_body' }, 422);
     }
@@ -395,9 +374,7 @@ webinarRoutes.post('/api/liff/webinars/:slug/comments', async (c) => {
         return c.json({ error: 'not_live' }, 409);
       }
     }
-    const count = await countSessionUserComments(
-      c.env.DB, loaded.webinar.id, auth.friendId, sessionStartAt,
-    );
+    const count = await countSessionUserComments(c.env.DB, loaded.webinar.id, auth.friendId, sessionStartAt);
     if (count >= SESSION_COMMENT_LIMIT) {
       return c.json({ error: 'too_many_comments' }, 429);
     }
@@ -435,32 +412,20 @@ webinarRoutes.post('/api/liff/webinars/:slug/register', async (c) => {
       session.live &&
       session.sessionStartAt === sessionStartAt &&
       (session.offsetSeconds ?? Infinity) <= CURRENT_SESSION_JOIN_GRACE_SECONDS;
-    if (
-      !Number.isFinite(sessionStartAt) ||
-      (!currentIsBookable && !upcoming.includes(sessionStartAt))
-    ) {
+    if (!Number.isFinite(sessionStartAt) || (!currentIsBookable && !upcoming.includes(sessionStartAt))) {
       return c.json({ error: 'invalid_session' }, 400);
     }
-    const created = await upsertWebinarRegistration(
-      c.env.DB, webinar.id, auth.friendId, sessionStartAt,
-    );
+    const created = await upsertWebinarRegistration(c.env.DB, webinar.id, auth.friendId, sessionStartAt);
     // LIFF の二重タップや通信再試行でも、同一予約の受付確認は1通だけ送る。
     if (created) {
       const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(c.env.LIFF_URL ?? '');
       c.executionCtx.waitUntil(
-        sendWebinarRegistrationConfirmation(
-          c.env.DB,
-          webinar,
-          auth.friendId,
-          sessionStartAt,
-          {
-            proxyBaseUrl: new URL(c.req.url).origin,
-            defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
-            defaultLiffId: liffMatch?.[1] ?? null,
-            proxyDispatch: (request) =>
-              dispatchLineProxyLocally(request, c.env, c.executionCtx),
-          },
-        ),
+        sendWebinarRegistrationConfirmation(c.env.DB, webinar, auth.friendId, sessionStartAt, {
+          proxyBaseUrl: new URL(c.req.url).origin,
+          defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
+          defaultLiffId: liffMatch?.[1] ?? null,
+          proxyDispatch: (request) => dispatchLineProxyLocally(request, c.env, c.executionCtx),
+        }),
       );
     }
     return c.json({ ok: true, sessionStartAt, created });
@@ -496,19 +461,19 @@ webinarRoutes.post('/api/liff/webinars/:slug/cta-click', async (c) => {
       eventType: 'cta_click',
       ctaId,
     });
-    c.executionCtx.waitUntil(awardWebinarCtaMileage(c.env.DB, {
-      webinarId: loaded.webinar.id,
-      friendId: auth.friendId,
-      sessionStartAt,
-      ctaId,
-    }));
+    c.executionCtx.waitUntil(
+      awardWebinarCtaMileage(c.env.DB, {
+        webinarId: loaded.webinar.id,
+        friendId: auth.friendId,
+        sessionStartAt,
+        ctaId,
+      }),
+    );
     if (loaded.webinar.tag_on_cta_click) {
       c.executionCtx.waitUntil(
-        Promise.resolve(
-          attachTagAndFireSideEffects(
-            c.env.DB, auth.friendId, loaded.webinar.tag_on_cta_click,
-          ),
-        ).catch((err) => console.error('webinar cta tag error:', err)),
+        Promise.resolve(attachTagAndFireSideEffects(c.env.DB, auth.friendId, loaded.webinar.tag_on_cta_click)).catch(
+          (err) => console.error('webinar cta tag error:', err),
+        ),
       );
     }
     return c.json({ ok: true });
@@ -542,9 +507,7 @@ webinarRoutes.post('/api/liff/webinars/:slug/funnel-event', async (c) => {
     if (fieldName && !/^[A-Za-z0-9_]+$/.test(fieldName)) {
       return c.json({ error: 'invalid_field_name' }, 422);
     }
-    const registration = await getWebinarRegistration(
-      c.env.DB, auth.webinar.id, auth.friendId, sessionStartAt,
-    );
+    const registration = await getWebinarRegistration(c.env.DB, auth.webinar.id, auth.friendId, sessionStartAt);
     if (!registration) return c.json({ error: 'not_registered' }, 409);
 
     const ctas = await getWebinarCtas(c.env.DB, auth.webinar.id);
@@ -700,10 +663,7 @@ webinarRoutes.get('/webinar-assets/:token/:slug/*', async (c) => {
     return new Response(out.join('\n'), { headers });
   }
 
-  headers.set(
-    'Cache-Control',
-    ext === 'm3u8' ? 'public, max-age=3600' : 'public, max-age=31536000, immutable',
-  );
+  headers.set('Cache-Control', ext === 'm3u8' ? 'public, max-age=3600' : 'public, max-age=31536000, immutable');
   headers.set('ETag', object.etag);
   return new Response(object.body as ReadableStream, { headers });
 });
@@ -778,8 +738,11 @@ function validateWebinarBody(
   } else if (body.cta !== undefined) {
     const { label, url, showAtSeconds } = body.cta;
     if (
-      !label?.trim() || !url?.trim() || !/^https?:\/\//.test(url) ||
-      !Number.isFinite(showAtSeconds) || (showAtSeconds as number) < 0
+      !label?.trim() ||
+      !url?.trim() ||
+      !/^https?:\/\//.test(url) ||
+      !Number.isFinite(showAtSeconds) ||
+      (showAtSeconds as number) < 0
     ) {
       return 'invalid_cta';
     }
@@ -820,9 +783,7 @@ webinarRoutes.post('/api/webinars', async (c) => {
     if (typeof input === 'string') return c.json({ success: false, error: input }, 400);
     const existing = await getWebinarBySlug(c.env.DB, body.slug!);
     if (existing) return c.json({ success: false, error: 'slug_taken' }, 409);
-    const created = await createWebinar(
-      c.env.DB, input as unknown as Parameters<typeof createWebinar>[1],
-    );
+    const created = await createWebinar(c.env.DB, input as unknown as Parameters<typeof createWebinar>[1]);
     return c.json({ success: true, data: serializeWebinar(created) });
   } catch (err) {
     console.error('POST /api/webinars error:', err);
@@ -883,7 +844,10 @@ webinarRoutes.get('/api/webinars/:id/comments', async (c) => {
     return c.json({
       success: true,
       data: comments.map((cm) => ({
-        id: cm.id, atSeconds: cm.at_seconds, authorName: cm.author_name, body: cm.body,
+        id: cm.id,
+        atSeconds: cm.at_seconds,
+        authorName: cm.author_name,
+        body: cm.body,
       })),
     });
   } catch (err) {
@@ -908,9 +872,12 @@ webinarRoutes.put('/api/webinars/:id/comments', async (c) => {
       const text = typeof raw?.body === 'string' ? raw.body.trim() : '';
       // 負の atSeconds = 開始前 (待機ルーム) コメント。-1h まで許容
       if (
-        !Number.isFinite(atSeconds) || atSeconds < COMMENT_MIN_AT_SECONDS ||
-        !authorName || authorName.length > 50 ||
-        !text || text.length > COMMENT_MAX
+        !Number.isFinite(atSeconds) ||
+        atSeconds < COMMENT_MIN_AT_SECONDS ||
+        !authorName ||
+        authorName.length > 50 ||
+        !text ||
+        text.length > COMMENT_MAX
       ) {
         return c.json({ success: false, error: 'invalid_comment' }, 400);
       }
@@ -965,8 +932,14 @@ webinarRoutes.put('/api/webinars/:id/ctas', async (c) => {
       return c.json({ success: false, error: 'too_many_ctas' }, 400);
     }
     const cleaned: Array<{
-      atSeconds: number; kind: 'form' | 'url'; title: string; body: string | null;
-      buttonLabel: string; autoOpen: boolean; formId: string | null; url: string | null;
+      atSeconds: number;
+      kind: 'form' | 'url';
+      title: string;
+      body: string | null;
+      buttonLabel: string;
+      autoOpen: boolean;
+      formId: string | null;
+      url: string | null;
     }> = [];
     const formIdsToCheck = new Set<string>();
     for (const raw of body.ctas as Array<Record<string, unknown>>) {
@@ -978,11 +951,14 @@ webinarRoutes.put('/api/webinars/:id/ctas', async (c) => {
       const formId = typeof raw?.formId === 'string' && raw.formId ? raw.formId : null;
       const url = typeof raw?.url === 'string' && raw.url ? raw.url.trim() : null;
       if (
-        !Number.isFinite(atSeconds) || atSeconds < 0 ||
+        !Number.isFinite(atSeconds) ||
+        atSeconds < 0 ||
         (kind !== 'form' && kind !== 'url') ||
-        !title || title.length > 100 ||
+        !title ||
+        title.length > 100 ||
         bodyText.length > 300 ||
-        !buttonLabel || buttonLabel.length > 50
+        !buttonLabel ||
+        buttonLabel.length > 50
       ) {
         return c.json({ success: false, error: 'invalid_cta' }, 400);
       }
@@ -993,15 +969,18 @@ webinarRoutes.put('/api/webinars/:id/ctas', async (c) => {
         return c.json({ success: false, error: 'invalid_url' }, 400);
       }
       cleaned.push({
-        atSeconds, kind, title, body: bodyText || null, buttonLabel,
+        atSeconds,
+        kind,
+        title,
+        body: bodyText || null,
+        buttonLabel,
         autoOpen: Boolean(raw?.autoOpen),
         formId: kind === 'form' ? formId : null,
         url: kind === 'url' ? url : null,
       });
     }
     const forms = await Promise.all(
-      [...formIdsToCheck].map((fid) =>
-        getFormById(c.env.DB, fid, c.get('tenantId') ?? null)),
+      [...formIdsToCheck].map((fid) => getFormById(c.env.DB, fid, c.get('tenantId') ?? null)),
     );
     if (forms.some((f) => !f)) {
       return c.json({ success: false, error: 'form_not_found' }, 400);

@@ -1,16 +1,18 @@
 # Admin Authentication (tenant password session + CSRF)
 
-The admin dashboard uses the pharmacy code, staff login ID, and password. The
-retired browser API-key login is not supported. A successful login creates an
-opaque **HttpOnly session cookie** bound to exactly one tenant.
+The admin dashboard uses the pharmacy code and the tenant's shared administrator
+password. A staff login ID is not entered by the browser login. The retired
+browser API-key login is not supported. A successful login creates an opaque
+**HttpOnly session cookie** bound to exactly one tenant.
 
 ## How it works
 
-1. **Login** — `POST /api/auth/login { pharmacyCode, loginId, password }`. The
-   Worker validates an active tenant, credential, staff member, and membership,
-   then sets three cookies:
+1. **Login** — `POST /api/auth/login { pharmacyCode, password }`. The Worker
+   validates an active tenant, its shared administrator credential, and the
+   corresponding membership, then sets three cookies:
    - `lh_admin_session` — the credential. **HttpOnly**, `Secure`, `Path=/`,
-     `Max-Age=604800`. It contains only an opaque session token.
+     `Max-Age=1800` for bootstrap sessions and `Max-Age=28800` for standard
+     sessions. It contains only an opaque session token.
    - `lh_tenant` — the tenant binding. **HttpOnly** and checked against the
      session record on every request.
    - `lh_csrf` — a random CSRF token. Readable, `Secure`. Also returned in the
@@ -22,8 +24,16 @@ opaque **HttpOnly session cookie** bound to exactly one tenant.
    header matches the `lh_csrf` cookie (double-submit).
 3. **Session check** — `GET /api/auth/session` returns the staff identity and
    the current CSRF token (minting one if missing), letting the SPA recover the
-   token after a reload without re-login.
-4. **Logout** — `POST /api/auth/logout` expires both cookies.
+   token after a reload without re-login. Bootstrap sessions expire after 30
+   minutes absolute or 10 minutes idle; standard sessions expire after 8 hours
+   absolute or 15 minutes idle.
+4. **Logout** — `POST /api/auth/logout` expires all three cookies.
+
+New and temporary administrator passwords must contain 15–128 Unicode code
+points and must not exactly match the locally versioned top-100,000 common
+password corpus. The corpus is generated from the MIT-licensed SecLists file
+pinned in `apps/worker/scripts/generate-common-passwords.mjs`; authentication
+never sends a candidate password to an external breach service.
 
 ### Why the CSRF token is also returned in the body
 
@@ -68,10 +78,11 @@ three environment variables (see
 Cookies are `SameSite=None; Secure`; CSRF protects mutations; CORS is locked to
 the allowlist.
 
-Cloudflare Pages also prints per-deployment preview URLs such as
-`https://<hash>.<admin>.pages.dev`. Those preview origins are treated as the
-same admin Pages project, so clicking Wrangler's fresh deployment URL does not
-cause a login-time CORS failure.
+Cloudflare Pages preview URLs such as `https://<hash>.<admin>.pages.dev` are
+not inherited from the production origin. A browser origin must exactly match
+an entry in `ADMIN_ORIGIN`; add a reviewed preview origin explicitly when one
+must be used. When `ADMIN_ORIGIN` is configured, the Worker origin is not an
+implicit browser login origin either.
 
 > ⚠️ Browsers are phasing out third-party cookies (Safari ITP blocks them
 > outright). For long-term robustness prefer option (b).

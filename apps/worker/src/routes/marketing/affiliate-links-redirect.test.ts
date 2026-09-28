@@ -27,15 +27,14 @@ const worker = (await import('../../index.js')).default;
 function modeDb(pharmacy: boolean): D1Database {
   return {
     prepare: () => ({
-      bind: () => ({ first: async () => pharmacy ? { ok: 1 } : null }),
+      bind: () => ({ first: async () => (pharmacy ? { ok: 1 } : null) }),
     }),
   } as unknown as D1Database;
 }
 
 const DB = modeDb(false);
 
-const MOBILE_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
 
 const env = {
   DB,

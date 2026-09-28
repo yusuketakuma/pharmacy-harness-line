@@ -24,7 +24,11 @@ const scoring = new Hono<Env>();
 function serializeMileageRule(rule: MileageRuleRow) {
   let conditions: Record<string, unknown> = {};
   if (rule.conditions) {
-    try { conditions = JSON.parse(rule.conditions) as Record<string, unknown>; } catch { conditions = {}; }
+    try {
+      conditions = JSON.parse(rule.conditions) as Record<string, unknown>;
+    } catch {
+      conditions = {};
+    }
   }
   return {
     id: rule.id,
@@ -92,9 +96,10 @@ scoring.post('/api/mileage/events', async (c) => {
     if (friendId.length > 128 || eventType.length > 100 || source.length > 100 || sourceEventId.length > 256) {
       return c.json({ success: false, error: 'one or more fields are too long' }, 400);
     }
-    const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
-      ? body.metadata as Record<string, unknown>
-      : {};
+    const metadata =
+      body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+        ? (body.metadata as Record<string, unknown>)
+        : {};
     if (JSON.stringify(metadata).length > 4096) {
       return c.json({ success: false, error: 'metadata_too_large' }, 413);
     }
@@ -225,7 +230,14 @@ scoring.get('/api/scoring-rules/:id', async (c) => {
     if (!item) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({
       success: true,
-      data: { id: item.id, name: item.name, eventType: item.event_type, scoreValue: item.score_value, isActive: Boolean(item.is_active), createdAt: item.created_at },
+      data: {
+        id: item.id,
+        name: item.name,
+        eventType: item.event_type,
+        scoreValue: item.score_value,
+        isActive: Boolean(item.is_active),
+        createdAt: item.created_at,
+      },
     });
   } catch (err) {
     console.error('GET /api/scoring-rules/:id error:', err);
@@ -240,7 +252,18 @@ scoring.post('/api/scoring-rules', async (c) => {
       return c.json({ success: false, error: 'name, eventType, scoreValue are required' }, 400);
     }
     const item = await createScoringRule(c.env.DB, body);
-    return c.json({ success: true, data: { id: item.id, name: item.name, eventType: item.event_type, scoreValue: item.score_value } }, 201);
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: item.id,
+          name: item.name,
+          eventType: item.event_type,
+          scoreValue: item.score_value,
+        },
+      },
+      201,
+    );
   } catch (err) {
     console.error('POST /api/scoring-rules error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -254,7 +277,16 @@ scoring.put('/api/scoring-rules/:id', async (c) => {
     await updateScoringRule(c.env.DB, id, body);
     const updated = await getScoringRuleById(c.env.DB, id);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
-    return c.json({ success: true, data: { id: updated.id, name: updated.name, eventType: updated.event_type, scoreValue: updated.score_value, isActive: Boolean(updated.is_active) } });
+    return c.json({
+      success: true,
+      data: {
+        id: updated.id,
+        name: updated.name,
+        eventType: updated.event_type,
+        scoreValue: updated.score_value,
+        isActive: Boolean(updated.is_active),
+      },
+    });
   } catch (err) {
     console.error('PUT /api/scoring-rules/:id error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);

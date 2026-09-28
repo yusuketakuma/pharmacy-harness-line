@@ -20,6 +20,8 @@ export interface ScheduleContext {
   now: Date;
 }
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
 function addMinutes(date: Date, minutes: number): Date {
   const next = new Date(date);
   next.setMinutes(next.getMinutes() + minutes);
@@ -39,26 +41,23 @@ function addDays(date: Date, days: number): Date {
  * - elapsed: enrolledAt + (offset_days*1440 + offset_minutes) 分
  * - absolute_time: enrolledAt + offset_days 日後の delivery_time。過去なら now に丸める。
  */
-export function computeNextDeliveryAt(
-  scenario: ScenarioRow,
-  step: StepRow,
-  context: ScheduleContext,
-): Date {
+export function computeNextDeliveryAt(scenario: ScenarioRow, step: StepRow, context: ScheduleContext): Date {
   switch (scenario.delivery_mode) {
     case 'relative':
       return addMinutes(context.previousDeliveredAt, step.delay_minutes ?? 0);
 
     case 'elapsed':
-      return addMinutes(
-        context.enrolledAt,
-        (step.offset_days ?? 0) * 1440 + (step.offset_minutes ?? 0),
-      );
+      return addMinutes(context.enrolledAt, (step.offset_days ?? 0) * 1440 + (step.offset_minutes ?? 0));
 
     case 'absolute_time': {
       const target = addDays(context.enrolledAt, step.offset_days ?? 0);
       const [h, m] = (step.delivery_time ?? '00:00').split(':').map(Number);
-      target.setHours(h, m, 0, 0);
-      return target < context.now ? context.now : target;
+      // delivery_time is a JST wall-clock time. Shift into the JST frame and
+      // write via UTC setters so the result is identical in any host TZ.
+      const jst = new Date(target.getTime() + JST_OFFSET_MS);
+      jst.setUTCHours(h, m, 0, 0);
+      const result = new Date(jst.getTime() - JST_OFFSET_MS);
+      return result < context.now ? context.now : result;
     }
   }
 }

@@ -1,11 +1,8 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  type LineCredentialKind,
-} from './line-credentials.js';
+import { DB_PACKAGE_ROOT, Sqlite } from '../test-sqlite.js';
+import { type LineCredentialKind } from './line-credentials.js';
 import {
   backfillLineCredentials,
   restoreLegacyLineCredentials,
@@ -20,13 +17,7 @@ const CHANNEL_SECRET = 's'.repeat(32);
 const LOGIN_CHANNEL_SECRET = 'l'.repeat(32);
 const LEGACY_SENTINEL = 'encrypted:v1';
 
-const require = createRequire(import.meta.url);
-const BASELINE = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../packages/db/migrations/001_v033_baseline.sql',
-);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => SqliteDatabase;
+const BASELINE = join(DB_PACKAGE_ROOT, 'migrations/001_v033_baseline.sql');
 
 type SqliteStatement = {
   get(...values: unknown[]): unknown;
@@ -87,16 +78,18 @@ function d1From(sqlite: SqliteDatabase, options: DatabaseOptions = {}) {
     prepare: (sql: string) => statement(sql),
     batch: async <T>(statements: Array<D1PreparedStatement>) => {
       if (failBatch) throw new Error('synthetic scrub interruption');
-      return sqlite.transaction(() => statements.map((item) => (
-        item as D1PreparedStatement & { runSync(): D1Result<T> }
-      ).runSync()))();
+      return sqlite.transaction(() =>
+        statements.map((item) => (item as D1PreparedStatement & { runSync(): D1Result<T> }).runSync()),
+      )();
     },
   } as unknown as D1Database;
 
   return {
     db,
     queries,
-    setFailBatch(value: boolean) { failBatch = value; },
+    setFailBatch(value: boolean) {
+      failBatch = value;
+    },
     setFailCredentialWriteAt(value: number | undefined) {
       options.failCredentialWriteAt = value;
       credentialWriteCount = 0;
@@ -114,21 +107,28 @@ function database(options: DatabaseOptions = {}) {
       ('tenant-b', 'tenant-b', 'Tenant B', 'active'),
       ('tenant-suspended', 'tenant-suspended', 'Tenant Suspended', 'suspended');
   `);
-  sqlite.prepare(`INSERT INTO line_accounts
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-      'account-a', 'channel-a', 'Account A', 1, ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
-    );
-  sqlite.prepare(`INSERT INTO line_accounts
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run('account-a', 'channel-a', 'Account A', 1, ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET);
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-      'account-b', 'channel-b', 'Account B', 1, OTHER_ACCESS_TOKEN, CHANNEL_SECRET, null,
-    );
-  sqlite.prepare(`INSERT INTO line_accounts
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run('account-b', 'channel-b', 'Account B', 1, OTHER_ACCESS_TOKEN, CHANNEL_SECRET, null);
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-      'account-inactive', 'channel-inactive', 'Account Inactive', 0,
-      ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(
+      'account-inactive',
+      'channel-inactive',
+      'Account Inactive',
+      0,
+      ACCESS_TOKEN,
+      CHANNEL_SECRET,
+      LOGIN_CHANNEL_SECRET,
     );
   sqlite.exec(`
     INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES
@@ -145,9 +145,9 @@ function database(options: DatabaseOptions = {}) {
 }
 
 function addMapping(sqlite: SqliteDatabase, tenantId: string, lineAccountId: string): void {
-  sqlite.prepare(
-    'INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES (?, ?)',
-  ).run(tenantId, lineAccountId);
+  sqlite
+    .prepare('INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES (?, ?)')
+    .run(tenantId, lineAccountId);
 }
 
 function credentialRows(
@@ -159,22 +159,26 @@ function credentialRows(
   credential_kind: string;
   revision: number;
 }> {
-  return sqlite.prepare(`SELECT tenant_id, line_account_id, credential_kind, revision
-    FROM pharmacy_line_credentials WHERE line_account_id = ? ORDER BY credential_kind`).all(lineAccountId) as Array<{
-      tenant_id: string;
-      line_account_id: string;
-      credential_kind: string;
-      revision: number;
-    }>;
+  return sqlite
+    .prepare(`SELECT tenant_id, line_account_id, credential_kind, revision
+    FROM pharmacy_line_credentials WHERE line_account_id = ? ORDER BY credential_kind`)
+    .all(lineAccountId) as Array<{
+    tenant_id: string;
+    line_account_id: string;
+    credential_kind: string;
+    revision: number;
+  }>;
 }
 
 function legacyValues(sqlite: SqliteDatabase, accountId = 'account-a') {
-  return sqlite.prepare(`SELECT channel_access_token, channel_secret, login_channel_secret
-    FROM line_accounts WHERE id = ?`).get(accountId) as {
-      channel_access_token: string | null;
-      channel_secret: string | null;
-      login_channel_secret: string | null;
-    };
+  return sqlite
+    .prepare(`SELECT channel_access_token, channel_secret, login_channel_secret
+    FROM line_accounts WHERE id = ?`)
+    .get(accountId) as {
+    channel_access_token: string | null;
+    channel_secret: string | null;
+    login_channel_secret: string | null;
+  };
 }
 
 async function seedCredential(
@@ -198,21 +202,40 @@ describe('explicit tenant LINE credential migration', () => {
     try {
       await seedCredential(fake.db, 'channel_access_token', ACCESS_TOKEN);
       const first = await backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
       });
 
       expect(first).toEqual({ written: 2, verified: 1 });
       expect(credentialRows(fake.sqlite)).toEqual([
-        { tenant_id: 'tenant-a', line_account_id: 'account-a', credential_kind: 'channel_access_token', revision: 1 },
-        { tenant_id: 'tenant-a', line_account_id: 'account-a', credential_kind: 'channel_secret', revision: 1 },
-        { tenant_id: 'tenant-a', line_account_id: 'account-a', credential_kind: 'login_channel_secret', revision: 1 },
+        {
+          tenant_id: 'tenant-a',
+          line_account_id: 'account-a',
+          credential_kind: 'channel_access_token',
+          revision: 1,
+        },
+        {
+          tenant_id: 'tenant-a',
+          line_account_id: 'account-a',
+          credential_kind: 'channel_secret',
+          revision: 1,
+        },
+        {
+          tenant_id: 'tenant-a',
+          line_account_id: 'account-a',
+          credential_kind: 'login_channel_secret',
+          revision: 1,
+        },
       ]);
       expect(fake.queries.filter(({ sql }) => sql.includes('line-credential-backfill:legacy'))).toHaveLength(1);
       expect(first).not.toHaveProperty('credentials');
 
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ written: 0, verified: 3 });
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ written: 0, verified: 3 });
       expect(credentialRows(fake.sqlite).map(({ revision }) => revision)).toEqual([1, 1, 1]);
     } finally {
       fake.close();
@@ -232,16 +255,25 @@ describe('explicit tenant LINE credential migration', () => {
   it('rejects a wrong tenant, suspended tenant, and missing key without writes', async () => {
     const fake = database();
     try {
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-b', lineAccountId: 'account-a',
-      })).rejects.toThrow();
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-suspended', lineAccountId: 'account-inactive',
-      })).rejects.toThrow();
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-b',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-suspended',
+          lineAccountId: 'account-inactive',
+        }),
+      ).rejects.toThrow();
       const queriesBeforeMissingKey = fake.queries.length;
-      await expect(backfillLineCredentials(fake.db, 'short', {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        backfillLineCredentials(fake.db, 'short', {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(fake.queries).toHaveLength(queriesBeforeMissingKey);
       expect(credentialRows(fake.sqlite)).toEqual([]);
     } finally {
@@ -250,20 +282,29 @@ describe('explicit tenant LINE credential migration', () => {
   });
 
   it.each([
-    ['mismatch', (sqlite: SqliteDatabase) => {
-      return seedCredentialForMutation(sqlite, 'channel_access_token', OTHER_ACCESS_TOKEN);
-    }],
-    ['corrupt ciphertext', (sqlite: SqliteDatabase) => {
-      return seedCredentialForMutation(sqlite, 'channel_access_token', ACCESS_TOKEN, true);
-    }],
+    [
+      'mismatch',
+      (sqlite: SqliteDatabase) => {
+        return seedCredentialForMutation(sqlite, 'channel_access_token', OTHER_ACCESS_TOKEN);
+      },
+    ],
+    [
+      'corrupt ciphertext',
+      (sqlite: SqliteDatabase) => {
+        return seedCredentialForMutation(sqlite, 'channel_access_token', ACCESS_TOKEN, true);
+      },
+    ],
   ])('%s never overwrites an existing encrypted row or writes partial state', async (_label, mutate) => {
     const fake = database();
     try {
       await mutate(fake.sqlite);
       const before = credentialRows(fake.sqlite);
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(credentialRows(fake.sqlite)).toEqual(before);
       expect(legacyValues(fake.sqlite)).toMatchObject({
         channel_access_token: ACCESS_TOKEN,
@@ -278,15 +319,21 @@ describe('explicit tenant LINE credential migration', () => {
     const fake = database();
     try {
       fake.setFailCredentialWriteAt(2);
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(credentialRows(fake.sqlite)).toHaveLength(1);
 
       fake.setFailCredentialWriteAt(undefined);
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ written: 2, verified: 1 });
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ written: 2, verified: 1 });
       expect(credentialRows(fake.sqlite)).toHaveLength(3);
     } finally {
       fake.close();
@@ -298,18 +345,27 @@ describe('explicit tenant LINE credential migration', () => {
     try {
       fake.sqlite.prepare("UPDATE tenants SET status = 'active' WHERE id = 'tenant-suspended'").run();
 
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-suspended', lineAccountId: 'account-inactive',
-      })).resolves.toEqual({ written: 3, verified: 0 });
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-suspended',
+          lineAccountId: 'account-inactive',
+        }),
+      ).resolves.toEqual({ written: 3, verified: 0 });
       expect(credentialRows(fake.sqlite, 'account-inactive')).toHaveLength(3);
-      await expect(readLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-suspended', lineAccountId: 'account-inactive',
-        kind: 'channel_access_token',
-      })).resolves.toBeNull();
+      await expect(
+        readLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-suspended',
+          lineAccountId: 'account-inactive',
+          kind: 'channel_access_token',
+        }),
+      ).resolves.toBeNull();
 
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-suspended', lineAccountId: 'account-inactive',
-      })).resolves.toEqual({ scrubbed: true, verified: 3 });
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-suspended',
+          lineAccountId: 'account-inactive',
+        }),
+      ).resolves.toEqual({ scrubbed: true, verified: 3 });
       expect(legacyValues(fake.sqlite, 'account-inactive')).toEqual({
         channel_access_token: LEGACY_SENTINEL,
         channel_secret: LEGACY_SENTINEL,
@@ -324,28 +380,42 @@ describe('explicit tenant LINE credential migration', () => {
     const fake = database();
     try {
       await backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
       });
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ scrubbed: true, verified: 3 });
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ scrubbed: true, verified: 3 });
       expect(legacyValues(fake.sqlite)).toEqual({
         channel_access_token: LEGACY_SENTINEL,
         channel_secret: LEGACY_SENTINEL,
         login_channel_secret: LEGACY_SENTINEL,
       });
-      expect(fake.sqlite.prepare('SELECT COUNT(*) AS count FROM line_accounts WHERE id = ?').get('account-a'))
-        .toEqual({ count: 1 });
-      expect(fake.sqlite.prepare('SELECT COUNT(*) AS count FROM tenant_line_accounts WHERE line_account_id = ?').get('account-a'))
-        .toEqual({ count: 1 });
+      expect(fake.sqlite.prepare('SELECT COUNT(*) AS count FROM line_accounts WHERE id = ?').get('account-a')).toEqual({
+        count: 1,
+      });
+      expect(
+        fake.sqlite
+          .prepare('SELECT COUNT(*) AS count FROM tenant_line_accounts WHERE line_account_id = ?')
+          .get('account-a'),
+      ).toEqual({ count: 1 });
 
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ written: 0, verified: 3 });
+      await expect(
+        backfillLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ written: 0, verified: 3 });
 
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ scrubbed: false, verified: 3 });
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ scrubbed: false, verified: 3 });
     } finally {
       fake.close();
     }
@@ -355,23 +425,31 @@ describe('explicit tenant LINE credential migration', () => {
     const fake = database();
     try {
       await backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
       });
       await scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
       });
 
-      await expect(restoreLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ restored: true, verified: 3 });
+      await expect(
+        restoreLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ restored: true, verified: 3 });
       expect(legacyValues(fake.sqlite)).toEqual({
         channel_access_token: ACCESS_TOKEN,
         channel_secret: CHANNEL_SECRET,
         login_channel_secret: LOGIN_CHANNEL_SECRET,
       });
-      await expect(restoreLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toEqual({ restored: false, verified: 3 });
+      await expect(
+        restoreLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toEqual({ restored: false, verified: 3 });
     } finally {
       fake.close();
     }
@@ -382,9 +460,12 @@ describe('explicit tenant LINE credential migration', () => {
     try {
       await seedCredential(fake.db, 'channel_access_token', ACCESS_TOKEN);
       const before = legacyValues(fake.sqlite);
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(legacyValues(fake.sqlite)).toEqual(before);
     } finally {
       fake.close();
@@ -398,9 +479,12 @@ describe('explicit tenant LINE credential migration', () => {
       await seedCredential(fake.db, 'channel_secret', CHANNEL_SECRET);
       await seedCredential(fake.db, 'login_channel_secret', LOGIN_CHANNEL_SECRET);
       const before = legacyValues(fake.sqlite);
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(legacyValues(fake.sqlite)).toEqual(before);
     } finally {
       fake.close();
@@ -411,20 +495,28 @@ describe('explicit tenant LINE credential migration', () => {
     const fake = database();
     try {
       await backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
       });
       fake.setFailBatch(true);
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).rejects.toThrow();
       expect(legacyValues(fake.sqlite).channel_access_token).toBe(ACCESS_TOKEN);
 
       fake.setFailBatch(false);
-      await expect(scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).resolves.toMatchObject({ scrubbed: true });
-      expect(fake.sqlite.prepare('SELECT is_active FROM line_accounts WHERE id = ?').get('account-a'))
-        .toEqual({ is_active: 1 });
+      await expect(
+        scrubLegacyLineCredentials(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+        }),
+      ).resolves.toMatchObject({ scrubbed: true });
+      expect(fake.sqlite.prepare('SELECT is_active FROM line_accounts WHERE id = ?').get('account-a')).toEqual({
+        is_active: 1,
+      });
       expect(credentialRows(fake.sqlite)).toHaveLength(3);
     } finally {
       fake.close();
@@ -441,7 +533,9 @@ async function seedCredentialForMutation(
   const fake = d1From(sqlite);
   await seedCredential(fake.db, kind, credential);
   if (corrupt) {
-    sqlite.prepare(`UPDATE pharmacy_line_credentials
-      SET ciphertext = 'corrupt' WHERE credential_kind = ?`).run(kind);
+    sqlite
+      .prepare(`UPDATE pharmacy_line_credentials
+      SET ciphertext = 'corrupt' WHERE credential_kind = ?`)
+      .run(kind);
   }
 }

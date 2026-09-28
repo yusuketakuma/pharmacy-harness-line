@@ -1,3 +1,6 @@
+import { patientAuthorityPredicateFor } from '../intake/repository.js';
+import { isIsoCalendarDate } from '../dates.js';
+
 export type NextIntakeExpectationStatus =
   | 'offered'
   | 'accepted'
@@ -40,16 +43,26 @@ const SELECT = `
   SELECT id, obligation_id, line_account_id, owner_friend_id, patient_id,
          status, timing_source, supply_days, expected_from, expected_to,
          reminder_at, reminded_at, version, created_by, created_at, updated_at
-    FROM pharmacy_next_intake_expectations`;
+    FROM pharmacy_next_intake_expectations AS expectation`;
+
+async function patientExpectationAuthorityPredicate(db: D1Database, expectationAlias: string): Promise<string> {
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  return `
+    AND EXISTS (
+      SELECT 1 FROM pharmacy_patients AS patient
+       WHERE patient.id = ${expectationAlias}.patient_id
+         AND patient.line_account_id = ${expectationAlias}.line_account_id
+         AND patient.owner_friend_id = ${expectationAlias}.owner_friend_id
+         AND patient.archived_at IS NULL
+         ${authorityPredicate}
+    )`;
+}
 
 function validOpaqueKey(value: string): boolean {
   return value.length >= 8 && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
-function validDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  return new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
-}
+const validDateOnly = isIsoCalendarDate;
 
 function addDays(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -90,8 +103,11 @@ function timingValues(
     };
   }
 
-  if (!validDateOnly(timing.expectedFrom) || !validDateOnly(timing.expectedTo) ||
-      timing.expectedTo < timing.expectedFrom) {
+  if (
+    !validDateOnly(timing.expectedFrom) ||
+    !validDateOnly(timing.expectedTo) ||
+    timing.expectedTo < timing.expectedFrom
+  ) {
     throw new Error('expected window is invalid');
   }
   const reminder = new Date(timing.reminderAt);
@@ -113,9 +129,29 @@ async function getExpectation(
   expectationId: string,
   friendId?: string,
 ): Promise<NextIntakeExpectation | null> {
-  return db.prepare(
-    `${SELECT} WHERE id = ? AND line_account_id = ?${friendId ? ' AND owner_friend_id = ?' : ''}`,
-  ).bind(expectationId, lineAccountId, ...(friendId ? [friendId] : []))
+  return db
+    .prepare(
+      `${SELECT} WHERE expectation.id = ? AND expectation.line_account_id = ?${friendId ? ' AND expectation.owner_friend_id = ?' : ''}`,
+    )
+    .bind(expectationId, lineAccountId, ...(friendId ? [friendId] : []))
+    .first<NextIntakeExpectation>();
+}
+
+async function getPatientExpectation(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+  expectationId: string,
+  now: string,
+): Promise<NextIntakeExpectation | null> {
+  return db
+    .prepare(
+      `${SELECT}
+      WHERE expectation.id = ? AND expectation.line_account_id = ?
+        AND expectation.owner_friend_id = ?
+        ${await patientExpectationAuthorityPredicate(db, 'expectation')}`,
+    )
+    .bind(expectationId, lineAccountId, friendId, friendId, now)
     .first<NextIntakeExpectation>();
 }
 
@@ -134,14 +170,28 @@ async function transitionExpectation(
     now: Date;
   },
 ): Promise<{ expectation: NextIntakeExpectation; changed: boolean }> {
-  const current = await getExpectation(
-    db, input.lineAccountId, input.expectationId, input.friendId,
-  );
+  const current =
+    input.actorType === 'patient' && input.friendId
+      ? await getPatientExpectation(
+          db,
+          input.lineAccountId,
+          input.friendId,
+          input.expectationId,
+          input.now.toISOString(),
+        )
+      : await getExpectation(db, input.lineAccountId, input.expectationId, input.friendId);
   if (!current) throw new Error('expectation unavailable');
-  const replay = await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_next_intake_expectation_events
+  const isPatientActor = input.actorType === 'patient' && Boolean(input.friendId);
+  const patientEventAuthority = isPatientActor ? await patientExpectationAuthorityPredicate(db, 'expectation') : '';
+  const patientUpdateAuthority = isPatientActor
+    ? await patientExpectationAuthorityPredicate(db, 'pharmacy_next_intake_expectations')
+    : '';
+  const replay = await db
+    .prepare(
+      `SELECT 1 AS ok FROM pharmacy_next_intake_expectation_events
       WHERE expectation_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.expectationId, input.lineAccountId, input.idempotencyKey)
+    )
+    .bind(input.expectationId, input.lineAccountId, input.idempotencyKey)
     .first<{ ok: number }>();
   if (replay) return { expectation: current, changed: false };
   if (input.expectedVersion !== undefined && current.version !== input.expectedVersion) {
@@ -153,20 +203,34 @@ async function transitionExpectation(
   const eventId = crypto.randomUUID();
   const timestamp = input.now.toISOString();
   const results = await db.batch([
-    db.prepare(
-      `INSERT INTO pharmacy_next_intake_expectation_events
+    db
+      .prepare(
+        `INSERT INTO pharmacy_next_intake_expectation_events
         (id, expectation_id, line_account_id, event_type, from_status, to_status,
          actor_type, actor_id, idempotency_key, occurred_at)
-       SELECT ?, id, line_account_id, ?, status, ?, ?, ?, ?, ?
-         FROM pharmacy_next_intake_expectations
-        WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?`,
-    ).bind(
-      eventId, input.toStatus, input.toStatus, input.actorType, input.actorId,
-      input.idempotencyKey, timestamp, input.expectationId, input.lineAccountId,
-      input.fromStatus, current.version,
-    ),
-    db.prepare(
-      `UPDATE pharmacy_next_intake_expectations
+       SELECT ?, expectation.id, expectation.line_account_id, ?, expectation.status, ?, ?, ?, ?, ?
+         FROM pharmacy_next_intake_expectations AS expectation
+        WHERE expectation.id = ? AND expectation.line_account_id = ?
+          AND expectation.status = ? AND expectation.version = ?
+          ${patientEventAuthority}`,
+      )
+      .bind(
+        eventId,
+        input.toStatus,
+        input.toStatus,
+        input.actorType,
+        input.actorId,
+        input.idempotencyKey,
+        timestamp,
+        input.expectationId,
+        input.lineAccountId,
+        input.fromStatus,
+        current.version,
+        ...(input.actorType === 'patient' && input.friendId ? [input.friendId, input.now.toISOString()] : []),
+      ),
+    db
+      .prepare(
+        `UPDATE pharmacy_next_intake_expectations
           SET status = ?,
               reminded_at = CASE WHEN ? = 'reminded' THEN ? ELSE reminded_at END,
               version = version + 1,
@@ -175,12 +239,23 @@ async function transitionExpectation(
           AND EXISTS (
             SELECT 1 FROM pharmacy_next_intake_expectation_events
              WHERE id = ? AND expectation_id = ? AND line_account_id = ?
-          )`,
-    ).bind(
-      input.toStatus, input.toStatus, timestamp, timestamp,
-      input.expectationId, input.lineAccountId, input.fromStatus, current.version,
-      eventId, input.expectationId, input.lineAccountId,
-    ),
+          )
+          ${patientUpdateAuthority}`,
+      )
+      .bind(
+        input.toStatus,
+        input.toStatus,
+        timestamp,
+        timestamp,
+        input.expectationId,
+        input.lineAccountId,
+        input.fromStatus,
+        current.version,
+        eventId,
+        input.expectationId,
+        input.lineAccountId,
+        ...(input.actorType === 'patient' && input.friendId ? [input.friendId, input.now.toISOString()] : []),
+      ),
   ]);
   if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('expectation transition conflict');
@@ -201,36 +276,41 @@ export async function offerNextIntakeExpectation(
     now?: Date;
   },
 ): Promise<NextIntakeExpectation> {
-  if (!input.lineAccountId || !input.obligationId || !input.staffId ||
-      !validOpaqueKey(input.idempotencyKey)) {
+  if (!input.lineAccountId || !input.obligationId || !input.staffId || !validOpaqueKey(input.idempotencyKey)) {
     throw new Error('invalid next-intake offer');
   }
-  const source = await db.prepare(
-    `SELECT o.owner_friend_id, o.patient_id, s.closed_at
+  const source = await db
+    .prepare(
+      `SELECT o.owner_friend_id, o.patient_id, s.closed_at
        FROM pharmacy_continuity_obligations o
        INNER JOIN pharmacy_prescription_submissions s
          ON s.id = o.source_submission_id AND s.line_account_id = o.line_account_id
         AND s.friend_id = o.owner_friend_id
       WHERE o.id = ? AND o.line_account_id = ? AND o.status = 'active'
         AND s.status = 'closed' AND s.closed_at IS NOT NULL`,
-  ).bind(input.obligationId, input.lineAccountId).first<{
-    owner_friend_id: string;
-    patient_id: string;
-    closed_at: string;
-  }>();
+    )
+    .bind(input.obligationId, input.lineAccountId)
+    .first<{
+      owner_friend_id: string;
+      patient_id: string;
+      closed_at: string;
+    }>();
   if (!source) throw new Error('continuity record not found');
 
   const now = input.now ?? new Date();
   const timing = timingValues(input.timing, source.closed_at, now);
-  const existing = await db.prepare(
-    `${SELECT} WHERE obligation_id = ? AND line_account_id = ?`,
-  ).bind(input.obligationId, input.lineAccountId).first<NextIntakeExpectation>();
+  const existing = await db
+    .prepare(`${SELECT} WHERE obligation_id = ? AND line_account_id = ?`)
+    .bind(input.obligationId, input.lineAccountId)
+    .first<NextIntakeExpectation>();
   if (existing) {
-    if (existing.timing_source !== timing.timingSource ||
-        existing.supply_days !== timing.supplyDays ||
-        existing.expected_from !== timing.expectedFrom ||
-        existing.expected_to !== timing.expectedTo ||
-        existing.reminder_at !== timing.reminderAt) {
+    if (
+      existing.timing_source !== timing.timingSource ||
+      existing.supply_days !== timing.supplyDays ||
+      existing.expected_from !== timing.expectedFrom ||
+      existing.expected_to !== timing.expectedTo ||
+      existing.reminder_at !== timing.reminderAt
+    ) {
       throw new Error('next-intake expectation already offered');
     }
     return existing;
@@ -241,8 +321,9 @@ export async function offerNextIntakeExpectation(
   const timestamp = now.toISOString();
   const eventKey = `offer:${input.idempotencyKey}`;
   await db.batch([
-    db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_next_intake_expectations
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO pharmacy_next_intake_expectations
         (id, obligation_id, line_account_id, owner_friend_id, patient_id,
          status, timing_source, supply_days, expected_from, expected_to,
          reminder_at, version, created_by, created_at, updated_at)
@@ -261,13 +342,25 @@ export async function offerNextIntakeExpectation(
             SELECT 1 FROM pharmacy_next_intake_expectation_events
              WHERE line_account_id = ? AND idempotency_key = ?
           )`,
-    ).bind(
-      id, timing.timingSource, timing.supplyDays, timing.expectedFrom,
-      timing.expectedTo, timing.reminderAt, input.staffId, timestamp, timestamp,
-      input.obligationId, input.lineAccountId, input.lineAccountId, eventKey,
-    ),
-    db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_next_intake_expectation_events
+      )
+      .bind(
+        id,
+        timing.timingSource,
+        timing.supplyDays,
+        timing.expectedFrom,
+        timing.expectedTo,
+        timing.reminderAt,
+        input.staffId,
+        timestamp,
+        timestamp,
+        input.obligationId,
+        input.lineAccountId,
+        input.lineAccountId,
+        eventKey,
+      ),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO pharmacy_next_intake_expectation_events
         (id, expectation_id, line_account_id, event_type, to_status,
          actor_type, actor_id, idempotency_key, occurred_at)
        SELECT ?, e.id, e.line_account_id, 'offered', 'offered',
@@ -279,14 +372,13 @@ export async function offerNextIntakeExpectation(
              WHERE existing_event.expectation_id = e.id
                AND existing_event.event_type = 'offered'
           )`,
-    ).bind(
-      eventId, input.staffId, eventKey, timestamp,
-      input.obligationId, input.lineAccountId,
-    ),
+      )
+      .bind(eventId, input.staffId, eventKey, timestamp, input.obligationId, input.lineAccountId),
   ]);
-  const saved = await db.prepare(
-    `${SELECT} WHERE obligation_id = ? AND line_account_id = ?`,
-  ).bind(input.obligationId, input.lineAccountId).first<NextIntakeExpectation>();
+  const saved = await db
+    .prepare(`${SELECT} WHERE obligation_id = ? AND line_account_id = ?`)
+    .bind(input.obligationId, input.lineAccountId)
+    .first<NextIntakeExpectation>();
   if (!saved || saved.reminder_at !== timing.reminderAt) {
     throw new Error('next-intake expectation offer conflict');
   }
@@ -304,19 +396,33 @@ export async function respondToNextIntakeExpectation(
     now?: Date;
   },
 ): Promise<NextIntakeExpectation> {
-  if (!validOpaqueKey(input.idempotencyKey) ||
-      (input.response !== 'accepted' && input.response !== 'ended')) {
+  if (!validOpaqueKey(input.idempotencyKey) || (input.response !== 'accepted' && input.response !== 'ended')) {
     throw new Error('expectation unavailable');
   }
-  const available = await db.prepare(
-    `SELECT e.id
+  const available = await db
+    .prepare(
+      `SELECT e.id
        FROM pharmacy_next_intake_expectations e
        INNER JOIN pharmacy_continuity_obligations o
          ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
         AND o.owner_friend_id = e.owner_friend_id AND o.patient_id = e.patient_id
+       INNER JOIN pharmacy_patients AS patient
+          ON patient.id = e.patient_id
+         AND patient.line_account_id = e.line_account_id
+         AND patient.owner_friend_id = e.owner_friend_id
       WHERE e.id = ? AND e.line_account_id = ? AND e.owner_friend_id = ?
-        AND e.status IN ('offered', ?) AND o.status = 'active'`,
-  ).bind(input.expectationId, input.lineAccountId, input.friendId, input.response)
+        AND e.status IN ('offered', ?) AND o.status = 'active'
+        AND patient.archived_at IS NULL
+        ${await patientExpectationAuthorityPredicate(db, 'e')}`,
+    )
+    .bind(
+      input.expectationId,
+      input.lineAccountId,
+      input.friendId,
+      input.response,
+      input.friendId,
+      (input.now ?? new Date()).toISOString(),
+    )
     .first<{ id: string }>();
   if (!available) throw new Error('expectation unavailable');
   const result = await transitionExpectation(db, {
@@ -344,15 +450,24 @@ export async function endNextIntakeExpectation(
     now?: Date;
   },
 ): Promise<NextIntakeExpectation> {
-  if (!input.lineAccountId || !input.expectationId || !input.staffId ||
-      !Number.isInteger(input.expectedVersion) || !validOpaqueKey(input.idempotencyKey)) {
+  if (
+    !input.lineAccountId ||
+    !input.expectationId ||
+    !input.staffId ||
+    !Number.isInteger(input.expectedVersion) ||
+    !validOpaqueKey(input.idempotencyKey)
+  ) {
     throw new Error('expectation unavailable');
   }
   const current = await getExpectation(db, input.lineAccountId, input.expectationId);
   if (!current) throw new Error('expectation unavailable');
   if (current.status === 'ended') return current;
-  if (current.status !== 'offered' && current.status !== 'accepted' &&
-      current.status !== 'active' && current.status !== 'reminded') {
+  if (
+    current.status !== 'offered' &&
+    current.status !== 'accepted' &&
+    current.status !== 'active' &&
+    current.status !== 'reminded'
+  ) {
     throw new Error('expectation transition conflict');
   }
   const result = await transitionExpectation(db, {
@@ -375,8 +490,11 @@ export async function claimDueNextIntakeExpectations(
   limit = 50,
 ): Promise<DueNextIntakeExpectation[]> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
-  const due = await db.prepare(
-    `SELECT e.id, e.obligation_id, e.line_account_id, e.owner_friend_id,
+  const columns = await db.prepare('PRAGMA table_info(pharmacy_next_intake_expectations)').all<{ name: string }>();
+  const notificationQueue = columns.results?.some((column) => column.name === 'notification_checked_at') ?? false;
+  const due = await db
+    .prepare(
+      `SELECT e.id, e.obligation_id, e.line_account_id, e.owner_friend_id,
             e.patient_id, e.status, e.timing_source, e.supply_days,
             e.expected_from, e.expected_to, e.reminder_at, e.reminded_at,
             e.version, e.created_by, e.created_at, e.updated_at,
@@ -400,17 +518,41 @@ export async function claimDueNextIntakeExpectations(
         )
       WHERE e.status IN ('accepted','active') AND e.reminder_at <= ?
         AND o.status = 'active' AND friend.is_following = 1 AND account.is_active = 1
-      ORDER BY e.reminder_at, e.id
+      ORDER BY ${notificationQueue ? 'COALESCE(e.notification_checked_at, e.reminder_at), ' : ''}e.reminder_at, e.id
       LIMIT ?`,
-  ).bind(now.toISOString(), boundedLimit).all<DueNextIntakeExpectation>();
+    )
+    .bind(now.toISOString(), boundedLimit)
+    .all<DueNextIntakeExpectation>();
 
   const claimed: DueNextIntakeExpectation[] = [];
   for (const row of due.results ?? []) {
-    if (row.status === 'active') {
-      claimed.push(row);
-      continue;
-    }
     try {
+      if (notificationQueue) {
+        // A skipped or failed notification must not monopolize the next cron batch.
+        const timestamp = now.toISOString();
+        const checked = await db
+          .prepare(
+            `UPDATE pharmacy_next_intake_expectations
+              SET notification_checked_at = CASE
+                WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
+                ELSE notification_checked_at END
+            WHERE id = ? AND line_account_id = ? AND version = ?
+              AND status IN ('accepted','active')
+              AND EXISTS (
+                SELECT 1 FROM tenant_line_accounts AS mapping
+                INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+                INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
+                WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_next_intake_expectations.line_account_id
+              )`,
+          )
+          .bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id)
+          .run();
+        if ((checked.meta?.changes ?? 0) !== 1) continue;
+      }
+      if (row.status === 'active') {
+        claimed.push(row);
+        continue;
+      }
       const result = await transitionExpectation(db, {
         lineAccountId: row.line_account_id,
         expectationId: row.id,
@@ -423,7 +565,7 @@ export async function claimDueNextIntakeExpectations(
       });
       claimed.push({ ...row, ...result.expectation });
     } catch {
-      // Another cron invocation owns this transition.
+      // A stale row or failed queue write cannot be dispatched by this invocation.
     }
   }
   return claimed;
@@ -475,11 +617,7 @@ function mapExpectationRows(
 ): NextIntakeExpectation[] {
   return rows.map(({ continuity_status: continuityStatus, ...item }) => ({
     ...item,
-    status: item.status === 'ended'
-      ? 'ended'
-      : continuityStatus === 'active'
-        ? item.status
-        : continuityStatus,
+    status: item.status === 'ended' ? 'ended' : continuityStatus === 'active' ? item.status : continuityStatus,
   }));
 }
 
@@ -488,26 +626,39 @@ export async function listPatientExpectations(
   lineAccountId: string,
   friendId: string,
 ): Promise<NextIntakeExpectation[]> {
-  const result = await db.prepare(
-    `${LIST_EXPECTATIONS_SELECT}
+  const result = await db
+    .prepare(
+      `${LIST_EXPECTATIONS_SELECT}
+      INNER JOIN pharmacy_patients AS patient
+        ON patient.id = e.patient_id
+       AND patient.line_account_id = e.line_account_id
+       AND patient.owner_friend_id = e.owner_friend_id
       WHERE e.line_account_id = ? AND e.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+        ${await patientExpectationAuthorityPredicate(db, 'e')}
       ORDER BY e.created_at DESC, e.id DESC`,
-  ).bind(lineAccountId, friendId).all<
-    NextIntakeExpectation & { continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended' }
-  >();
+    )
+    .bind(lineAccountId, friendId, friendId, new Date().toISOString())
+    .all<
+      NextIntakeExpectation & {
+        continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended';
+      }
+    >();
   return mapExpectationRows(result.results ?? []);
 }
 
-export async function listAccountExpectations(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<NextIntakeExpectation[]> {
-  const result = await db.prepare(
-    `${LIST_EXPECTATIONS_SELECT}
+export async function listAccountExpectations(db: D1Database, lineAccountId: string): Promise<NextIntakeExpectation[]> {
+  const result = await db
+    .prepare(
+      `${LIST_EXPECTATIONS_SELECT}
       WHERE e.line_account_id = ?
       ORDER BY e.created_at DESC, e.id DESC`,
-  ).bind(lineAccountId).all<
-    NextIntakeExpectation & { continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended' }
-  >();
+    )
+    .bind(lineAccountId)
+    .all<
+      NextIntakeExpectation & {
+        continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended';
+      }
+    >();
   return mapExpectationRows(result.results ?? []);
 }

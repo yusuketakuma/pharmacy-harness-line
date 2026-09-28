@@ -43,9 +43,7 @@ describe('046_affiliate_links', () => {
 
   test('affiliate_links table and new columns exist', () => {
     const cols = (t: string) =>
-      (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(
-        (r) => r.name,
-      );
+      (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((r) => r.name);
 
     expect(cols('affiliate_links')).toEqual(
       expect.arrayContaining([
@@ -60,12 +58,8 @@ describe('046_affiliate_links', () => {
       ]),
     );
     expect(cols('affiliates')).toContain('friend_id');
-    expect(cols('friends')).toEqual(
-      expect.arrayContaining(['last_ref_code', 'last_ref_at']),
-    );
-    expect(cols('conversion_events')).toEqual(
-      expect.arrayContaining(['affiliate_id', 'attributed_ref_code']),
-    );
+    expect(cols('friends')).toEqual(expect.arrayContaining(['last_ref_code', 'last_ref_at']));
+    expect(cols('conversion_events')).toEqual(expect.arrayContaining(['affiliate_id', 'attributed_ref_code']));
   });
 
   test('affiliate_links ref_code is UNIQUE', () => {
@@ -97,11 +91,9 @@ describe('046_affiliate_links', () => {
 
   test('all four new indexes exist', () => {
     const getIndex = (name: string) =>
-      db
-        .prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`,
-        )
-        .get(name) as { name: string } | undefined;
+      db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).get(name) as
+        | { name: string }
+        | undefined;
 
     expect(getIndex('idx_ref_tracking_friend_created')).toBeDefined();
     expect(getIndex('idx_ref_tracking_ref_created')).toBeDefined();
@@ -111,9 +103,7 @@ describe('046_affiliate_links', () => {
 
   test('idx_affiliates_friend is a partial UNIQUE index on friend_id', () => {
     const idx = db
-      .prepare(
-        `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_affiliates_friend'`,
-      )
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_affiliates_friend'`)
       .get() as { sql: string } | undefined;
     expect(idx).toBeDefined();
     expect(idx!.sql).toMatch(/UNIQUE\s+INDEX/i);
@@ -164,9 +154,10 @@ describe('046_affiliate_links', () => {
       `INSERT INTO affiliate_links (id, affiliate_id, ref_code, created_at)
        VALUES ('al-3', 'aff-2', 'REF002', '2024-01-01T00:00:00.000')`,
     );
-    const row = db
-      .prepare(`SELECT is_active, click_count FROM affiliate_links WHERE id = 'al-3'`)
-      .get() as { is_active: number; click_count: number };
+    const row = db.prepare(`SELECT is_active, click_count FROM affiliate_links WHERE id = 'al-3'`).get() as {
+      is_active: number;
+      click_count: number;
+    };
     expect(row.is_active).toBe(1);
     expect(row.click_count).toBe(0);
   });

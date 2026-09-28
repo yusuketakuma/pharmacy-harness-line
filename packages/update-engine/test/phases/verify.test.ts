@@ -2,13 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runVerify } from '../../src/phases/verify.js';
 import type { VerifyUrls } from '../../src/phases/verify.js';
 import { createEventEmitter } from '../../src/events.js';
-import type {
-  UpdateContext,
-  UpdateEvent,
-  ReleaseEntry,
-  CurrentVersion,
-  CfApiCreds,
-} from '../../src/types.js';
+import type { UpdateContext, UpdateEvent, ReleaseEntry, CurrentVersion, CfApiCreds } from '../../src/types.js';
 
 const ACCOUNT_ID = 'acc';
 const API_TOKEN = 'tok';
@@ -240,9 +234,7 @@ describe('runVerify', () => {
     // running emitted, done NOT emitted.
     expect(events).toEqual([{ step: 'verify', status: 'running' }]);
     // No D1, admin or liff calls.
-    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(
-      ([u]) => u,
-    );
+    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(([u]) => u);
     expect(callUrls.filter((u) => u === WORKER_HEALTH_URL).length).toBe(3);
     expect(callUrls.some((u) => u.includes(D1_QUERY_SUBSTR))).toBe(false);
     expect(callUrls.some((u) => u === ADMIN_URL)).toBe(false);
@@ -261,9 +253,7 @@ describe('runVerify', () => {
     await expect(runVerify(sampleCtx(), sampleUrls(), emitter)).rejects.toThrow();
 
     expect(events).toEqual([{ step: 'verify', status: 'running' }]);
-    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(
-      ([u]) => u,
-    );
+    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(([u]) => u);
     // Worker called once (ok), D1 called once (failed), no admin/liff.
     expect(callUrls.filter((u) => u === WORKER_HEALTH_URL).length).toBe(1);
     expect(callUrls.some((u) => u === ADMIN_URL)).toBe(false);
@@ -292,9 +282,7 @@ describe('runVerify', () => {
     expect(err.message).toContain(ADMIN_URL);
 
     expect(events).toEqual([{ step: 'verify', status: 'running' }]);
-    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(
-      ([u]) => u,
-    );
+    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(([u]) => u);
     expect(callUrls.filter((u) => u === ADMIN_URL).length).toBe(3);
     expect(callUrls.some((u) => u === LIFF_URL)).toBe(false);
   });
@@ -322,9 +310,7 @@ describe('runVerify', () => {
     expect(err.message).toContain(LIFF_URL);
 
     expect(events).toEqual([{ step: 'verify', status: 'running' }]);
-    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(
-      ([u]) => u,
-    );
+    const callUrls = (fetchMock.mock.calls as Array<[string]>).map(([u]) => u);
     expect(callUrls.filter((u) => u === LIFF_URL).length).toBe(3);
   });
 

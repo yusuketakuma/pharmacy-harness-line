@@ -6,8 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 function capabilities(db: Database.Database, accountId: string): string[] {
-  const row = db.prepare(`SELECT capabilities_json FROM pharmacy_account_capabilities
-    WHERE line_account_id = ?`).get(accountId) as { capabilities_json: string };
+  const row = db
+    .prepare(`SELECT capabilities_json FROM pharmacy_account_capabilities
+    WHERE line_account_id = ?`)
+    .get(accountId) as { capabilities_json: string };
   return JSON.parse(row.capabilities_json) as string[];
 }
 

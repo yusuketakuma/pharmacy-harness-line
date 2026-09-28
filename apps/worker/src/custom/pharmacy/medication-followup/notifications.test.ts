@@ -4,6 +4,7 @@ const listDue = vi.hoisted(() => vi.fn());
 const transition = vi.hoisted(() => vi.fn());
 const send = vi.hoisted(() => vi.fn());
 const readCredential = vi.hoisted(() => vi.fn());
+const binding = vi.hoisted(() => vi.fn());
 
 vi.mock('./repository.js', () => ({
   listDueMedicationFollowUps: listDue,
@@ -11,6 +12,9 @@ vi.mock('./repository.js', () => ({
 }));
 vi.mock('../growth-loop/sender.js', () => ({ sendPharmacyAutomatedPush: send }));
 vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: readCredential }));
+vi.mock('../beta-membership/repository.js', () => ({
+  getPharmacyBetaNotificationBinding: binding,
+}));
 
 import { processDueMedicationFollowUps } from './notifications.js';
 
@@ -43,40 +47,60 @@ beforeEach(() => {
     .mockResolvedValueOnce({ ...scheduled, status: 'delivered', version: 3 });
   send.mockResolvedValue('sent');
   readCredential.mockResolvedValue('token-a');
+  binding.mockResolvedValue(null);
 });
 
 describe('medication follow-up notifications', () => {
   it('moves a due item through the approved PHI-free push once', async () => {
     const db = {} as D1Database;
-    await expect(processDueMedicationFollowUps(db, {
-      proxyBaseUrl: 'https://worker.example',
-      lineCredentialKey: 'synthetic-line-credential-root-key-v1',
-      now: new Date('2026-08-18T00:00:00.000Z'),
-    })).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+    await expect(
+      processDueMedicationFollowUps(db, {
+        proxyBaseUrl: 'https://worker.example',
+        lineCredentialKey: 'synthetic-line-credential-root-key-v1',
+        now: new Date('2026-08-18T00:00:00.000Z'),
+      }),
+    ).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        lineAccountId: 'account-a',
+        friendId: 'friend-a',
+        patientId: 'patient-a',
+        messageId: 'medication_followup_v1',
+        category: 'followup_care',
+        vars: { followUpId: scheduled.id, liffId: scheduled.liff_id },
+        retryKey: `medication-followup:${scheduled.id}`,
+      }),
+    );
+    expect(transition).toHaveBeenNthCalledWith(
+      1,
       db,
-      lineAccountId: 'account-a',
-      friendId: 'friend-a',
-      messageId: 'medication_followup_v1',
-      category: 'followup_care',
-      vars: { followUpId: scheduled.id, liffId: scheduled.liff_id },
-      retryKey: `medication-followup:${scheduled.id}`,
-    }));
-    expect(transition).toHaveBeenNthCalledWith(1, db, expect.objectContaining({
-      toStatus: 'due', expectedVersion: 1, actorType: 'system',
-    }));
-    expect(transition).toHaveBeenNthCalledWith(2, db, expect.objectContaining({
-      toStatus: 'delivered', expectedVersion: 2, actorType: 'system',
-    }));
+      expect.objectContaining({
+        toStatus: 'due',
+        expectedVersion: 1,
+        actorType: 'system',
+      }),
+    );
+    expect(transition).toHaveBeenNthCalledWith(
+      2,
+      db,
+      expect.objectContaining({
+        toStatus: 'delivered',
+        expectedVersion: 2,
+        actorType: 'system',
+      }),
+    );
   });
 
   it('leaves a failed delivery due for an idempotent retry', async () => {
     send.mockRejectedValue(new Error('temporary LINE failure'));
-    await expect(processDueMedicationFollowUps({} as D1Database, {
-      proxyBaseUrl: 'https://worker.example',
-      lineCredentialKey: 'synthetic-line-credential-root-key-v1',
-      now: new Date('2026-08-18T00:00:00.000Z'),
-    })).resolves.toEqual({ sent: 0, failed: 1, skipped: 0 });
+    await expect(
+      processDueMedicationFollowUps({} as D1Database, {
+        proxyBaseUrl: 'https://worker.example',
+        lineCredentialKey: 'synthetic-line-credential-root-key-v1',
+        now: new Date('2026-08-18T00:00:00.000Z'),
+      }),
+    ).resolves.toEqual({ sent: 0, failed: 1, skipped: 0 });
     expect(transition).toHaveBeenCalledTimes(1);
   });
 
@@ -84,15 +108,19 @@ describe('medication follow-up notifications', () => {
     readCredential.mockResolvedValue(null);
     const db = {} as D1Database;
 
-    await expect(processDueMedicationFollowUps(db, {
-      proxyBaseUrl: 'https://worker.example',
-      lineCredentialKey: 'synthetic-line-credential-root-key-v1',
-      now: new Date('2026-08-18T00:00:00.000Z'),
-    })).resolves.toEqual({ sent: 0, failed: 0, skipped: 1 });
+    await expect(
+      processDueMedicationFollowUps(db, {
+        proxyBaseUrl: 'https://worker.example',
+        lineCredentialKey: 'synthetic-line-credential-root-key-v1',
+        now: new Date('2026-08-18T00:00:00.000Z'),
+      }),
+    ).resolves.toEqual({ sent: 0, failed: 0, skipped: 1 });
     expect(send).not.toHaveBeenCalled();
     expect(transition).toHaveBeenCalledTimes(1);
     expect(readCredential).toHaveBeenCalledWith(db, 'synthetic-line-credential-root-key-v1', {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
     });
   });
 });

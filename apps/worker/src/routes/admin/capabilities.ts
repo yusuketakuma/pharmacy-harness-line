@@ -1,9 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../../index.js';
-import {
-  PHARMACY_CAPABILITIES,
-  isPharmacyTenant,
-} from '../../custom/pharmacy/growth-loop/access.js';
+import { PHARMACY_CAPABILITIES, isPharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
 
 export const HARNESS_VERSION = '0.12.0';
 export const API_VERSION = 1;

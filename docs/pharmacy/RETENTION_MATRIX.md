@@ -213,9 +213,18 @@ the data they describe. Sequence them **after** the data, never before:
 
 `apps/worker/src/custom/pharmacy/prescriptions/retention-purge.ts` is no longer
 registered as an autonomous 6-hour retention cron. It is callable only through
-the approved recovery operation after server-built preflight/readiness. The
-existing `cleanupPrescriptionImages` cron remains a workflow cleanup and must
-not be used as proof of the 3-year retention boundary.
+the approved recovery operation after server-built preflight/readiness.
+
+**I19-R2 (audit v4, 2026-09):** `cleanupPrescriptionImages` previously reaped
+workflow-ended images — patient-cancelled submissions immediately, stale drafts
+past 24h, and closed/admin-cancelled submissions past 30 days. That conflicted
+with the uniform 3-year rule below: a cancelled or completed prescription image
+is still PHI under this matrix. The cron entry is now a fail-closed no-op; it
+never queries D1 and never deletes an R2 object. Physical deletion of
+prescription images is exclusive to the recovery-gated retention purge, whose
+selection is `pharmacy_prescription_files.created_at`-based and independent of
+submission status, so retained cancelled/closed/draft files age into the purge
+boundary normally.
 
 Fail-closed rules, mirroring `purgeWebhookEventReceipts` (M-7):
 
@@ -232,10 +241,11 @@ Fail-closed rules, mirroring `purgeWebhookEventReceipts` (M-7):
 4. Each execution is bounded to 50 resources by default, and any blocker keeps
    the recovery operation running rather than reporting success.
 
-This remains separate from `cleanupPrescriptionImages`, which only reaps images
-whose workflow ended. No statement that an object "goes regardless of status"
-is valid until the integrated readiness blockers are resolved and an approved
-production execution proves it.
+No statement that an object "goes regardless of status" is valid until the
+integrated readiness blockers are resolved and an approved production execution
+proves it. `cleanupPrescriptionImages` no longer deletes anything (I19-R2
+above); earlier claims that it reaped workflow-ended images describe the
+superseded contract only.
 
 ### Emergency contraception retention (NEXT-2)
 

@@ -41,16 +41,22 @@ describe('custom_015_pharmacy_tenant_credentials.sql', () => {
   it('keeps provisioning receipts bound to the created tenant resources', () => {
     const db = database();
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_tenant_provisioning_requests
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_tenant_provisioning_requests
       (idempotency_key_hash, request_hash, actor_key_hash, tenant_id, line_account_id, staff_id, created_at)
       VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'hash-a', 'actor-a',
-              'tenant-a', 'account-a', 'staff-a', '2026-08-18')`).run())
-      .not.toThrow();
-    expect(() => db.prepare(`INSERT INTO pharmacy_tenant_provisioning_requests
+              'tenant-a', 'account-a', 'staff-a', '2026-08-18')`)
+        .run(),
+    ).not.toThrow();
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_tenant_provisioning_requests
       (idempotency_key_hash, request_hash, actor_key_hash, tenant_id, line_account_id, staff_id, created_at)
       VALUES ('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'hash-b', 'actor-b',
-              'tenant-a', 'account-b', 'staff-a', '2026-08-18')`).run())
-      .toThrow(/FOREIGN KEY constraint failed/i);
+              'tenant-a', 'account-b', 'staff-a', '2026-08-18')`)
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/i);
   });
 
   it('keeps revocable sessions tenant-bound and canonical LINE bots unique', () => {
@@ -61,20 +67,26 @@ describe('custom_015_pharmacy_tenant_credentials.sql', () => {
     db.prepare(`INSERT INTO tenant_admin_sessions
       (token_hash, tenant_id, staff_id, credential_version, session_kind,
        expires_at, revoked_at, created_at)
-      VALUES (?, 'tenant-a', 'staff-a', 1, 'bootstrap', '2026-08-19', NULL, '2026-08-18')`)
-      .run('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    expect(() => db.prepare(`INSERT INTO tenant_admin_sessions
+      VALUES (?, 'tenant-a', 'staff-a', 1, 'bootstrap', '2026-08-19', NULL, '2026-08-18')`).run(
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    expect(() =>
+      db
+        .prepare(`INSERT INTO tenant_admin_sessions
       (token_hash, tenant_id, staff_id, credential_version, session_kind,
        expires_at, revoked_at, created_at)
       VALUES (?, 'tenant-a', 'staff-b', 1, 'standard', '2026-08-19', NULL, '2026-08-18')`)
-      .run('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'))
-      .toThrow(/inactive tenant admin authority/i);
+        .run('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    ).toThrow(/inactive tenant admin authority/i);
 
     db.prepare(`INSERT INTO pharmacy_line_channel_identities
       (line_account_id, bot_user_id, created_at) VALUES ('account-a', 'U-bot-a', '2026-08-18')`).run();
-    expect(() => db.prepare(`INSERT INTO pharmacy_line_channel_identities
-      (line_account_id, bot_user_id, created_at) VALUES ('account-b', 'U-bot-a', '2026-08-18')`).run())
-      .toThrow(/UNIQUE constraint failed/i);
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_line_channel_identities
+      (line_account_id, bot_user_id, created_at) VALUES ('account-b', 'U-bot-a', '2026-08-18')`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/i);
   });
 
   it('makes LINE Login and LIFF selectors globally unambiguous', () => {
@@ -82,14 +94,19 @@ describe('custom_015_pharmacy_tenant_credentials.sql', () => {
     db.prepare(`UPDATE line_accounts
                    SET login_channel_id = 'login-a', liff_id = 'liff-a'
                  WHERE id = 'account-a'`).run();
-    expect(() => db.prepare(`UPDATE line_accounts
+    expect(() =>
+      db
+        .prepare(`UPDATE line_accounts
                                 SET login_channel_id = 'login-a'
-                              WHERE id = 'account-b'`).run())
-      .toThrow(/UNIQUE constraint failed/i);
-    expect(() => db.prepare(`UPDATE line_accounts
+                              WHERE id = 'account-b'`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/i);
+    expect(() =>
+      db
+        .prepare(`UPDATE line_accounts
                                 SET liff_id = 'liff-a'
-                              WHERE id = 'account-b'`).run())
-      .toThrow(/UNIQUE constraint failed/i);
+                              WHERE id = 'account-b'`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/i);
   });
-
 });

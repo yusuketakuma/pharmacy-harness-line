@@ -1,0 +1,78 @@
+describe('POST /webhook — referral intro delivery', () => {
+  test('rejects another tenant referral intro', async () => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    const introMessage = { type: 'text', text: 'Referral intro' } as const;
+    vi.mocked(buildMessage).mockReturnValue(introMessage);
+    vi.mocked(messageToLogPayload).mockReturnValue({
+      messageType: 'text',
+      content: 'Referral intro',
+    });
+    vi.mocked(upsertFriend).mockResolvedValue({
+      id: 'friend-referral',
+      line_user_id: 'U-referral',
+      display_name: null,
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      user_id: null,
+      line_account_id: 'account-referral',
+      metadata: '{}',
+      first_tracked_link_id: null,
+      first_followed_at: '2026-08-30T12:00:00.000+09:00',
+      created_at: '2026-08-30T12:00:00.000+09:00',
+      updated_at: '2026-08-30T12:00:00.000+09:00',
+    } as never);
+    vi.mocked(getFriendById).mockResolvedValue({ ref_code: 'ref-route' } as never);
+    vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
+      id: 'route-referral', tenant_id: 'tenant-other',
+      intro_template_id: 'template-referral',
+      run_account_friend_add_scenarios: 0,
+    } as never);
+    vi.mocked(getMessageTemplateById).mockResolvedValue({
+      message_type: 'text',
+      message_content: 'Referral intro',
+    } as never);
+
+    const statement = {
+      bind: vi.fn(),
+      first: vi.fn().mockResolvedValue(null),
+      all: vi.fn().mockResolvedValue({ results: [] }),
+      run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
+    };
+    statement.bind.mockReturnValue(statement);
+    const db = withWebhookIdentity(
+      { prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database,
+      {
+        botUserId: 'bot',
+        accountId: 'account-referral',
+        tenantId: 'tenant-referral',
+        channelSecret: 'referral-secret',
+        channelAccessToken: 'referral-token',
+      },
+    );
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+
+    const response = await setupApp().request('/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Signature': `${'A'.repeat(43)}=`,
+      },
+      body: JSON.stringify({ destination: 'bot', events: [{
+        type: 'follow',
+        replyToken: 'reply-referral',
+        source: { type: 'user', userId: 'U-referral' },
+        webhookEventId: 'event-referral-intro-1',
+      }] }),
+    }, { ...baseEnv, DB: db }, executionCtx);
+    await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
+
+    expect(response.status).toBe(200);
+    expect(deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+  });
+});

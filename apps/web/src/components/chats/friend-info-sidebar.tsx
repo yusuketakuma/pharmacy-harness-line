@@ -1,148 +1,164 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { api, type MileageHistoryItem, type MileageSummary } from '@/lib/api'
+import { useState, useEffect } from 'react';
+import { api, type MileageHistoryItem, type MileageSummary } from '@/lib/api';
 
 interface FriendDetail {
-  id: string
-  displayName: string | null
-  pictureUrl: string | null
-  isFollowing: boolean
-  metadata: Record<string, unknown>
-  refCode: string | null
-  createdAt: string
-  tags: Array<{ id: string; name: string; color: string }>
+  id: string;
+  displayName: string | null;
+  pictureUrl: string | null;
+  isFollowing: boolean;
+  metadata: Record<string, unknown>;
+  refCode: string | null;
+  createdAt: string;
+  tags: Array<{ id: string; name: string; color: string }>;
   formSubmissions: Array<{
-    id: string
-    formId: string
-    formName: string
-    fields: Array<{ name: string; label: string }>
-    data: Record<string, unknown>
-    createdAt: string
-  }>
+    id: string;
+    formId: string;
+    formName: string;
+    fields: Array<{ name: string; label: string }>;
+    data: Record<string, unknown>;
+    createdAt: string;
+  }>;
 }
 
 interface ChatStatusInfo {
-  status: 'unread' | 'in_progress' | 'resolved' | null
-  notes: string | null
+  status: 'unread' | 'in_progress' | 'resolved' | null;
+  notes: string | null;
 }
 
 interface Props {
-  friendId: string | null
+  friendId: string | null;
   /** 親 (ChatDetail) が持っている chat 側の情報 — status / notes */
-  chatStatus?: ChatStatusInfo
+  chatStatus?: ChatStatusInfo;
   /** 担当者名 (ChatDetail で operatorId → name 変換済を渡す想定) */
-  operatorName?: string | null
+  operatorName?: string | null;
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 const statusLabels: Record<NonNullable<ChatStatusInfo['status']>, { label: string; className: string }> = {
   unread: { label: '未対応', className: 'bg-red-100 text-red-700' },
   in_progress: { label: '対応中', className: 'bg-yellow-100 text-yellow-700' },
   resolved: { label: '解決済', className: 'bg-green-100 text-green-700' },
-}
+};
 
 /** Render a metadata value safely as text. Objects/arrays → JSON, primitives → as-is. */
 function renderValue(value: unknown): string {
-  if (value === null || value === undefined) return '-'
-  if (typeof value === 'string') return value || '-'
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string') return value || '-';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value);
   } catch {
-    return '[unparseable]'
+    return '[unparseable]';
   }
 }
 
 export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }: Props) {
-  const [friend, setFriend] = useState<FriendDetail | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [friend, setFriend] = useState<FriendDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   type MileageState =
     | { kind: 'loading' }
     | { kind: 'error' }
-    | { kind: 'data'; summary: MileageSummary; history: MileageHistoryItem[] }
-  const [mileage, setMileage] = useState<MileageState>({ kind: 'loading' })
+    | { kind: 'data'; summary: MileageSummary; history: MileageHistoryItem[] };
+  const [mileage, setMileage] = useState<MileageState>({ kind: 'loading' });
 
   useEffect(() => {
     if (!friendId) {
-      setFriend(null)
-      return
+      setFriend(null);
+      return;
     }
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    api.friends.get(friendId).then((res) => {
-      if (cancelled) return
-      if (res.success && res.data) {
-        setFriend(res.data as unknown as FriendDetail)
-      } else {
-        setError((res as { error?: string }).error ?? '友だち情報を取得できませんでした')
-      }
-    }).catch((err) => {
-      if (cancelled) return
-      setError(err instanceof Error ? err.message : String(err))
-    }).finally(() => {
-      if (!cancelled) setLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [friendId])
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.friends
+      .get(friendId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setFriend(res.data as unknown as FriendDetail);
+        } else {
+          setError((res as { error?: string }).error ?? '友だち情報を取得できませんでした');
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [friendId]);
 
   useEffect(() => {
     if (!friendId) {
-      setMileage({ kind: 'loading' })
-      return
+      setMileage({ kind: 'loading' });
+      return;
     }
-    let cancelled = false
-    setMileage({ kind: 'loading' })
-    api.friends.mileage(friendId, 10).then((res) => {
-      if (cancelled) return
-      if (res.success && res.data) {
-        setMileage({ kind: 'data', ...res.data })
-      } else {
-        setMileage({ kind: 'error' })
-      }
-    }).catch(() => {
-      if (!cancelled) setMileage({ kind: 'error' })
-    })
-    return () => { cancelled = true }
-  }, [friendId])
+    let cancelled = false;
+    setMileage({ kind: 'loading' });
+    api.friends
+      .mileage(friendId, 10)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setMileage({ kind: 'data', ...res.data });
+        } else {
+          setMileage({ kind: 'error' });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMileage({ kind: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [friendId]);
 
   // リッチメニュー — loading / error / data を区別して、null=未設定 を取得失敗と
   // 混同しないようにする。Codex review (P3) の指摘で導入。
   type RichMenuState =
     | { kind: 'loading' }
     | { kind: 'error' }
-    | { kind: 'data'; id: string | null; name: string | null; isDefault: boolean }
-  const [richMenu, setRichMenu] = useState<RichMenuState>({ kind: 'loading' })
+    | { kind: 'data'; id: string | null; name: string | null; isDefault: boolean };
+  const [richMenu, setRichMenu] = useState<RichMenuState>({ kind: 'loading' });
 
   useEffect(() => {
     if (!friendId) {
-      setRichMenu({ kind: 'loading' })
-      return
+      setRichMenu({ kind: 'loading' });
+      return;
     }
-    let cancelled = false
-    setRichMenu({ kind: 'loading' })
-    api.friends.richMenu(friendId).then((res) => {
-      if (cancelled) return
-      if (res.success && res.data) {
-        setRichMenu({ kind: 'data', ...res.data })
-      } else {
-        setRichMenu({ kind: 'error' })
-      }
-    }).catch(() => {
-      if (cancelled) return
-      setRichMenu({ kind: 'error' })
-    })
-    return () => { cancelled = true }
-  }, [friendId])
+    let cancelled = false;
+    setRichMenu({ kind: 'loading' });
+    api.friends
+      .richMenu(friendId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setRichMenu({ kind: 'data', ...res.data });
+        } else {
+          setRichMenu({ kind: 'error' });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRichMenu({ kind: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [friendId]);
 
-  if (!friendId) return null
+  if (!friendId) return null;
 
   return (
     <div className="w-full lg:w-80 lg:flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col overflow-hidden">
@@ -176,9 +192,7 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-gray-900 truncate">{friend.displayName || '名前なし'}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  登録日: {formatDate(friend.createdAt)}
-                </p>
+                <p className="text-[11px] text-gray-400 mt-0.5">登録日: {formatDate(friend.createdAt)}</p>
                 {!friend.isFollowing && (
                   <span className="inline-block mt-1 px-1.5 py-0 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
                     ブロック済
@@ -217,8 +231,11 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
                       {mileage.history.slice(0, 3).map((item) => (
                         <div key={item.id} className="flex items-center justify-between gap-2 text-[10px]">
                           <span className="min-w-0 truncate text-white/75">{item.reason}</span>
-                          <span className={`shrink-0 font-semibold tabular-nums ${item.amount > 0 ? 'text-amber-200' : 'text-white/80'}`}>
-                            {item.amount > 0 ? '+' : ''}{item.amount.toLocaleString('ja-JP')}
+                          <span
+                            className={`shrink-0 font-semibold tabular-nums ${item.amount > 0 ? 'text-amber-200' : 'text-white/80'}`}
+                          >
+                            {item.amount > 0 ? '+' : ''}
+                            {item.amount.toLocaleString('ja-JP')}
                           </span>
                         </div>
                       ))}
@@ -238,7 +255,9 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
                 {chatStatus?.status && statusLabels[chatStatus.status] && (
                   <div className="flex justify-between items-center">
                     <span className="text-[11px] text-gray-500">対応状況</span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusLabels[chatStatus.status].className}`}>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusLabels[chatStatus.status].className}`}
+                    >
                       {statusLabels[chatStatus.status].label}
                     </span>
                   </div>
@@ -325,15 +344,13 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
                 <h4 className="text-[11px] font-medium text-gray-500 mb-2">フォーム回答</h4>
                 <div className="space-y-3">
                   {friend.formSubmissions.map((submission) => {
-                    const labels = new Map(submission.fields.map((field) => [field.name, field.label]))
-                    const answers = Object.entries(submission.data).filter(([key]) => !key.startsWith('_'))
+                    const labels = new Map(submission.fields.map((field) => [field.name, field.label]));
+                    const answers = Object.entries(submission.data).filter(([key]) => !key.startsWith('_'));
                     return (
                       <div key={submission.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-xs font-medium text-gray-700 break-words">{submission.formName}</p>
-                          <time className="shrink-0 text-[10px] text-gray-400">
-                            {formatDate(submission.createdAt)}
-                          </time>
+                          <time className="shrink-0 text-[10px] text-gray-400">{formatDate(submission.createdAt)}</time>
                         </div>
                         <dl className="mt-2 space-y-2">
                           {answers.map(([key, value]) => (
@@ -346,7 +363,7 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
                           ))}
                         </dl>
                       </div>
-                    )
+                    );
                   })}
                 </div>
               </div>
@@ -363,5 +380,5 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
         )}
       </div>
     </div>
-  )
+  );
 }

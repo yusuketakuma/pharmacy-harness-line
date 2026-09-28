@@ -1,8 +1,5 @@
 import { getLineAccountByIdForTenant, type LineAccount } from '@line-crm/db';
-import {
-  encryptLineCredential,
-  type LineCredentialKind,
-} from './line-credentials.js';
+import { encryptLineCredential, type LineCredentialKind } from './line-credentials.js';
 
 const ENCRYPTED_CREDENTIAL = 'encrypted:v1';
 const CREATE_ERROR = 'Unable to create LINE account';
@@ -47,36 +44,41 @@ export async function createEncryptedLineAccount(
   input: CreateEncryptedLineAccountInput,
 ): Promise<LineAccount> {
   const kinds = new Set(input.credentials.map(({ kind }) => kind));
-  if (kinds.size !== input.credentials.length ||
-      !kinds.has('channel_access_token') || !kinds.has('channel_secret')) {
+  if (kinds.size !== input.credentials.length || !kinds.has('channel_access_token') || !kinds.has('channel_secret')) {
     throw new Error(CREATE_ERROR);
   }
 
   try {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const order = await db.prepare(
-      `SELECT COALESCE(MAX(account.display_order), -1) + 1 AS next
+    const order = await db
+      .prepare(
+        `SELECT COALESCE(MAX(account.display_order), -1) + 1 AS next
          FROM line_accounts AS account
          INNER JOIN tenant_line_accounts AS mapping
                  ON mapping.line_account_id = account.id
         WHERE mapping.tenant_id = ?`,
-    ).bind(input.tenantId).first<{ next: number }>();
-    const encrypted = await Promise.all(input.credentials.map(async ({ kind, credential }) => ({
-      kind,
-      ...await encryptLineCredential({
-        rootSecret,
-        tenantId: input.tenantId,
-        lineAccountId: id,
+      )
+      .bind(input.tenantId)
+      .first<{ next: number }>();
+    const encrypted = await Promise.all(
+      input.credentials.map(async ({ kind, credential }) => ({
         kind,
-        credential,
-      }),
-    })));
+        ...(await encryptLineCredential({
+          rootSecret,
+          tenantId: input.tenantId,
+          lineAccountId: id,
+          kind,
+          credential,
+        })),
+      })),
+    );
     const loginSecret = kinds.has('login_channel_secret') ? ENCRYPTED_CREDENTIAL : null;
 
     const statements: D1PreparedStatement[] = [
-      db.prepare(
-        `INSERT INTO line_accounts
+      db
+        .prepare(
+          `INSERT INTO line_accounts
           (id, channel_id, name, channel_access_token, channel_secret,
            login_channel_id, login_channel_secret, liff_id,
            is_active, display_order,
@@ -85,51 +87,62 @@ export async function createEncryptedLineAccount(
          SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?
            FROM tenants
           WHERE id = ? AND status = 'active'`,
-      ).bind(
-        id,
-        input.channelId,
-        input.name,
-        ENCRYPTED_CREDENTIAL,
-        ENCRYPTED_CREDENTIAL,
-        input.loginChannelId ?? null,
-        loginSecret,
-        input.liffId ?? null,
-        order?.next ?? 0,
-        input.ogSiteName ?? null,
-        input.ogDefaultImageUrl ?? null,
-        input.ogDefaultDescription ?? null,
-        now,
-        now,
-        input.tenantId,
-      ),
-      db.prepare(
-        `INSERT INTO tenant_line_accounts
+        )
+        .bind(
+          id,
+          input.channelId,
+          input.name,
+          ENCRYPTED_CREDENTIAL,
+          ENCRYPTED_CREDENTIAL,
+          input.loginChannelId ?? null,
+          loginSecret,
+          input.liffId ?? null,
+          order?.next ?? 0,
+          input.ogSiteName ?? null,
+          input.ogDefaultImageUrl ?? null,
+          input.ogDefaultDescription ?? null,
+          now,
+          now,
+          input.tenantId,
+        ),
+      db
+        .prepare(
+          `INSERT INTO tenant_line_accounts
           (tenant_id, line_account_id, created_at, updated_at)
          VALUES (?, ?, ?, ?)`,
-      ).bind(input.tenantId, id, now, now),
-      ...encrypted.map((credential) => db.prepare(
-        `INSERT INTO pharmacy_line_credentials
+        )
+        .bind(input.tenantId, id, now, now),
+      ...encrypted.map((credential) =>
+        db
+          .prepare(
+            `INSERT INTO pharmacy_line_credentials
           (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
            key_version, revision, lookup_digest, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-      ).bind(
-        input.tenantId,
-        id,
-        credential.kind,
-        credential.nonce,
-        credential.ciphertext,
-        credential.keyVersion,
-        credential.lookupDigest,
-        now,
-        now,
-      )),
+          )
+          .bind(
+            input.tenantId,
+            id,
+            credential.kind,
+            credential.nonce,
+            credential.ciphertext,
+            credential.keyVersion,
+            credential.lookupDigest,
+            now,
+            now,
+          ),
+      ),
     ];
     if (input.assignedStaffId) {
-      statements.push(db.prepare(
-        `INSERT INTO pharmacy_staff_accounts
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO pharmacy_staff_accounts
           (line_account_id, staff_id, is_active, created_at, updated_at)
          VALUES (?, ?, 1, ?, ?)`,
-      ).bind(id, input.assignedStaffId, now, now));
+          )
+          .bind(id, input.assignedStaffId, now, now),
+      );
     }
     await db.batch(statements);
 
@@ -147,34 +160,39 @@ export async function updateEncryptedLineAccount(
   input: UpdateEncryptedLineAccountInput,
 ): Promise<LineAccount> {
   const kinds = new Set(input.credentials.map(({ kind }) => kind));
-  if (kinds.size !== input.credentials.length || input.credentials.some(({ kind, credential }) =>
-    credential === null && kind !== 'login_channel_secret')) {
+  if (
+    kinds.size !== input.credentials.length ||
+    input.credentials.some(({ kind, credential }) => credential === null && kind !== 'login_channel_secret')
+  ) {
     throw new Error(CREATE_ERROR);
   }
 
   try {
     const expectedTime = Date.parse(input.expectedUpdatedAt);
-    const now = new Date(Math.max(
-      Date.now(),
-      Number.isFinite(expectedTime) ? expectedTime + 1 : Date.now(),
-    )).toISOString();
+    const now = new Date(
+      Math.max(Date.now(), Number.isFinite(expectedTime) ? expectedTime + 1 : Date.now()),
+    ).toISOString();
     const writes = input.credentials.filter(
       (item): item is { kind: LineCredentialKind; credential: string } => item.credential !== null,
     );
     if (writes.length > 0 && !rootSecret) throw new Error(CREATE_ERROR);
-    const encrypted = await Promise.all(writes.map(async ({ kind, credential }) => ({
-      kind,
-      ...await encryptLineCredential({
-        rootSecret: rootSecret!,
-        tenantId: input.tenantId,
-        lineAccountId: input.lineAccountId,
+    const encrypted = await Promise.all(
+      writes.map(async ({ kind, credential }) => ({
         kind,
-        credential,
-      }),
-    })));
+        ...(await encryptLineCredential({
+          rootSecret: rootSecret!,
+          tenantId: input.tenantId,
+          lineAccountId: input.lineAccountId,
+          kind,
+          credential,
+        })),
+      })),
+    );
 
-    const statements: D1PreparedStatement[] = encrypted.map((credential) => db.prepare(
-      `INSERT INTO pharmacy_line_credentials
+    const statements: D1PreparedStatement[] = encrypted.map((credential) =>
+      db
+        .prepare(
+          `INSERT INTO pharmacy_line_credentials
         (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
          key_version, revision, lookup_digest, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, ?, 1, ?, ?, ?
@@ -195,23 +213,27 @@ export async function updateEncryptedLineAccount(
          revision = pharmacy_line_credentials.revision + 1,
          lookup_digest = excluded.lookup_digest,
          updated_at = excluded.updated_at`,
-    ).bind(
-      input.tenantId,
-      input.lineAccountId,
-      credential.kind,
-      credential.nonce,
-      credential.ciphertext,
-      credential.keyVersion,
-      credential.lookupDigest,
-      now,
-      now,
-      input.tenantId,
-      input.lineAccountId,
-      input.expectedUpdatedAt,
-    ));
+        )
+        .bind(
+          input.tenantId,
+          input.lineAccountId,
+          credential.kind,
+          credential.nonce,
+          credential.ciphertext,
+          credential.keyVersion,
+          credential.lookupDigest,
+          now,
+          now,
+          input.tenantId,
+          input.lineAccountId,
+          input.expectedUpdatedAt,
+        ),
+    );
     if (input.credentials.some(({ credential }) => credential === null)) {
-      statements.push(db.prepare(
-        `DELETE FROM pharmacy_line_credentials
+      statements.push(
+        db
+          .prepare(
+            `DELETE FROM pharmacy_line_credentials
           WHERE tenant_id = ? AND line_account_id = ?
             AND credential_kind = 'login_channel_secret'
             AND EXISTS (
@@ -224,13 +246,9 @@ export async function updateEncryptedLineAccount(
                WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?
                  AND account.updated_at = ?
             )`,
-      ).bind(
-        input.tenantId,
-        input.lineAccountId,
-        input.tenantId,
-        input.lineAccountId,
-        input.expectedUpdatedAt,
-      ));
+          )
+          .bind(input.tenantId, input.lineAccountId, input.tenantId, input.lineAccountId, input.expectedUpdatedAt),
+      );
     }
 
     const sets: string[] = [];
@@ -261,8 +279,10 @@ export async function updateEncryptedLineAccount(
 
     if (sets.length > 0) {
       add('updated_at', now);
-      statements.push(db.prepare(
-        `UPDATE line_accounts
+      statements.push(
+        db
+          .prepare(
+            `UPDATE line_accounts
             SET ${sets.join(', ')}
           WHERE id = ?
             AND updated_at = ?
@@ -273,7 +293,9 @@ export async function updateEncryptedLineAccount(
                         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
                WHERE mapping.tenant_id = ? AND mapping.line_account_id = line_accounts.id
             )`,
-      ).bind(...values, input.lineAccountId, input.expectedUpdatedAt, input.tenantId));
+          )
+          .bind(...values, input.lineAccountId, input.expectedUpdatedAt, input.tenantId),
+      );
     }
 
     if (statements.length > 0) {

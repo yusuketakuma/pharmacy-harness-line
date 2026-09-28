@@ -1,0 +1,63 @@
+{
+  "results": [
+    {
+      "mode": "emergency",
+      "first": {
+        "purged": 1,
+        "failed": 0,
+        "skippedFormat": 1,
+        "skippedLegalHold": 0
+      },
+      "second": {
+        "purged": 0,
+        "failed": 0,
+        "skippedFormat": 1,
+        "skippedLegalHold": 0
+      },
+      "rows": [
+        {
+          "id": "intake-a-1",
+          "encrypted_payload": ""
+        },
+        {
+          "id": "intake-a-2",
+          "encrypted_payload": "v1.nonce.ciphertext"
+        },
+        {
+          "id": "intake-a-3",
+          "encrypted_payload": "v1.nonce.ciphertext"
+        },
+        {
+          "id": "intake-b-4",
+          "encrypted_payload": "v1.nonce.ciphertext"
+        }
+      ]
+    },
+    {
+      "mode": "prescription",
+      "first": {
+        "purged": 0,
+        "failed": 0,
+        "skipped": 1
+      },
+      "r2Calls": 0,
+      "rows": [
+        {
+          "id": "offset",
+          "state": "ready"
+        },
+        {
+          "id": "old",
+          "state": "ready"
+        },
+        {
+          "id": "recent",
+          "state": "ready"
+        }
+      ],
+      "limitation": "Unknown patient mapping intentionally blocks deletion; verifies actual candidate query and no-proof/unknown safeguards, not successful R2 deletion."
+    }
+  ],
+  "outbound": 0,
+  "artifact": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F39-native-XiGsEk/consumers.mjs"
+}

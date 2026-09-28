@@ -39,7 +39,11 @@ describe('POST /api/public/media-inquiries', () => {
     const calls: RunCall[] = [];
     const res = await mediaInquiries.request(
       '/api/public/media-inquiries',
-      { method: 'POST', headers: { origin: 'https://attacker.example' }, body: JSON.stringify(validBody) },
+      {
+        method: 'POST',
+        headers: { origin: 'https://attacker.example' },
+        body: JSON.stringify(validBody),
+      },
       createEnv(calls),
     );
     expect(res.status).toBe(403);
@@ -48,8 +52,10 @@ describe('POST /api/public/media-inquiries', () => {
 
   it('persists first, then records accepted email notification', async () => {
     const calls: RunCall[] = [];
-    const notify = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response(JSON.stringify({ success: true }), { status: 200 }));
+    const notify = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ success: true }), { status: 200 }),
+    );
     vi.stubGlobal('fetch', notify);
 
     const res = await mediaInquiries.request(
@@ -73,17 +79,26 @@ describe('POST /api/public/media-inquiries', () => {
       Origin: 'https://the-harness.com',
       Referer: 'https://the-harness.com/contact/',
     });
-    const body = await res.json() as { success: boolean; data: { notification: string } };
+    const body = (await res.json()) as { success: boolean; data: { notification: string } };
     expect(body.success).toBe(true);
     expect(body.data.notification).toBe('accepted');
   });
 
   it('records activation_required instead of claiming an email was sent', async () => {
     const calls: RunCall[] = [];
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      success: 'false',
-      message: 'This form needs Activation.',
-    }), { status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: 'false',
+              message: 'This form needs Activation.',
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
 
     const res = await mediaInquiries.request(
       '/api/public/media-inquiries',
@@ -96,7 +111,7 @@ describe('POST /api/public/media-inquiries', () => {
     );
 
     expect(calls[1].values[0]).toBe('activation_required');
-    const body = await res.json() as { data: { notification: string } };
+    const body = (await res.json()) as { data: { notification: string } };
     expect(body.data.notification).toBe('activation_required');
   });
 });

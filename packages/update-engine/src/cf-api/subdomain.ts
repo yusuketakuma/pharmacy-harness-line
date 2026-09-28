@@ -64,9 +64,7 @@ function excerpt(raw: string): string {
  * non-2xx — including auth failures — throws so callers can distinguish
  * "definitely unregistered" from "could not check".
  */
-export async function getWorkersSubdomain(opts: {
-  creds: CfApiCreds;
-}): Promise<string | null> {
+export async function getWorkersSubdomain(opts: { creds: CfApiCreds }): Promise<string | null> {
   const { creds } = opts;
   const res = await fetch(workersSubdomainApiUrl(creds.accountId), {
     method: 'GET',
@@ -95,10 +93,7 @@ export async function getWorkersSubdomain(opts: {
  * {@link SubdomainConflictError} so callers can re-prompt for another name.
  * Any other failure (permissions, network, 5xx) throws a plain Error.
  */
-export async function putWorkersSubdomain(opts: {
-  creds: CfApiCreds;
-  subdomain: string;
-}): Promise<void> {
+export async function putWorkersSubdomain(opts: { creds: CfApiCreds; subdomain: string }): Promise<void> {
   const { creds, subdomain } = opts;
   const res = await fetch(workersSubdomainApiUrl(creds.accountId), {
     method: 'PUT',

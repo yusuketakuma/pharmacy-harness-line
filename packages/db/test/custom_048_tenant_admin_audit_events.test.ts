@@ -13,11 +13,13 @@ function setup(): Database.Database {
 }
 
 const insert = (db: Database.Database, tenantId: string | null, accountId: string | null) =>
-  db.prepare(`INSERT INTO tenant_admin_audit_events
+  db
+    .prepare(`INSERT INTO tenant_admin_audit_events
     (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
      detail_json, created_at)
     VALUES (?, ?, ?, 'staff-a', 'staff.reset_password', 'staff', 'staff-b', NULL,
-            '2026-08-21T00:00:00Z')`).run(crypto.randomUUID(), tenantId, accountId);
+            '2026-08-21T00:00:00Z')`)
+    .run(crypto.randomUUID(), tenantId, accountId);
 
 describe('custom_048 tenant admin audit events', () => {
   it('is listed in the generated bootstrap', () => {
@@ -33,6 +35,27 @@ describe('custom_048 tenant admin audit events', () => {
       '006_custom_063_auth_disable_revocation.sql',
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
+      '009_custom_066_auth_session_activity.sql',
+      '010_custom_067_admin_login_throttles.sql',
+      '011_custom_068_patient_proxy_controls.sql',
+      '012_custom_069_patient_control_audit.sql',
+      '013_custom_070_patient_proxy_lifecycle.sql',
+      '014_custom_071_shared_pharmacy_auth.sql',
+      '015_custom_072_pharmacy_beta_memberships.sql',
+      '016_custom_073_pharmacy_medication_followup_closure.sql',
+      '017_custom_074_pharmacy_followup_operations.sql',
+      '018_custom_075_pharmacy_medication_followup_assignments.sql',
+      '019_custom_076_pharmacy_followup_operations_scope.sql',
+      '020_custom_077_pharmacy_beta_notification_bindings.sql',
+      '021_calendar_bookings_overlap_index.sql',
+      '022_booking_idempotency_scoped.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
+      '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
+      '029_custom_081_pharmacy_validity_notification_queue.sql',
     ]);
   });
 
@@ -41,11 +64,13 @@ describe('custom_048 tenant admin audit events', () => {
     expect(insert(db, 'tenant-a', null).changes).toBe(1);
     expect(insert(db, null, 'account-a').changes).toBe(1);
     expect(() => insert(db, null, null)).toThrow(/check/i);
-    expect(() => db.prepare(`UPDATE tenant_admin_audit_events SET action = 'x'`).run())
-      .toThrow(/immutable/i);
-    expect(() => db.prepare(`DELETE FROM tenant_admin_audit_events`).run())
-      .toThrow(/immutable/i);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM tenant_admin_audit_events
-      WHERE tenant_id = 'tenant-a'`).get()).toEqual({ count: 1 });
+    expect(() => db.prepare(`UPDATE tenant_admin_audit_events SET action = 'x'`).run()).toThrow(/immutable/i);
+    expect(() => db.prepare(`DELETE FROM tenant_admin_audit_events`).run()).toThrow(/immutable/i);
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM tenant_admin_audit_events
+      WHERE tenant_id = 'tenant-a'`)
+        .get(),
+    ).toEqual({ count: 1 });
   });
 });

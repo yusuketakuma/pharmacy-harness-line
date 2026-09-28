@@ -1,19 +1,19 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env } from '../../../index.js';
-import { resolveAdminAuthConfig } from '../../../middleware/admin-auth-config.js';
+import { isAllowedAdminRequestOrigin, resolveAdminAuthConfig } from '../../../middleware/admin-auth-config.js';
 import {
   generatePlatformAdminSessionToken,
+  generateTemporaryPassword,
   hashTenantAdminSessionToken,
   hashTenantPassword,
   isPlatformAdminSessionToken,
   isValidAdminPassword,
   verifyTenantPassword,
 } from '../provisioning/credentials.js';
+import { sessionExpiresAt, sessionMaxAgeSeconds, type AdminSessionKind } from '../provisioning/auth-policy.js';
+import { claimLoginAttempt, clearLoginThrottleStatement } from '../provisioning/auth-throttle.js';
 import { listAccountExpectations } from '../continuity/next-intake.js';
-import {
-  getAdminPharmacyPatientHistory,
-  listAdminPharmacyPatients,
-} from '../intake/repository.js';
+import { getAdminPharmacyPatientHistory, listAdminPharmacyPatients } from '../intake/repository.js';
 import { resolvePatientIntakeCryptoScope } from '../intake/envelopes.js';
 import { listMynaHandoffs } from '../myna/repository.js';
 import { runWebhookInboxEvent } from '../../../routes/integrations/webhook.js';
@@ -36,6 +36,7 @@ import {
   platformAdminSessionCookie,
   platformAdminSessionHash,
   platformAdminSessionTokenFromCookie,
+  resolvePlatformAdminSession,
 } from './auth.js';
 
 export const platformAdminRoutes = new Hono<Env>();
@@ -44,14 +45,12 @@ export const platformAdminRoutes = new Hono<Env>();
 // mounted on the whole /api/platform-admin/* prefix, so it covers this router
 // and its two siblings (dashboard-routes.ts, operations-routes.ts) alike.
 
-const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
-const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 // Same constant-shape hash the tenant login uses so an unknown login costs the
 // same PBKDF2 work as a known one and cannot be distinguished by timing.
 const UNKNOWN_LOGIN_PASSWORD_HASH =
   'pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$7_iN48HsHUxblOLkYfnRLpCrY7dUnWGcyeEpHR_jjFc';
 const TENANT_STATUSES = new Set(['active', 'suspended']);
-const LOG_TYPES = ['prescription_events', 'webhook_receipts', 'platform_admin_access'] as const;
+const LOG_TYPES = ['prescription_events', 'webhook_receipts', 'platform_admin_access', 'pharmacy_auth'] as const;
 type LogType = (typeof LOG_TYPES)[number];
 
 const TENANT_SELECT = `
@@ -100,21 +99,24 @@ function toTenant(row: TenantRow) {
   };
 }
 
-async function newSession(kind: 'bootstrap' | 'standard') {
+async function newSession(kind: AdminSessionKind) {
   const token = generatePlatformAdminSessionToken();
+  const now = new Date();
   return {
     token,
     tokenHash: await hashTenantAdminSessionToken(token),
     kind,
-    expiresAt: new Date(Date.now() +
-      (kind === 'bootstrap' ? BOOTSTRAP_SESSION_MS : STANDARD_SESSION_MS)).toISOString(),
+    expiresAt: sessionExpiresAt(kind, now),
+    issuedAt: now.toISOString(),
+    maxAgeSeconds: sessionMaxAgeSeconds(kind),
   };
 }
 
 async function lineAccountIds(db: D1Database, tenantId: string): Promise<string[]> {
-  const result = await db.prepare(
-    `SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ? ORDER BY line_account_id`,
-  ).bind(tenantId).all<{ line_account_id: string }>();
+  const result = await db
+    .prepare(`SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ? ORDER BY line_account_id`)
+    .bind(tenantId)
+    .all<{ line_account_id: string }>();
   return (result.results ?? []).map((row) => row.line_account_id);
 }
 
@@ -123,10 +125,77 @@ function stringBody(value: unknown, key: string): string {
   return record && typeof record[key] === 'string' ? record[key] : '';
 }
 
+async function currentPlatformAdmin(c: Context<Env>) {
+  const token = platformAdminSessionTokenFromCookie(c);
+  const expected = c.get('platformAdmin');
+  if (!token || !expected) return null;
+  const resolved = await resolvePlatformAdminSession(c.env.DB, token);
+  return resolved && !resolved.mustChangePassword && resolved.admin.id === expected.id ? resolved.admin : null;
+}
+
+type SharedStaffRow = {
+  staff_id: string;
+  name: string;
+  is_active: number;
+  role: 'owner' | 'admin' | 'staff';
+  membership_active: number;
+  credential_version: number | null;
+  auth_enabled: number | null;
+};
+
+function sharedAuthAuditStatement(
+  db: D1Database,
+  event: {
+    actorStaffId: string;
+    targetTenantId: string;
+    targetStaffId: string;
+    action: string;
+    reasonCode: string;
+    requestId: string;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO pharmacy_auth_audit_events
+       (id, actor_kind, actor_staff_id, target_tenant_id, target_staff_id,
+        action, outcome, reason_code, request_id, created_at)
+     VALUES (?, 'platform_admin', ?, ?, ?, ?,
+             CASE WHEN changes() = 1 THEN 'success' ELSE NULL END,
+             ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      event.actorStaffId,
+      event.targetTenantId,
+      event.targetStaffId,
+      event.action,
+      event.reasonCode,
+      event.requestId,
+      new Date().toISOString(),
+    );
+}
+
+async function findSharedStaff(db: D1Database, tenantId: string): Promise<SharedStaffRow | null> {
+  return db
+    .prepare(
+      `SELECT staff.id AS staff_id, staff.name, staff.is_active,
+            membership.role, membership.is_active AS membership_active,
+            credential.credential_version, credential.auth_enabled
+       FROM staff_members AS staff
+       LEFT JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = ? AND membership.staff_id = staff.id
+       LEFT JOIN tenant_admin_credentials AS credential
+              ON credential.tenant_id = ? AND credential.staff_id = staff.id
+      WHERE staff.principal_kind = 'pharmacy_shared'
+        AND staff.shared_tenant_id = ?
+      LIMIT 1`,
+    )
+    .bind(tenantId, tenantId, tenantId)
+    .first<SharedStaffRow>();
+}
+
 function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-  return rows.map((row) => row.resource_type === 'patient'
-    ? { ...row, resource_id: null, detail_json: null }
-    : row);
+  return rows.map((row) => (row.resource_type === 'patient' ? { ...row, resource_id: null, detail_json: null } : row));
 }
 
 /**
@@ -137,6 +206,9 @@ function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<
  * scoped to a tenant.
  */
 platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
+  if (!isAllowedAdminRequestOrigin(c.env, c.req.header('Origin'), c.req.url)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   if (config.misconfigured) {
     console.error('[platform-admin] refused login — misconfigured topology:', config.misconfigured);
@@ -154,7 +226,7 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
   // a revoked platform admin or a deactivated staff member simply has no row,
   // and falls into the same timing-safe rejection as an unknown login.
   const row = await c.env.DB.prepare(
-    `SELECT credential.staff_id, credential.password_hash,
+    `SELECT credential.staff_id, credential.login_id, credential.password_hash,
             credential.must_change_password, credential.credential_version,
             staff.name
        FROM platform_admin_credentials AS credential
@@ -164,24 +236,52 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
                ON staff.id = credential.staff_id AND staff.is_active = 1
       WHERE credential.login_id = ? COLLATE NOCASE
       LIMIT 1`,
-  ).bind(loginId).first<{
-    staff_id: string;
-    password_hash: string;
-    must_change_password: number;
-    credential_version: number;
-    name: string;
-  }>();
-  const passwordValid = await verifyTenantPassword(
-    password,
-    row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
-  );
-  if (!row || !passwordValid) {
-    log('auth.login_failed', {
-      realm: 'platform_admin',
-      ip: c.req.header('cf-connecting-ip'),
-      reason: row ? 'bad_password' : 'unknown_login',
-      platform_admin_id: row?.staff_id,
-    }, 'warn');
+  )
+    .bind(loginId)
+    .first<{
+      staff_id: string;
+      login_id: string;
+      password_hash: string;
+      must_change_password: number;
+      credential_version: number;
+      name: string;
+    }>();
+  const throttleKey = row
+    ? {
+        realm: 'platform_admin' as const,
+        authorityId: row.staff_id,
+        loginId: row.login_id,
+      }
+    : null;
+  let attemptAllowed = false;
+  if (throttleKey) {
+    try {
+      attemptAllowed = (await claimLoginAttempt(c.env.DB, throttleKey)).allowed;
+    } catch {
+      log(
+        'auth.login_failed',
+        {
+          realm: 'platform_admin',
+          platform_admin_id: throttleKey.authorityId,
+          reason: 'throttle_unavailable',
+        },
+        'error',
+      );
+      return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+    }
+  }
+  const passwordValid = await verifyTenantPassword(password, row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH);
+  if (!row || !throttleKey || !attemptAllowed || !passwordValid) {
+    log(
+      'auth.login_failed',
+      {
+        realm: 'platform_admin',
+        ip: c.req.header('cf-connecting-ip'),
+        reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_login',
+        platform_admin_id: row?.staff_id,
+      },
+      'warn',
+    );
     // The audit table requires a real platform_admin_id, so only a known
     // admin's failed attempt can be recorded there; unknown logins stay log-only.
     if (row) await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login_failed');
@@ -190,19 +290,45 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
 
   const csrfToken = crypto.randomUUID();
   const session = await newSession(row.must_change_password === 1 ? 'bootstrap' : 'standard');
-  await c.env.DB.prepare(
-    `INSERT INTO platform_admin_sessions
-      (token_hash, staff_id, credential_version, session_kind,
-       expires_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, row.staff_id, row.credential_version,
-    session.kind, session.expiresAt, new Date().toISOString(),
-  ).run();
+  try {
+    const results = await c.env.DB.batch([
+      clearLoginThrottleStatement(c.env.DB, throttleKey),
+      c.env.DB.prepare(
+        `INSERT INTO platform_admin_sessions
+          (token_hash, staff_id, credential_version, session_kind,
+           expires_at, last_seen_at, revoked_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+      ).bind(
+        session.tokenHash,
+        row.staff_id,
+        row.credential_version,
+        session.kind,
+        session.expiresAt,
+        session.issuedAt,
+        session.issuedAt,
+      ),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+      throw new Error('login persistence conflict');
+    }
+  } catch {
+    log(
+      'auth.login_failed',
+      {
+        realm: 'platform_admin',
+        platform_admin_id: row.staff_id,
+        reason: 'session_persistence_failed',
+      },
+      'error',
+    );
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
   await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login');
 
-  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite, session.maxAgeSeconds), {
+    append: true,
+  });
+  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite, session.maxAgeSeconds), { append: true });
   return c.json({
     success: true,
     data: {
@@ -259,8 +385,12 @@ platformAdminRoutes.post('/api/platform-admin/logout', async (c) => {
     // open PHI grant both stayed live. A 500 the operator can retry is the
     // safer answer.
   }
-  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_AUTH_COOKIE, sameSite), { append: true });
-  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_CSRF_COOKIE, sameSite), { append: true });
+  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_AUTH_COOKIE, sameSite), {
+    append: true,
+  });
+  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_CSRF_COOKIE, sameSite), {
+    append: true,
+  });
   return c.json({ success: true, data: null });
 });
 
@@ -278,7 +408,9 @@ platformAdminRoutes.get('/api/platform-admin/session', async (c) => {
   const admin = c.get('platformAdmin');
   const credential = await c.env.DB.prepare(
     `SELECT must_change_password FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
-  ).bind(admin.id).first<{ must_change_password: number }>();
+  )
+    .bind(admin.id)
+    .first<{ must_change_password: number }>();
   return c.json({
     success: true,
     data: { ...admin, mustChangePassword: credential?.must_change_password === 1 },
@@ -296,7 +428,13 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   const currentPassword = stringBody(body, 'currentPassword');
   const newPassword = stringBody(body, 'newPassword');
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({ success: false, error: 'New password must be 12 to 128 characters' }, 400);
+    return c.json(
+      {
+        success: false,
+        error: 'New password must be 15 to 128 characters and not commonly compromised',
+      },
+      400,
+    );
   }
   if (newPassword === currentPassword) {
     return c.json({ success: false, error: 'New password must differ from the current password' }, 400);
@@ -305,11 +443,19 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   const credential = await c.env.DB.prepare(
     `SELECT password_hash, credential_version
        FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
-  ).bind(admin.id).first<{ password_hash: string; credential_version: number }>();
+  )
+    .bind(admin.id)
+    .first<{ password_hash: string; credential_version: number }>();
   if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
-    log('auth.password_change_failed', {
-      realm: 'platform_admin', platform_admin_id: admin.id, reason: 'bad_current_password',
-    }, 'warn');
+    log(
+      'auth.password_change_failed',
+      {
+        realm: 'platform_admin',
+        platform_admin_id: admin.id,
+        reason: 'bad_current_password',
+      },
+      'warn',
+    );
     return c.json({ success: false, error: 'Current password is incorrect' }, 401);
   }
 
@@ -341,15 +487,22 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
                AND current_session.expires_at > ?
           )`,
     ).bind(
-      passwordHash, now, admin.id, credential.credential_version, admin.id,
-      sessionTokenHash, admin.id, credential.credential_version, now,
+      passwordHash,
+      now,
+      admin.id,
+      credential.credential_version,
+      admin.id,
+      sessionTokenHash,
+      admin.id,
+      credential.credential_version,
+      now,
     ),
     c.env.DB.prepare(
       `INSERT INTO platform_admin_sessions
          (token_hash, session_family_hash, staff_id, credential_version, session_kind,
-          expires_at, revoked_at, created_at)
+          expires_at, last_seen_at, revoked_at, created_at)
        SELECT ?, COALESCE(current_session.session_family_hash, current_session.token_hash),
-              ?, ?, 'standard', ?, NULL, ?
+              ?, ?, 'standard', ?, ?, NULL, ?
          FROM platform_admin_sessions AS current_session
         WHERE current_session.token_hash = ?
           AND current_session.staff_id = ?
@@ -364,10 +517,20 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
              AND current_credential.updated_at = ?
           )`,
     ).bind(
-      session.tokenHash, admin.id, nextCredentialVersion,
-      session.expiresAt, now,
-      sessionTokenHash, admin.id, credential.credential_version, now,
-      admin.id, nextCredentialVersion, passwordHash, now,
+      session.tokenHash,
+      admin.id,
+      nextCredentialVersion,
+      session.expiresAt,
+      now,
+      now,
+      sessionTokenHash,
+      admin.id,
+      credential.credential_version,
+      now,
+      admin.id,
+      nextCredentialVersion,
+      passwordHash,
+      now,
     ),
     // Every session issued against the old credential version dies with it.
     c.env.DB.prepare(
@@ -381,10 +544,7 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
                AND current_credential.password_hash = ?
                AND current_credential.updated_at = ?
           )`,
-    ).bind(
-      now, admin.id, credential.credential_version,
-      admin.id, nextCredentialVersion, passwordHash, now,
-    ),
+    ).bind(now, admin.id, credential.credential_version, admin.id, nextCredentialVersion, passwordHash, now),
     // A stale session must not keep an open support-mode grant alive either.
     c.env.DB.prepare(
       `UPDATE platform_admin_access_grants
@@ -397,10 +557,7 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
                AND current_credential.password_hash = ?
                AND current_credential.updated_at = ?
           )`,
-    ).bind(
-      now, admin.id, admin.id,
-      admin.id, nextCredentialVersion, passwordHash, now,
-    ),
+    ).bind(now, admin.id, admin.id, admin.id, nextCredentialVersion, passwordHash, now),
     c.env.DB.prepare(
       `INSERT INTO platform_admin_access_events
          (id, platform_admin_id, tenant_id, action, resource_type, resource_id,
@@ -413,10 +570,7 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
              AND current_credential.password_hash = ?
              AND current_credential.updated_at = ?
         )`,
-    ).bind(
-      crypto.randomUUID(), admin.id, now,
-      admin.id, nextCredentialVersion, passwordHash, now,
-    ),
+    ).bind(crypto.randomUUID(), admin.id, now, admin.id, nextCredentialVersion, passwordHash, now),
   ]);
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
@@ -425,16 +579,16 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();
-  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite, session.maxAgeSeconds), {
+    append: true,
+  });
+  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite, session.maxAgeSeconds), { append: true });
   return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
 });
 
 platformAdminRoutes.get('/api/platform-admin/tenants', async (c) => {
   const admin = c.get('platformAdmin');
-  const result = await c.env.DB.prepare(
-    `${TENANT_SELECT} ORDER BY tenant.tenant_code`,
-  ).all<TenantRow>();
+  const result = await c.env.DB.prepare(`${TENANT_SELECT} ORDER BY tenant.tenant_code`).all<TenantRow>();
   await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'list_tenants');
   return c.json({ success: true, data: (result.results ?? []).map(toTenant) });
 });
@@ -442,9 +596,9 @@ platformAdminRoutes.get('/api/platform-admin/tenants', async (c) => {
 platformAdminRoutes.get('/api/platform-admin/tenants/:id', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
-  const tenant = await c.env.DB.prepare(
-    `${TENANT_SELECT} WHERE tenant.id = ? LIMIT 1`,
-  ).bind(tenantId).first<TenantRow>();
+  const tenant = await c.env.DB.prepare(`${TENANT_SELECT} WHERE tenant.id = ? LIMIT 1`)
+    .bind(tenantId)
+    .first<TenantRow>();
   if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
 
   const accounts = await c.env.DB.prepare(
@@ -453,11 +607,197 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id', async (c) => {
        INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
       WHERE mapping.tenant_id = ?
       ORDER BY account.id`,
-  ).bind(tenantId).all<{ id: string; name: string; channel_id: string; is_active: number }>();
+  )
+    .bind(tenantId)
+    .all<{ id: string; name: string; channel_id: string; is_active: number }>();
   await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_tenant', 'tenant', tenantId);
   return c.json({
     success: true,
     data: { ...toTenant(tenant), lineAccounts: accounts.results ?? [] },
+  });
+});
+
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/issue', async (c) => {
+  const admin = await currentPlatformAdmin(c);
+  if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const tenantId = c.req.param('id');
+  const tenant = await c.env.DB.prepare(
+    `SELECT id, tenant_code, display_name, status FROM tenants WHERE id = ? LIMIT 1`,
+  )
+    .bind(tenantId)
+    .first<{ id: string; tenant_code: string; display_name: string; status: string }>();
+  if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
+  if (tenant.status !== 'active') {
+    return c.json({ success: false, error: 'Suspended tenants cannot receive credentials' }, 409);
+  }
+
+  // A stale human credential using the pharmacy code is a hard stop. The
+  // existing UNIQUE constraint still sees disabled rows, so never delete or
+  // rewrite that history to make room for the shared login.
+  const collision = await c.env.DB.prepare(
+    `SELECT credential.staff_id, staff.principal_kind
+       FROM tenant_admin_credentials AS credential
+       INNER JOIN staff_members AS staff ON staff.id = credential.staff_id
+      WHERE credential.tenant_id = ?
+        AND credential.login_id = ? COLLATE NOCASE
+      LIMIT 1`,
+  )
+    .bind(tenantId, tenant.tenant_code)
+    .first<{ staff_id: string; principal_kind: string }>();
+  if (collision && collision.principal_kind !== 'pharmacy_shared') {
+    return c.json({ success: false, error: 'Pharmacy code conflicts with historical login data' }, 409);
+  }
+
+  const shared = await findSharedStaff(c.env.DB, tenantId);
+  if (shared && (shared.is_active !== 1 || shared.membership_active !== 1 || shared.role !== 'admin')) {
+    return c.json({ success: false, error: 'Shared pharmacy account is inactive or invalid' }, 409);
+  }
+  if (shared?.auth_enabled === 1) {
+    return c.json({ success: false, error: 'Shared pharmacy login is already issued' }, 409);
+  }
+
+  const staffId = shared?.staff_id ?? crypto.randomUUID();
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashTenantPassword(temporaryPassword);
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+  const statements: D1PreparedStatement[] = [];
+  if (!shared) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO staff_members
+          (id, name, email, role, api_key, is_active, principal_kind, shared_tenant_id, created_at, updated_at)
+         VALUES (?, ?, NULL, 'admin', ?, 1, 'pharmacy_shared', ?, ?, ?)`,
+      ).bind(staffId, `${tenant.display_name} 共通管理者`, `disabled:${crypto.randomUUID()}`, tenantId, now, now),
+      c.env.DB.prepare(
+        `INSERT INTO tenant_staff_memberships
+          (tenant_id, staff_id, role, is_active, created_at, updated_at)
+         VALUES (?, ?, 'admin', 1, ?, ?)`,
+      ).bind(tenantId, staffId, now, now),
+    );
+  }
+  statements.push(
+    c.env.DB.prepare(
+      `INSERT INTO tenant_admin_credentials
+        (tenant_id, staff_id, login_id, password_hash, must_change_password,
+         credential_version, auth_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, 1, 1, ?, ?)`,
+    ).bind(tenantId, staffId, tenant.tenant_code, passwordHash, now, now),
+    sharedAuthAuditStatement(c.env.DB, {
+      actorStaffId: admin.id,
+      targetTenantId: tenantId,
+      targetStaffId: staffId,
+      action: 'shared_login_issue',
+      reasonCode: 'platform_issued',
+      requestId,
+    }),
+    platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'shared_login_issue', 'staff', staffId),
+  );
+  try {
+    const results = await c.env.DB.batch(statements);
+    const credentialResult = results[shared ? 0 : 2];
+    if ((credentialResult?.meta.changes ?? 0) === 0) {
+      return c.json({ success: false, error: 'Shared pharmacy login issuance conflicted' }, 409);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json(
+      {
+        success: false,
+        error: /constraint|unique|PHARMACY_/iu.test(message)
+          ? 'Shared pharmacy login issuance conflicted'
+          : 'Shared pharmacy login issuance failed',
+      },
+      /constraint|unique|PHARMACY_/iu.test(message) ? 409 : 503,
+    );
+  }
+
+  return c.json(
+    {
+      success: true,
+      data: {
+        tenantId,
+        pharmacyCode: tenant.tenant_code,
+        staffId,
+        temporaryPassword,
+        mustChangePassword: true,
+      },
+    },
+    201,
+  );
+});
+
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/reset-password', async (c) => {
+  const admin = await currentPlatformAdmin(c);
+  if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const tenantId = c.req.param('id');
+  const tenant = await c.env.DB.prepare(`SELECT id, tenant_code, status FROM tenants WHERE id = ? LIMIT 1`)
+    .bind(tenantId)
+    .first<{ id: string; tenant_code: string; status: string }>();
+  if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
+  if (tenant.status !== 'active') {
+    return c.json({ success: false, error: 'Suspended tenants cannot receive credentials' }, 409);
+  }
+  const shared = await findSharedStaff(c.env.DB, tenantId);
+  if (
+    !shared ||
+    shared.is_active !== 1 ||
+    shared.membership_active !== 1 ||
+    shared.role !== 'admin' ||
+    shared.auth_enabled !== 1 ||
+    shared.credential_version === null
+  ) {
+    return c.json({ success: false, error: 'Shared pharmacy login is not issued' }, 409);
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashTenantPassword(temporaryPassword);
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+  try {
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE tenant_admin_credentials
+            SET password_hash = ?, must_change_password = 1,
+                credential_version = credential_version + 1, auth_enabled = 1, updated_at = ?
+          WHERE tenant_id = ? AND staff_id = ? AND login_id = ? COLLATE NOCASE
+            AND credential_version = ? AND auth_enabled = 1`,
+      ).bind(passwordHash, now, tenantId, shared.staff_id, tenant.tenant_code, shared.credential_version),
+      sharedAuthAuditStatement(c.env.DB, {
+        actorStaffId: admin.id,
+        targetTenantId: tenantId,
+        targetStaffId: shared.staff_id,
+        action: 'shared_login_reset',
+        reasonCode: 'platform_reset',
+        requestId,
+      }),
+      platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'shared_login_reset', 'staff', shared.staff_id),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) === 0) {
+      return c.json({ success: false, error: 'Shared pharmacy login reset conflicted' }, 409);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json(
+      {
+        success: false,
+        error: /constraint|unique|PHARMACY_/iu.test(message)
+          ? 'Shared pharmacy login reset conflicted'
+          : 'Shared pharmacy login reset failed',
+      },
+      /constraint|unique|PHARMACY_/iu.test(message) ? 409 : 503,
+    );
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      tenantId,
+      pharmacyCode: tenant.tenant_code,
+      staffId: shared.staff_id,
+      temporaryPassword,
+      mustChangePassword: true,
+    },
   });
 });
 
@@ -478,22 +818,19 @@ platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
     return c.json({ success: false, error: 'Only displayName and status can be edited' }, 400);
   }
   const record = body as { displayName?: unknown; status?: unknown };
-  const displayName = 'displayName' in record
-    ? (typeof record.displayName === 'string' ? record.displayName.trim() : '')
-    : null;
+  const displayName =
+    'displayName' in record ? (typeof record.displayName === 'string' ? record.displayName.trim() : '') : null;
   if (displayName !== null && (!displayName || displayName.length > 120)) {
     return c.json({ success: false, error: 'displayName must be 1 to 120 characters' }, 400);
   }
-  const status = 'status' in record
-    ? (typeof record.status === 'string' ? record.status : '')
-    : null;
+  const status = 'status' in record ? (typeof record.status === 'string' ? record.status : '') : null;
   if (status !== null && !TENANT_STATUSES.has(status)) {
     return c.json({ success: false, error: 'status must be active or suspended' }, 400);
   }
 
-  const current = await c.env.DB.prepare(
-    `SELECT display_name, status FROM tenants WHERE id = ? LIMIT 1`,
-  ).bind(tenantId).first<{ display_name: string; status: string }>();
+  const current = await c.env.DB.prepare(`SELECT display_name, status FROM tenants WHERE id = ? LIMIT 1`)
+    .bind(tenantId)
+    .first<{ display_name: string; status: string }>();
   if (!current) return c.json({ success: false, error: 'Tenant not found' }, 404);
 
   const after = {
@@ -512,13 +849,16 @@ platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
   // One batch so the edit and its access event commit together — an edit that
   // survives without its audit row is exactly what this table exists to prevent.
   const results = await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE tenants SET display_name = ?, status = ?, updated_at = ? WHERE id = ?`,
-    ).bind(after.displayName, after.status, now, tenantId),
-    platformAdminAccessStatement(
-      c.env.DB, admin.id, tenantId, 'edit_tenant', 'tenant', tenantId,
-      { before, after: changed },
+    c.env.DB.prepare(`UPDATE tenants SET display_name = ?, status = ?, updated_at = ? WHERE id = ?`).bind(
+      after.displayName,
+      after.status,
+      now,
+      tenantId,
     ),
+    platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'edit_tenant', 'tenant', tenantId, {
+      before,
+      after: changed,
+    }),
   ]);
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Tenant changed concurrently' }, 409);
@@ -536,7 +876,7 @@ platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
 platformAdminRoutes.post('/api/platform-admin/tenants/:id/outbound-messaging', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
-  const body = await c.req.json().catch(() => null) as { paused?: unknown } | null;
+  const body = (await c.req.json().catch(() => null)) as { paused?: unknown } | null;
   if (typeof body?.paused !== 'boolean') {
     return c.json({ success: false, error: 'paused must be a boolean' }, 400);
   }
@@ -544,20 +884,26 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/outbound-messaging', a
   // batch back on SQL error only, so an UPDATE that matches no row would still
   // commit its audit event and leave a record of a tenant that never existed.
   const exists = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
-    .bind(tenantId).first<{ id: string }>();
+    .bind(tenantId)
+    .first<{ id: string }>();
   if (!exists) return c.json({ success: false, error: 'Tenant not found' }, 404);
 
   const now = new Date().toISOString();
   const pausedAt = body.paused ? now : null;
   // Same batch as the audit event, like every other tenant mutation here.
   const results = await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE tenants SET outbound_messaging_paused_at = ?, updated_at = ? WHERE id = ?`,
-    ).bind(pausedAt, now, tenantId),
+    c.env.DB.prepare(`UPDATE tenants SET outbound_messaging_paused_at = ?, updated_at = ? WHERE id = ?`).bind(
+      pausedAt,
+      now,
+      tenantId,
+    ),
     platformAdminAccessStatement(
-      c.env.DB, admin.id, tenantId,
+      c.env.DB,
+      admin.id,
+      tenantId,
       body.paused ? 'pause_outbound_messaging' : 'resume_outbound_messaging',
-      'tenant', tenantId,
+      'tenant',
+      tenantId,
     ),
   ]);
   if (results[0].meta.changes !== 1) {
@@ -573,21 +919,21 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/outbound-messaging', a
  * rows are already owned by the cron sweep, and replaying a `completed` row
  * would re-apply side effects the dedup claim exists to prevent.
  */
-platformAdminRoutes.post(
-  '/api/platform-admin/tenants/:id/webhook-events/:webhookEventId/retry',
-  async (c) => {
-    const admin = c.get('platformAdmin');
-    const tenantId = c.req.param('id');
-    const webhookEventId = c.req.param('webhookEventId');
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/webhook-events/:webhookEventId/retry', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const webhookEventId = c.req.param('webhookEventId');
 
-    // tenant_id is part of the WHERE, so a receipt belonging to another tenant
-    // is indistinguishable from one that does not exist.
-    const receipt = await c.env.DB.prepare(
-      `SELECT tenant_id, line_account_id, webhook_event_id, payload, status, dead_lettered_at
+  // tenant_id is part of the WHERE, so a receipt belonging to another tenant
+  // is indistinguishable from one that does not exist.
+  const receipt = await c.env.DB.prepare(
+    `SELECT tenant_id, line_account_id, webhook_event_id, payload, status, dead_lettered_at
          FROM pharmacy_webhook_event_receipts
         WHERE tenant_id = ? AND webhook_event_id = ?
         LIMIT 1`,
-    ).bind(tenantId, webhookEventId).first<{
+  )
+    .bind(tenantId, webhookEventId)
+    .first<{
       tenant_id: string;
       line_account_id: string;
       webhook_event_id: string;
@@ -595,52 +941,57 @@ platformAdminRoutes.post(
       status: string;
       dead_lettered_at: string | null;
     }>();
-    if (!receipt) return c.json({ success: false, error: 'Webhook event not found' }, 404);
-    if (receipt.status !== 'failed' && !receipt.dead_lettered_at) {
-      return c.json({
+  if (!receipt) return c.json({ success: false, error: 'Webhook event not found' }, 404);
+  if (receipt.status !== 'failed' && !receipt.dead_lettered_at) {
+    return c.json(
+      {
         success: false,
         error: `Only failed or dead-lettered events can be retried by hand (status: ${receipt.status})`,
-      }, 400);
-    }
+      },
+      400,
+    );
+  }
 
-    // The eligibility check above reads; this claims. Repeating the predicate
-    // in the UPDATE is what makes the claim atomic: a duplicate retry, or one
-    // racing the cron sweep, matches 0 rows and 409s instead of clearing a
-    // lease somebody else already holds.
-    const results = await c.env.DB.batch([
-      c.env.DB.prepare(
-        `UPDATE pharmacy_webhook_event_receipts
+  // The eligibility check above reads; this claims. Repeating the predicate
+  // in the UPDATE is what makes the claim atomic: a duplicate retry, or one
+  // racing the cron sweep, matches 0 rows and 409s instead of clearing a
+  // lease somebody else already holds.
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE pharmacy_webhook_event_receipts
             SET status = 'pending', retry_count = 0,
                 dead_lettered_at = NULL, claim_token = NULL, lease_until = NULL
           WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
             AND (status = 'failed' OR dead_lettered_at IS NOT NULL)`,
-      ).bind(receipt.tenant_id, receipt.line_account_id, receipt.webhook_event_id),
-      platformAdminAccessStatement(
-        c.env.DB, admin.id, tenantId, 'retry_webhook_event', 'webhook_event', webhookEventId,
-        { lineAccountId: receipt.line_account_id, previousStatus: receipt.status },
-      ),
-    ]);
-    if (results[0].meta.changes !== 1) {
-      return c.json({ success: false, error: 'Webhook event changed concurrently' }, 409);
-    }
+    ).bind(receipt.tenant_id, receipt.line_account_id, receipt.webhook_event_id),
+    platformAdminAccessStatement(c.env.DB, admin.id, tenantId, 'retry_webhook_event', 'webhook_event', webhookEventId, {
+      lineAccountId: receipt.line_account_id,
+      previousStatus: receipt.status,
+    }),
+  ]);
+  if (results[0].meta.changes !== 1) {
+    return c.json({ success: false, error: 'Webhook event changed concurrently' }, 409);
+  }
 
-    // Reuse the one processing path the request handler and cron sweep share;
-    // it re-leases the row and settles it as completed or failed on its own.
-    const outcome = await runWebhookInboxEvent({
+  // Reuse the one processing path the request handler and cron sweep share;
+  // it re-leases the row and settles it as completed or failed on its own.
+  const outcome = await runWebhookInboxEvent(
+    {
       db: c.env.DB,
       credentialRootSecret: c.env.LINE_CREDENTIAL_KEY_V1 ?? '',
       workerUrl: c.env.WORKER_URL || new URL(c.req.url).origin,
       liffUrl: c.env.LIFF_URL,
       r2: c.env.IMAGES,
-    }, {
+    },
+    {
       tenant_id: receipt.tenant_id,
       line_account_id: receipt.line_account_id,
       webhook_event_id: receipt.webhook_event_id,
       payload: receipt.payload,
-    });
-    return c.json({ success: true, data: { webhookEventId, outcome } });
-  },
-);
+    },
+  );
+  return c.json({ success: true, data: { webhookEventId, outcome } });
+});
 
 /**
  * POST /api/platform-admin/tenants/:id/support-grants — start support mode
@@ -651,9 +1002,12 @@ platformAdminRoutes.post(
 platformAdminRoutes.post('/api/platform-admin/tenants/:id/support-grants', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
-  const body = await c.req.json().catch(() => null) as {
-    reason?: unknown; ticketReference?: unknown; scopes?: unknown;
-    currentPassword?: unknown; durationMinutes?: unknown;
+  const body = (await c.req.json().catch(() => null)) as {
+    reason?: unknown;
+    ticketReference?: unknown;
+    scopes?: unknown;
+    currentPassword?: unknown;
+    durationMinutes?: unknown;
   } | null;
   try {
     const grant = await createAccessGrant(c.env.DB, admin.id, tenantId, {
@@ -673,9 +1027,7 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/support-grants', async
 
 platformAdminRoutes.post('/api/platform-admin/support-grants/:grantId/end', async (c) => {
   const admin = c.get('platformAdmin');
-  const ended = await endAccessGrant(
-    c.env.DB, admin.id, c.req.param('grantId'), await platformAdminSessionHash(c),
-  );
+  const ended = await endAccessGrant(c.env.DB, admin.id, c.req.param('grantId'), await platformAdminSessionHash(c));
   if (!ended) return c.json({ success: false, error: 'Grant not found or already ended' }, 404);
   return c.json({ success: true, data: null });
 });
@@ -693,17 +1045,20 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) =>
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
   try {
-    await requireActiveGrant(
-      c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c),
-    );
+    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c));
   } catch (error) {
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
   }
   const accounts = await lineAccountIds(c.env.DB, tenantId);
-  const perAccount = await Promise.all(accounts.map(async (lineAccountId) =>
-    (await listAdminPharmacyPatients(c.env.DB, lineAccountId))
-      .map((patient) => ({ lineAccountId, ...patient }))));
+  const perAccount = await Promise.all(
+    accounts.map(async (lineAccountId) =>
+      (await listAdminPharmacyPatients(c.env.DB, lineAccountId)).map((patient) => ({
+        lineAccountId,
+        ...patient,
+      })),
+    ),
+  );
   await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'list_patients');
   return c.json({ success: true, data: perAccount.flat() });
 });
@@ -720,9 +1075,7 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
   const tenantId = c.req.param('id');
   const patientId = c.req.param('patientId');
   try {
-    await requireActiveGrant(
-      c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c),
-    );
+    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c));
   } catch (error) {
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
@@ -753,9 +1106,7 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
     listAccountExpectations(c.env.DB, lineAccountId),
     listMynaHandoffs(c.env.DB, lineAccountId, undefined, patientId),
   ]);
-  await recordPlatformAdminAccess(
-    c.env.DB, admin.id, tenantId, 'view_patient', 'patient', null,
-  );
+  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_patient', 'patient', null);
   return c.json({
     success: true,
     data: {
@@ -794,7 +1145,9 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
           AND (? IS NULL OR event.created_at >= ?)
         ORDER BY event.created_at DESC, event.id DESC
         LIMIT ?`,
-    ).bind(...filters).all();
+    )
+      .bind(...filters)
+      .all();
     data.prescriptionEvents = result.results ?? [];
   }
   if (wanted.includes('webhook_receipts')) {
@@ -806,7 +1159,9 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
           AND (? IS NULL OR received_at >= ?)
         ORDER BY received_at DESC
         LIMIT ?`,
-    ).bind(...filters).all();
+    )
+      .bind(...filters)
+      .all();
     data.webhookReceipts = result.results ?? [];
   }
   if (wanted.includes('platform_admin_access')) {
@@ -818,14 +1173,31 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
           AND (? IS NULL OR created_at >= ?)
         ORDER BY created_at DESC, id DESC
         LIMIT ?`,
-    ).bind(...filters).all<Record<string, unknown>>();
+    )
+      .bind(...filters)
+      .all<Record<string, unknown>>();
     data.platformAdminAccess = redactPatientAudit(result.results ?? []);
   }
+  if (wanted.includes('pharmacy_auth')) {
+    const result = await c.env.DB.prepare(
+      `SELECT id, actor_kind, actor_staff_id, target_tenant_id AS tenant_id,
+              target_staff_id, action, outcome, reason_code, created_at
+         FROM pharmacy_auth_audit_events
+        WHERE (? IS NULL OR target_tenant_id = ?)
+          AND (? IS NULL OR created_at >= ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?`,
+    )
+      .bind(...filters)
+      .all<Record<string, unknown>>();
+    data.pharmacyAuth = result.results ?? [];
+  }
 
-  await recordPlatformAdminAccess(
-    c.env.DB, admin.id, tenantId, 'view_logs', undefined, undefined,
-    { type: type ?? 'all', since, limit },
-  );
+  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_logs', undefined, undefined, {
+    type: type ?? 'all',
+    since,
+    limit,
+  });
   return c.json({ success: true, data });
 });
 
@@ -851,6 +1223,8 @@ platformAdminRoutes.get('/api/platform-admin/audit', async (c) => {
       WHERE (? = 1 OR platform_admin_id = ?)
       ORDER BY created_at DESC, id DESC
       LIMIT ?`,
-  ).bind(all ? 1 : 0, admin.id, limit).all<Record<string, unknown>>();
+  )
+    .bind(all ? 1 : 0, admin.id, limit)
+    .all<Record<string, unknown>>();
   return c.json({ success: true, data: redactPatientAudit(result.results ?? []) });
 });

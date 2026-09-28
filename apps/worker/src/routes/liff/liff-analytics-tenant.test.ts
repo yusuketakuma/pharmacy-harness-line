@@ -16,9 +16,18 @@ function setup(tenantId: string | null = 'tenant-a') {
     prepare(sql: string) {
       const statement = {
         params: [] as unknown[],
-        bind(...params: unknown[]) { statement.params = params; return statement; },
-        async first() { queries.push({ sql, params: statement.params }); return { count: 0 }; },
-        async all() { queries.push({ sql, params: statement.params }); return { results: [] }; },
+        bind(...params: unknown[]) {
+          statement.params = params;
+          return statement;
+        },
+        async first() {
+          queries.push({ sql, params: statement.params });
+          return { count: 0 };
+        },
+        async all() {
+          queries.push({ sql, params: statement.params });
+          return { results: [] };
+        },
       };
       return statement;
     },
@@ -64,7 +73,10 @@ describe('attribution analytics tenant scope', () => {
 
 describe('xh token resolution', () => {
   it('never forwards a malformed token to X Harness', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{"success":true,"data":{"xUsername":"a"}}', { status: 200 }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response('{"success":true,"data":{"xUsername":"a"}}', { status: 200 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     try {
       const env = { X_HARNESS_URL: 'https://xh.example.test' };

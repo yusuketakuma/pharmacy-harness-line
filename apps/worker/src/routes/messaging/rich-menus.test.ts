@@ -76,17 +76,21 @@ describe('POST /api/rich-menus/:id/image', () => {
 
   test('accepts SDK imageData JSON field for base64 uploads', async () => {
     const app = setupApp();
-    const res = await app.request('/api/rich-menus/richmenu-1/image', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        imageData: 'aGVsbG8=',
-        contentType: 'image/png',
-      }),
-    }, {
-      LINE_CHANNEL_ACCESS_TOKEN: 'token',
-      DB: {} as D1Database,
-    });
+    const res = await app.request(
+      '/api/rich-menus/richmenu-1/image',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          imageData: 'aGVsbG8=',
+          contentType: 'image/png',
+        }),
+      },
+      {
+        LINE_CHANNEL_ACCESS_TOKEN: 'token',
+        DB: {} as D1Database,
+      },
+    );
 
     expect(res.status).toBe(200);
     expect(lineClientMocks.uploadRichMenuImage).toHaveBeenCalledTimes(1);
@@ -98,17 +102,21 @@ describe('POST /api/rich-menus/:id/image', () => {
 
   test('keeps accepting legacy image JSON field', async () => {
     const app = setupApp();
-    const res = await app.request('/api/rich-menus/richmenu-2/image', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        image: 'data:image/jpeg;base64,aGVsbG8=',
-        contentType: 'image/jpeg',
-      }),
-    }, {
-      LINE_CHANNEL_ACCESS_TOKEN: 'token',
-      DB: {} as D1Database,
-    });
+    const res = await app.request(
+      '/api/rich-menus/richmenu-2/image',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          image: 'data:image/jpeg;base64,aGVsbG8=',
+          contentType: 'image/jpeg',
+        }),
+      },
+      {
+        LINE_CHANNEL_ACCESS_TOKEN: 'token',
+        DB: {} as D1Database,
+      },
+    );
 
     expect(res.status).toBe(200);
     expect(lineClientMocks.uploadRichMenuImage).toHaveBeenCalledTimes(1);
@@ -176,11 +184,11 @@ describe('friend rich-menu credential resolution', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
-      expect.anything(),
-      'root-key-v1',
-      { tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token' },
-    );
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(expect.anything(), 'root-key-v1', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+    });
     expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
     expect(lineClientMocks.constructor).toHaveBeenCalledWith('tenant-token');
     expect(lineClientMocks.linkRichMenuToUser).toHaveBeenCalledWith('Ufriend-a', 'richmenu-1');
@@ -217,11 +225,11 @@ describe('friend rich-menu credential resolution', () => {
     );
 
     expect(res.status).toBe(403);
-    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
-      expect.anything(),
-      'root-key-v1',
-      { tenantId: 'tenant-a', lineAccountId: 'account-b', kind: 'channel_access_token' },
-    );
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(expect.anything(), 'root-key-v1', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-b',
+      kind: 'channel_access_token',
+    });
     expect(lineClientMocks.constructor).not.toHaveBeenCalled();
     expect(lineClientMocks.linkRichMenuToUser).not.toHaveBeenCalled();
   });
@@ -290,8 +298,11 @@ describe('GET /api/rich-menus accountId tenant backstop', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(tenantBoundaryMocks.accountResourceOwnedByStaff)
-      .toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-b');
+    expect(tenantBoundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(
+      expect.anything(),
+      'tenant-a',
+      'account-b',
+    );
     expect(lineClientMocks.constructor).toHaveBeenCalledWith('env-token');
     expect(lineClientMocks.constructor).not.toHaveBeenCalledWith('foreign-token');
   });

@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { required, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -29,10 +30,22 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
-    if (argument === '--confirm-scrub') { confirmScrub = true; continue; }
-    if (argument === '--confirm-restore') { confirmRestore = true; continue; }
-    if (argument === '--dry-run') { dryRun = true; continue; }
-    if (argument === '--help' || argument === '-h') { help = true; continue; }
+    if (argument === '--confirm-scrub') {
+      confirmScrub = true;
+      continue;
+    }
+    if (argument === '--confirm-restore') {
+      confirmRestore = true;
+      continue;
+    }
+    if (argument === '--dry-run') {
+      dryRun = true;
+      continue;
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true;
+      continue;
+    }
     if (!['--worker-url', '--tenant-id', '--line-account-id', '--phase'].includes(argument)) {
       throw new Error(`Unknown option: ${argument}`);
     }
@@ -43,18 +56,7 @@ function parseArgs(argv: string[]) {
   return { values, confirmScrub, confirmRestore, dryRun, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
 function endpoint(values: Record<string, string>): string {
-  const worker = new URL(required(values, 'worker-url'));
-  if ((worker.protocol !== 'https:' && worker.hostname !== 'localhost') ||
-      worker.username || worker.password || worker.search || worker.hash) {
-    throw new Error('--worker-url must be an HTTPS origin');
-  }
   const phase = required(values, 'phase');
   if (phase !== 'backfill' && phase !== 'scrub' && phase !== 'restore') {
     throw new Error('--phase must be backfill, scrub, or restore');
@@ -63,7 +65,7 @@ function endpoint(values: Record<string, string>): string {
   const accountId = encodeURIComponent(required(values, 'line-account-id'));
   return new URL(
     `/api/platform/pharmacy/tenants/${tenantId}/line-accounts/${accountId}/credentials/${phase}`,
-    worker.origin,
+    workerOrigin(required(values, 'worker-url')),
   ).toString();
 }
 
@@ -75,7 +77,10 @@ export async function runLineCredentialMigration(
 ): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    if (parsed.help) { write(HELP); return 0; }
+    if (parsed.help) {
+      write(HELP);
+      return 0;
+    }
     const phase = required(parsed.values, 'phase');
     if (phase === 'scrub' && !parsed.confirmScrub) {
       throw new Error('scrub requires --confirm-scrub after encrypted credential verification');
@@ -86,7 +91,10 @@ export async function runLineCredentialMigration(
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
-    if (parsed.dryRun) { write(`Dry run passed: ${phase}. No request was sent.`); return 0; }
+    if (parsed.dryRun) {
+      write(`Dry run passed: ${phase}. No request was sent.`);
+      return 0;
+    }
 
     const response = await fetcher(url, {
       method: 'POST',
@@ -94,7 +102,7 @@ export async function runLineCredentialMigration(
       signal: AbortSignal.timeout(60_000),
       headers: { Authorization: `Bearer ${platformKey}` },
     });
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: { written?: number; verified?: number; scrubbed?: boolean; restored?: boolean };
@@ -112,6 +120,7 @@ export async function runLineCredentialMigration(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runLineCredentialMigration(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runLineCredentialMigration(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

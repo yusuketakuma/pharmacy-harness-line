@@ -1,0 +1,10 @@
+{
+  "P": "375cf157c398c7644844e70dc3db9bd2f0dfcee2",
+  "W": "d8eb36c39661c5ec6c5b3bf5f78345cef71ca2ea",
+  "paths": {
+    "packages/db/scripts/generate-bootstrap.mjs": "9ceb2fc1b9f58fb064c9f5f0dec135cd4da3b7cd5ba285ba7c4051376b3bc39b",
+    "packages/db/scripts/split-sql-statements.mjs": "bc3195894b540cdcc7169f5adb14a3ac0c901f82fd89a8f2cf7f5720ecdc97b9",
+    "packages/db/test/bootstrap.test.ts": "6259f7562199da1e84178ce8bee31eea3b68f8547b4d80644069080fe14f5e5e",
+    "packages/db/test/bootstrap-generator.test.ts": "88ff36bd0f2427e99e685d8e7383832e3a5ea2ad091884a19930670105592dd8"
+  }
+}

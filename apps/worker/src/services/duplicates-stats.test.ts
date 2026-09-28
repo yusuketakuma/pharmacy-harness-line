@@ -1,17 +1,16 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import {
-  _cacheSizeForTest,
-  _resetCacheForTest,
-  computeDuplicatesStats,
-} from './duplicates-stats.js';
+import { _cacheSizeForTest, _resetCacheForTest, computeDuplicatesStats } from './duplicates-stats.js';
 
 type StubResult<T> = { results: T[] };
 
-function stubDB(canned: {
-  totals: { total_following: number; duplicate_groups: number; friend_dups: number };
-  perAccount: Array<{ account_id: string; account_name: string; friends: number; dups: number }>;
-  pairwiseRaw: Array<{ ident_key: string; line_account_id: string }>;
-}, capturedBinds: unknown[][] = []) {
+function stubDB(
+  canned: {
+    totals: { total_following: number; duplicate_groups: number; friend_dups: number };
+    perAccount: Array<{ account_id: string; account_name: string; friends: number; dups: number }>;
+    pairwiseRaw: Array<{ ident_key: string; line_account_id: string }>;
+  },
+  capturedBinds: unknown[][] = [],
+) {
   return {
     prepare(sql: string) {
       // The pairwise raw-row query is the only one that filters via `dup_keys`;
@@ -33,10 +32,8 @@ function stubDB(canned: {
 }
 
 describe('computeDuplicatesStats', () => {
-  const computeForTenant = (
-    db: D1Database,
-    options: { forceRefresh?: boolean } = {},
-  ) => computeDuplicatesStats(db, 'tenant-a', options);
+  const computeForTenant = (db: D1Database, options: { forceRefresh?: boolean } = {}) =>
+    computeDuplicatesStats(db, 'tenant-a', options);
 
   beforeEach(() => {
     _resetCacheForTest();
@@ -76,13 +73,9 @@ describe('computeDuplicatesStats', () => {
     });
     // 2 directed pairs (a1→a2 and a2→a1), each with overlap=2 (k1 and k2).
     expect(stats.pairwise_overlap).toHaveLength(2);
-    const a1ToA2 = stats.pairwise_overlap.find(
-      (p) => p.from_account_id === 'a1' && p.to_account_id === 'a2',
-    );
+    const a1ToA2 = stats.pairwise_overlap.find((p) => p.from_account_id === 'a1' && p.to_account_id === 'a2');
     expect(a1ToA2?.overlap).toBe(2);
-    const a2ToA1 = stats.pairwise_overlap.find(
-      (p) => p.from_account_id === 'a2' && p.to_account_id === 'a1',
-    );
+    const a2ToA1 = stats.pairwise_overlap.find((p) => p.from_account_id === 'a2' && p.to_account_id === 'a1');
     expect(a2ToA1?.overlap).toBe(2);
     expect(typeof stats.computed_at).toBe('string');
     expect(() => new Date(stats.computed_at)).not.toThrow();
@@ -118,11 +111,12 @@ describe('computeDuplicatesStats', () => {
 
   test('期限切れtenant cacheを回収し、保持tenant数を上限内に制限する', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
-    const statsDb = () => stubDB({
-      totals: { total_following: 1, duplicate_groups: 0, friend_dups: 0 },
-      perAccount: [],
-      pairwiseRaw: [],
-    });
+    const statsDb = () =>
+      stubDB({
+        totals: { total_following: 1, duplicate_groups: 0, friend_dups: 0 },
+        perAccount: [],
+        pairwiseRaw: [],
+      });
 
     try {
       for (let i = 0; i < 9; i++) {
@@ -141,16 +135,22 @@ describe('computeDuplicatesStats', () => {
   test('binds every query to the tenant and never reuses another tenant cache', async () => {
     const tenantABinds: unknown[][] = [];
     const tenantBBinds: unknown[][] = [];
-    const tenantA = stubDB({
-      totals: { total_following: 100, duplicate_groups: 0, friend_dups: 0 },
-      perAccount: [],
-      pairwiseRaw: [],
-    }, tenantABinds);
-    const tenantB = stubDB({
-      totals: { total_following: 20, duplicate_groups: 0, friend_dups: 0 },
-      perAccount: [],
-      pairwiseRaw: [],
-    }, tenantBBinds);
+    const tenantA = stubDB(
+      {
+        totals: { total_following: 100, duplicate_groups: 0, friend_dups: 0 },
+        perAccount: [],
+        pairwiseRaw: [],
+      },
+      tenantABinds,
+    );
+    const tenantB = stubDB(
+      {
+        totals: { total_following: 20, duplicate_groups: 0, friend_dups: 0 },
+        perAccount: [],
+        pairwiseRaw: [],
+      },
+      tenantBBinds,
+    );
 
     await computeDuplicatesStats(tenantA, 'tenant-a');
     const result = await computeDuplicatesStats(tenantB, 'tenant-b');

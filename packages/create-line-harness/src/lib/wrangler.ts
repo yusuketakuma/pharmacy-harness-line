@@ -1,4 +1,4 @@
-import { execa, type Options as ExecaOptions } from "execa";
+import { execa, type Options as ExecaOptions } from 'execa';
 
 export class WranglerError extends Error {
   constructor(
@@ -6,7 +6,7 @@ export class WranglerError extends Error {
     public readonly stderr: string,
   ) {
     super(message);
-    this.name = "WranglerError";
+    this.name = 'WranglerError';
   }
 
   /**
@@ -21,61 +21,54 @@ export class WranglerError extends Error {
     // registered their workers.dev subdomain. Wrangler tries to prompt for
     // registration, but our piped (non-TTY) invocation cannot answer it, so
     // users only ever see the raw error — guide them to the dashboard.
-    const needsWorkersDevSubdomain = text.includes(
-      "register a workers.dev subdomain",
-    );
+    const needsWorkersDevSubdomain = text.includes('register a workers.dev subdomain');
     if (needsWorkersDevSubdomain) {
       hints.push(
         [
-          "workers.dev サブドメインが未登録です。ブラウザで以下の URL を開いてサブドメインを登録してください:",
+          'workers.dev サブドメインが未登録です。ブラウザで以下の URL を開いてサブドメインを登録してください:',
           `  ${workersOnboardingUrl(_accountId)}`,
-          "登録が終わったら、同じコマンドを再実行すれば途中から再開されます。",
-          "（登録直後は DNS 反映に数分かかる場合があります。デプロイが失敗する場合は少し待ってから再実行してください）",
-        ].join("\n"),
+          '登録が終わったら、同じコマンドを再実行すれば途中から再開されます。',
+          '（登録直後は DNS 反映に数分かかる場合があります。デプロイが失敗する場合は少し待ってから再実行してください）',
+        ].join('\n'),
       );
     }
-    if (text.includes("code: 10034") || text.includes("code:10034")) {
+    if (text.includes('code: 10034') || text.includes('code:10034')) {
       hints.push(
-        "Cloudflare アカウントのメール認証が完了していません。Cloudflare ダッシュボードに届く確認メールを開いて認証してください。",
+        'Cloudflare アカウントのメール認証が完了していません。Cloudflare ダッシュボードに届く確認メールを開いて認証してください。',
       );
     }
-    if (
-      text.includes("authentication error") ||
-      text.includes("code: 10000") ||
-      text.includes("code:10000")
-    ) {
+    if (text.includes('authentication error') || text.includes('code: 10000') || text.includes('code:10000')) {
       hints.push(
-        "認証 / アカウント不一致の可能性: 別の CF アカウントでログイン中、または対象アカウントで D1/Workers がまだ有効化されていません。`npx wrangler whoami` で確認してください。",
+        '認証 / アカウント不一致の可能性: 別の CF アカウントでログイン中、または対象アカウントで D1/Workers がまだ有効化されていません。`npx wrangler whoami` で確認してください。',
       );
     }
-    if (text.includes("not authenticated") || text.includes("you are not authenticated")) {
-      hints.push("OAuth トークンが切れています。`npx wrangler logout && npx wrangler login` で再ログインしてください。");
+    if (text.includes('not authenticated') || text.includes('you are not authenticated')) {
+      hints.push(
+        'OAuth トークンが切れています。`npx wrangler logout && npx wrangler login` で再ログインしてください。',
+      );
     }
-    if (
-      !needsWorkersDevSubdomain &&
-      (text.includes("non-interactive") || text.includes("cloudflare_api_token"))
-    ) {
+    if (!needsWorkersDevSubdomain && (text.includes('non-interactive') || text.includes('cloudflare_api_token'))) {
       // Skipped for the subdomain case: wrangler's registration prompt is
       // what trips the non-interactive error there, and reporting it as a
       // CLI bug would send users down the wrong path.
       hints.push(
-        "wrangler が CI モード判定に陥っています（TTY 不在）。create-line-harness 側のバグの可能性が高いので、Issue で報告してください。",
+        'wrangler が CI モード判定に陥っています（TTY 不在）。create-line-harness 側のバグの可能性が高いので、Issue で報告してください。',
       );
     }
-    if (text.includes("d1_create_too_many_databases") || text.includes("too many databases")) {
-      hints.push("D1 の無料枠を使い切っています。古い D1 を削除するか有料プランへ。");
+    if (text.includes('d1_create_too_many_databases') || text.includes('too many databases')) {
+      hints.push('D1 の無料枠を使い切っています。古い D1 を削除するか有料プランへ。');
     }
-    if (text.includes("register a workers.dev subdomain")) {
+    if (text.includes('register a workers.dev subdomain')) {
       hints.push(
         [
-          "workers.dev サブドメインが未登録です。同じコマンドを再実行すると CLI 内で登録できます。",
-          "うまくいかない場合は Cloudflare ダッシュボード（https://dash.cloudflare.com/ → Workers & Pages）で登録してください。",
-          "登録直後は DNS 反映に数分かかるため、失敗する場合は数分待ってから再実行してください。",
-        ].join("\n"),
+          'workers.dev サブドメインが未登録です。同じコマンドを再実行すると CLI 内で登録できます。',
+          'うまくいかない場合は Cloudflare ダッシュボード（https://dash.cloudflare.com/ → Workers & Pages）で登録してください。',
+          '登録直後は DNS 反映に数分かかるため、失敗する場合は数分待ってから再実行してください。',
+        ].join('\n'),
       );
     }
 
-    return hints.length > 0 ? hints.join("\n") : null;
+    return hints.length > 0 ? hints.join('\n') : null;
   }
 }
 
@@ -97,7 +90,7 @@ export function setAccountId(accountId: string): void {
 export function workersOnboardingUrl(accountId?: string): string {
   return accountId
     ? `https://dash.cloudflare.com/${accountId}/workers/onboarding`
-    : "https://dash.cloudflare.com/?to=/:account/workers/onboarding";
+    : 'https://dash.cloudflare.com/?to=/:account/workers/onboarding';
 }
 
 export interface WranglerOptions {
@@ -121,30 +114,27 @@ export interface WranglerOptions {
   tty?: boolean;
 }
 
-export async function wrangler(
-  args: string[],
-  options?: WranglerOptions,
-): Promise<string> {
-  const env: Record<string, string> = { ...process.env, FORCE_COLOR: "0" } as Record<string, string>;
+export async function wrangler(args: string[], options?: WranglerOptions): Promise<string> {
+  const env: Record<string, string> = { ...process.env, FORCE_COLOR: '0' } as Record<string, string>;
   if (_accountId) {
     env.CLOUDFLARE_ACCOUNT_ID = _accountId;
   }
 
   if (options?.tty) {
     if (options.input !== undefined) {
-      throw new Error("wrangler({ tty: true }) does not support `input`.");
+      throw new Error('wrangler({ tty: true }) does not support `input`.');
     }
     try {
-      await execa("npx", ["wrangler", ...args], {
+      await execa('npx', ['wrangler', ...args], {
         cwd: options.cwd,
         env,
-        stdio: "inherit",
+        stdio: 'inherit',
       });
-      return "";
+      return '';
     } catch (error: any) {
       // stderr was inherited so it isn't on the error object — surface what we can.
-      const message = error?.shortMessage || error?.message || "unknown error";
-      throw new WranglerError(`wrangler ${args[0]} failed: ${message}`, "");
+      const message = error?.shortMessage || error?.message || 'unknown error';
+      throw new WranglerError(`wrangler ${args[0]} failed: ${message}`, '');
     }
   }
 
@@ -153,20 +143,17 @@ export async function wrangler(
   // stdout silently demotes wrangler's prompt to a blocking read that the
   // CLI never satisfies, so the call hangs or silently fails. Callers can
   // override by passing an explicit `input` value.
-  const input = options?.input ?? "y\n".repeat(50);
+  const input = options?.input ?? 'y\n'.repeat(50);
 
   try {
-    const result = await execa("npx", ["wrangler", ...args], {
+    const result = await execa('npx', ['wrangler', ...args], {
       cwd: options?.cwd,
       input,
       env,
     });
-    return typeof result.stdout === "string" ? result.stdout : "";
+    return typeof result.stdout === 'string' ? result.stdout : '';
   } catch (error: any) {
-    throw new WranglerError(
-      `wrangler ${args[0]} failed: ${error.stderr || error.message}`,
-      error.stderr || "",
-    );
+    throw new WranglerError(`wrangler ${args[0]} failed: ${error.stderr || error.message}`, error.stderr || '');
   }
 }
 
@@ -175,16 +162,16 @@ export async function wrangler(
  * Cannot capture output — use only when user interaction is needed.
  */
 export async function wranglerInteractive(args: string[]): Promise<void> {
-  await execa("npx", ["wrangler", ...args], {
-    stdio: "inherit",
-    env: { ...process.env, FORCE_COLOR: "1" },
+  await execa('npx', ['wrangler', ...args], {
+    stdio: 'inherit',
+    env: { ...process.env, FORCE_COLOR: '1' },
   });
 }
 
 export async function isWranglerAuthenticated(): Promise<boolean> {
   try {
-    const output = await wrangler(["whoami"]);
-    return !output.toLowerCase().includes("not authenticated");
+    const output = await wrangler(['whoami']);
+    return !output.toLowerCase().includes('not authenticated');
   } catch {
     return false;
   }
@@ -202,7 +189,7 @@ export interface CloudflareAccount {
 export async function getAccountIds(): Promise<CloudflareAccount[]> {
   let output: string;
   try {
-    output = await wrangler(["whoami"]);
+    output = await wrangler(['whoami']);
   } catch {
     return [];
   }

@@ -221,17 +221,15 @@ describe('enrollAffiliateInOffer', () => {
     expect(second.link.ref_code).toBe(first.link.ref_code);
 
     const count = sqlite
-      .prepare(
-        `SELECT COUNT(*) AS c FROM affiliate_links WHERE affiliate_id = 'aff-1' AND offer_id = ?`,
-      )
+      .prepare(`SELECT COUNT(*) AS c FROM affiliate_links WHERE affiliate_id = 'aff-1' AND offer_id = ?`)
       .get(offer.id) as { c: number };
     expect(count.c).toBe(1);
   });
 
   test('enrollAffiliateInOffer throws when offer does not exist', async () => {
-    await expect(
-      enrollAffiliateInOffer(db, { affiliateId: 'aff-1', offerId: 'no-such-offer' }),
-    ).rejects.toThrow('offer not found');
+    await expect(enrollAffiliateInOffer(db, { affiliateId: 'aff-1', offerId: 'no-such-offer' })).rejects.toThrow(
+      'offer not found',
+    );
   });
 
   test('different affiliates enrolling in the same offer get separate links', async () => {
@@ -323,9 +321,9 @@ describe('setConversionApproval', () => {
     const second = await setConversionApproval(db, 'ce-idem', 'approved');
     expect(second).toBe('already_set');
     // Verify DB row is unchanged (still approved, approved_at set by first call)
-    const row = sqlite
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-idem'`)
-      .get() as { approval_status: string };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-idem'`).get() as {
+      approval_status: string;
+    };
     expect(row.approval_status).toBe('approved');
   });
 
@@ -346,9 +344,9 @@ describe('setConversionApproval', () => {
     expect(first).toBe(true);
     const second = await setConversionApproval(db, 'ce-chg', 'rejected');
     expect(second).toBe(true);
-    const row = sqlite
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-chg'`)
-      .get() as { approval_status: string };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-chg'`).get() as {
+      approval_status: string;
+    };
     expect(row.approval_status).toBe('rejected');
   });
 
@@ -361,9 +359,9 @@ describe('setConversionApproval', () => {
       .run();
     const ok = await setConversionApproval(db, 'ce-null', 'approved');
     expect(ok).toBe(false);
-    const row = sqlite
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-null'`)
-      .get() as { approval_status: string | null };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-null'`).get() as {
+      approval_status: string | null;
+    };
     expect(row.approval_status).toBeNull();
   });
 
@@ -494,9 +492,9 @@ describe('mileage foundation', () => {
       lifetimeEarned: 750,
     });
     expect(await getMileageHistoryForFriend(db, 'friend-aff')).toHaveLength(1);
-    expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get() as { count: number }).count,
-    ).toBe(1);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get() as { count: number }).count).toBe(
+      1,
+    );
 
     expect(await setConversionApproval(db, 'ce-mile', 'rejected')).toBe(true);
     sqlite.prepare(`UPDATE conversion_events SET approved_at = '2026-01-03' WHERE id = 'ce-mile'`).run();
@@ -607,9 +605,9 @@ describe('trackConversion sets approval_status', () => {
     });
     expect(ev.affiliate_id).toBe('aff-1');
 
-    const row = sqlite
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = ?`)
-      .get(ev.id) as { approval_status: string | null };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = ?`).get(ev.id) as {
+      approval_status: string | null;
+    };
     expect(row.approval_status).toBe('pending');
   });
 
@@ -620,9 +618,9 @@ describe('trackConversion sets approval_status', () => {
       friendId: 'f-lone',
     });
     expect(ev.affiliate_id).toBeNull();
-    const row = sqlite
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = ?`)
-      .get(ev.id) as { approval_status: string | null };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = ?`).get(ev.id) as {
+      approval_status: string | null;
+    };
     expect(row.approval_status).toBeNull();
   });
 });

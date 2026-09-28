@@ -1,18 +1,18 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 
-const fmt = new Intl.NumberFormat('ja-JP')
+const fmt = new Intl.NumberFormat('ja-JP');
 
 interface Stats {
-  totalFollowing: number
-  uniquePeople: number
-  friendDups: number
+  totalFollowing: number;
+  uniquePeople: number;
+  friendDups: number;
 }
 
 export default function SummaryBar() {
-  const [stats, setStats] = useState<Stats | null>(null)
+  const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
     api.duplicates.stats().then((res) => {
@@ -21,10 +21,10 @@ export default function SummaryBar() {
           totalFollowing: res.data.totalFollowing,
           uniquePeople: res.data.uniquePeople,
           friendDups: res.data.friendDups,
-        })
+        });
       }
-    })
-  }, [])
+    });
+  }, []);
 
   if (!stats) {
     return (
@@ -33,11 +33,10 @@ export default function SummaryBar() {
           <div key={i} className="h-20 rounded-lg bg-white shadow-sm ring-1 ring-gray-200" />
         ))}
       </div>
-    )
+    );
   }
 
-  const dupRate =
-    stats.totalFollowing > 0 ? (stats.friendDups / stats.totalFollowing) * 100 : 0
+  const dupRate = stats.totalFollowing > 0 ? (stats.friendDups / stats.totalFollowing) * 100 : 0;
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -48,7 +47,7 @@ export default function SummaryBar() {
       <Card label="余分な行数" value={fmt.format(stats.friendDups)} hint="重複ぶんの行" />
       <Card label="余分率" value={`${dupRate.toFixed(1)}%`} hint="総行数のうち余分" />
     </div>
-  )
+  );
 }
 
 function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -58,5 +57,5 @@ function Card({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{value}</div>
       {hint ? <div className="mt-1 text-xs text-gray-400">{hint}</div> : null}
     </div>
-  )
+  );
 }

@@ -19,14 +19,16 @@ vi.mock('@line-crm/line-sdk', () => ({
   LineClient: LineClientMock,
 }));
 
-const deliverTrackedLinePush = vi.fn(async (params: {
-  request: { to: string; messages: unknown[] };
-  operationId: string;
-  send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
-}): Promise<'sent' | 'already_sent' | 'reconciliation_required'> => {
-  await params.send(params.request, params.operationId);
-  return 'sent';
-});
+const deliverTrackedLinePush = vi.fn(
+  async (params: {
+    request: { to: string; messages: unknown[] };
+    operationId: string;
+    send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+  }): Promise<'sent' | 'already_sent' | 'reconciliation_required'> => {
+    await params.send(params.request, params.operationId);
+    return 'sent';
+  },
+);
 vi.mock('../../services/outbound-line-delivery.js', () => ({ deliverTrackedLinePush }));
 
 const { meetCallback } = await import('./meet-callback.js');
@@ -84,33 +86,45 @@ beforeEach(() => {
 
 describe('POST /api/meet-callback', () => {
   it('requires the stable source session before sending', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, session_id: undefined }),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, session_id: undefined }),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(400);
     expect(pushMessage).not.toHaveBeenCalled();
   });
 
   it('rejects non-string account selectors before tenant lookup', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, line_account_id: { id: 'account-1' } }),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, line_account_id: { id: 'account-1' } }),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(400);
     expect(dbMocks.getLineAccountByIdForTenant).not.toHaveBeenCalled();
   });
 
   it('rejects malformed transcripts before account lookup or sending', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, transcripts: { transcript: 'not-an-array' } }),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, transcripts: { transcript: 'not-an-array' } }),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(400);
     expect(dbMocks.getLineAccountByIdForTenant).not.toHaveBeenCalled();
@@ -118,11 +132,15 @@ describe('POST /api/meet-callback', () => {
   });
 
   it('rejects malformed JSON before account lookup or sending', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{',
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{',
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(400);
     expect(dbMocks.getLineAccountByIdForTenant).not.toHaveBeenCalled();
@@ -132,11 +150,15 @@ describe('POST /api/meet-callback', () => {
   it('returns a retryable failure when LINE delivery throws', async () => {
     deliverTrackedLinePush.mockRejectedValueOnce(new Error('LINE unavailable'));
 
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(503);
   });
@@ -144,11 +166,15 @@ describe('POST /api/meet-callback', () => {
   it('requires reconciliation instead of reporting delivery success', async () => {
     deliverTrackedLinePush.mockResolvedValueOnce('reconciliation_required');
 
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(409);
   });
@@ -156,77 +182,93 @@ describe('POST /api/meet-callback', () => {
   it('does not report success when the scoped metadata update loses its target', async () => {
     updateFriend.mockResolvedValueOnce({ meta: { changes: 0 } });
 
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(500);
   });
 
   it('reuses one provider retry key when the callback is delivered again', async () => {
-    const request = () => app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const request = () =>
+      app().request(
+        '/api/meet-callback',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        bindings,
+      );
 
     expect((await request()).status).toBe(200);
     expect((await request()).status).toBe(200);
 
-    const expectedKey = await createBroadcastRetryKey(
-      'meet-callback', 'friend-1', payload.session_id,
-    );
+    const expectedKey = await createBroadcastRetryKey('meet-callback', 'friend-1', payload.session_id);
     expect(pushMessage).toHaveBeenCalledTimes(2);
     expect(pushMessage.mock.calls.map((call) => call[2])).toEqual([expectedKey, expectedKey]);
   });
 
   it('reserves the tenant-scoped outbound ledger before LINE', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(200);
-    const operationId = await createBroadcastRetryKey(
-      'meet-callback', 'friend-1', payload.session_id,
+    const operationId = await createBroadcastRetryKey('meet-callback', 'friend-1', payload.session_id);
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        source: 'meet-callback',
+      }),
     );
-    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
-      operationId,
-      tenantId: 'tenant-1',
-      lineAccountId: 'account-1',
-      friendId: 'friend-1',
-      source: 'meet-callback',
-    }));
-    expect(deliverTrackedLinePush.mock.invocationCallOrder[0])
-      .toBeLessThan(pushMessage.mock.invocationCallOrder[0]);
+    expect(deliverTrackedLinePush.mock.invocationCallOrder[0]).toBeLessThan(pushMessage.mock.invocationCallOrder[0]);
   });
 
   it('resolves the account under authenticated tenant authority before the friend', async () => {
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(200);
-    expect(dbMocks.getLineAccountByIdForTenant)
-      .toHaveBeenCalledWith(database, 'tenant-1', 'account-1');
-    expect(dbMocks.getFriendByLineUserIdForAccount)
-      .toHaveBeenCalledWith(database, 'U1', 'account-1');
+    expect(dbMocks.getLineAccountByIdForTenant).toHaveBeenCalledWith(database, 'tenant-1', 'account-1');
+    expect(dbMocks.getFriendByLineUserIdForAccount).toHaveBeenCalledWith(database, 'U1', 'account-1');
     expect(dbMocks.getFriendByLineUserId).not.toHaveBeenCalled();
   });
 
   it('rejects an account outside the authenticated tenant before sending', async () => {
     dbMocks.getLineAccountByIdForTenant.mockResolvedValue(null);
 
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(404);
     expect(dbMocks.getFriendByLineUserIdForAccount).not.toHaveBeenCalled();
@@ -236,11 +278,15 @@ describe('POST /api/meet-callback', () => {
   it('fails closed when the owned account credential cannot be resolved', async () => {
     dbMocks.getLineAccountById.mockResolvedValue(null);
 
-    const response = await app().request('/api/meet-callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, bindings);
+    const response = await app().request(
+      '/api/meet-callback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      bindings,
+    );
 
     expect(response.status).toBe(403);
     expect(LineClientMock).not.toHaveBeenCalled();

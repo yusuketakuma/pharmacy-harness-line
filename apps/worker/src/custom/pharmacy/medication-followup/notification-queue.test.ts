@@ -1,0 +1,177 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { d1FromSqlite, DB_PACKAGE_ROOT, openTestSqlite } from '../test-sqlite.js';
+
+const send = vi.hoisted(() => vi.fn());
+const readCredential = vi.hoisted(() => vi.fn());
+vi.mock('../growth-loop/sender.js', () => ({ sendPharmacyAutomatedPush: send }));
+vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: readCredential }));
+vi.mock('../beta-membership/repository.js', async (original) => ({
+  ...(await original<typeof import('../beta-membership/repository.js')>()),
+  getPharmacyBetaNotificationBinding: vi.fn().mockResolvedValue(null),
+}));
+import { listDueMedicationFollowUps, markMedicationFollowUpNotificationChecked } from './repository.js';
+import { processDueMedicationFollowUps } from './notifications.js';
+
+const NOW = new Date('2026-09-22T00:00:00.000Z');
+const migration = '027_custom_079_pharmacy_followup_notification_queue.sql';
+const { splitSqlStatements } = createRequire(import.meta.url)(
+  join(DB_PACKAGE_ROOT, 'scripts/split-sql-statements.mjs'),
+) as { splitSqlStatements: (sql: string) => string[] };
+
+function setup(legacy = false) {
+  const sqlite = openTestSqlite({ foreignKeys: true });
+  try {
+    if (legacy) {
+      for (const file of readdirSync(join(DB_PACKAGE_ROOT, 'migrations'))
+        .filter((name) => name.endsWith('.sql') && name < migration)
+        .sort()) {
+        for (const statement of splitSqlStatements(readFileSync(join(DB_PACKAGE_ROOT, 'migrations', file), 'utf8'))) {
+          try {
+            sqlite.exec(statement);
+          } catch (error) {
+            // The bootstrap generator permits these historical idempotent additions.
+            if (!(error instanceof Error) || !/duplicate column name|already exists/i.test(error.message)) throw error;
+          }
+        }
+      }
+    } else {
+      sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
+    }
+    const now = NOW.toISOString();
+    for (const x of ['a', 'b']) {
+      sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x === 'a' ? "'2026-09-21T00:00:00.000Z'" : 'NULL'});
+ INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES ('account-${x}','channel-${x}','Synthetic','synthetic','synthetic');
+ INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES ('tenant-${x}','account-${x}');
+ UPDATE pharmacy_account_capabilities SET capabilities_json='["medication_followup"]' WHERE line_account_id='account-${x}';
+ INSERT INTO friends(id,line_user_id,provider_line_user_id,line_account_id,is_following) VALUES ('friend-${x}','user-${x}','provider-${x}','account-${x}',1);
+ INSERT INTO pharmacy_patients(id,line_account_id,owner_friend_id,relationship,name,name_kana,birth_date,created_at,updated_at) VALUES ('patient-${x}','account-${x}','friend-${x}','self','Synthetic','Synthetic','1990-01-01','${now}','${now}');
+ INSERT INTO pharmacy_patient_intake_responses(id,line_account_id,owner_friend_id,patient_id,revision,schema_version,patient_snapshot_json,answers_json,idempotency_key,representative_consent_at,privacy_consent_at,created_at) VALUES ('response-${x}','account-${x}','friend-${x}','patient-${x}',1,1,'{}','{}','synthetic-key','${now}','${now}','${now}');`);
+    }
+    for (let i = 0; i < 51; i++) {
+      const x = i < 50 ? 'a' : 'b';
+      const id = String(i).padStart(3, '0');
+      sqlite.exec(`INSERT INTO pharmacy_prescription_submissions(id,line_account_id,friend_id,idempotency_key,status,created_at,updated_at) VALUES ('sub-${id}','account-${x}','friend-${x}','synthetic-${id}','closed','${now}','${now}');
+ INSERT INTO pharmacy_prescription_patients(submission_id,line_account_id,owner_friend_id,patient_id,intake_response_id,created_at) VALUES ('sub-${id}','account-${x}','friend-${x}','patient-${x}','response-${x}','${now}');
+ INSERT INTO pharmacy_medication_followups(id,line_account_id,owner_friend_id,patient_id,source_submission_id,status,due_at,created_by,created_at,updated_at) VALUES ('followup-${id}','account-${x}','friend-${x}','patient-${x}','sub-${id}','due','2026-09-21T00:00:00.000Z','synthetic-staff','${now}','${now}');`);
+    }
+
+    return { sqlite, db: d1FromSqlite(sqlite) };
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
+}
+
+beforeEach(() => {
+  send.mockReset().mockResolvedValue('paused');
+  readCredential.mockReset().mockResolvedValue('synthetic-token');
+});
+
+function process(db: D1Database, now = NOW) {
+  return processDueMedicationFollowUps(db, {
+    proxyBaseUrl: 'https://synthetic.invalid',
+    lineCredentialKey: 'synthetic',
+    now,
+  });
+}
+
+it.each(['paused', 'failure', 'credential_missing'])(
+  'advances past fifty %s rows without changing clinical state',
+  async (mode) => {
+    if (mode === 'failure') send.mockRejectedValue(new Error('synthetic failure'));
+    if (mode === 'credential_missing') readCredential.mockResolvedValue(null);
+    const { sqlite, db } = setup();
+    try {
+      const first = await listDueMedicationFollowUps(db, NOW);
+      await process(db);
+      const later = new Date(NOW.getTime() + 60000);
+      const second = await listDueMedicationFollowUps(db, later);
+      await process(db, later);
+      expect(first).toHaveLength(50);
+      expect(first.map((row) => row.id)).not.toContain('followup-050');
+      expect(second).toHaveLength(50);
+      expect(second.map((row) => row.id)).toContain('followup-050');
+      if (mode === 'credential_missing') expect(send).not.toHaveBeenCalled();
+      else expect(send.mock.calls.some(([input]) => input.lineAccountId === 'account-b')).toBe(true);
+      expect(
+        sqlite
+          .prepare(`SELECT COUNT(*) AS count FROM pharmacy_medication_followups
+        WHERE status='due' AND version=1 AND due_at='2026-09-21T00:00:00.000Z'`)
+          .get(),
+      ).toEqual({ count: 51 });
+      expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  },
+);
+
+it('guards queue metadata by tenant, account, version and monotonic time', async () => {
+  const { sqlite, db } = setup();
+  const now = NOW.toISOString();
+  try {
+    const [row] = await listDueMedicationFollowUps(db, new Date(Date.parse(now) + 120000));
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, line_account_id: 'account-other' }, new Date(now)),
+    ).toBe(false);
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, tenant_id: 'tenant-other' }, new Date(now)),
+    ).toBe(false);
+    expect(
+      await markMedicationFollowUpNotificationChecked(db, { ...row, version: row.version + 1 }, new Date(now)),
+    ).toBe(false);
+    const later = new Date(Date.parse(now) + 180000);
+    expect(await markMedicationFollowUpNotificationChecked(db, row, later)).toBe(true);
+    expect(await markMedicationFollowUpNotificationChecked(db, row, new Date(now))).toBe(true);
+    expect(
+      sqlite.prepare('SELECT notification_checked_at FROM pharmacy_medication_followups WHERE id = ?').get(row.id),
+    ).toEqual({ notification_checked_at: later.toISOString() });
+    const { notification_checked_at, ...legacyRow } = row;
+    expect(
+      await markMedicationFollowUpNotificationChecked(
+        {
+          prepare: () => {
+            throw new Error('old schema must not query new column');
+          },
+        } as unknown as D1Database,
+        legacyRow,
+        later,
+      ),
+    ).toBe(true);
+  } finally {
+    sqlite.close();
+  }
+});
+
+it('retains the old-schema query and processing contract without the new column', async () => {
+  const { sqlite, db } = setup(true);
+  try {
+    const rows = await listDueMedicationFollowUps(db, NOW);
+    expect(rows).toHaveLength(50);
+    expect(rows[0]).not.toHaveProperty('notification_checked_at');
+    await expect(process(db)).resolves.toEqual({ sent: 0, failed: 0, skipped: 50 });
+    expect(await listDueMedicationFollowUps(db, NOW)).toEqual(rows);
+  } finally {
+    sqlite.close();
+  }
+});
+
+it('revisits paused rows and can deliver them after resumption', async () => {
+  const { sqlite, db } = setup();
+  try {
+    await process(db);
+    await process(db, new Date(NOW.getTime() + 60000));
+    sqlite.exec("UPDATE tenants SET outbound_messaging_paused_at=NULL WHERE id='tenant-a'");
+    send.mockResolvedValue('sent');
+    const result = await process(db, new Date(NOW.getTime() + 120000));
+    expect(result.sent).toBe(50);
+    expect(sqlite.prepare("SELECT status FROM pharmacy_medication_followups WHERE id='followup-000'").get()).toEqual({
+      status: 'delivered',
+    });
+  } finally {
+    sqlite.close();
+  }
+});

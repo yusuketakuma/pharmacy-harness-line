@@ -12,7 +12,11 @@ const STATUS_LABEL: Record<string, { label: string; bg: string; fg: string }> = 
 };
 
 export default function HistoryCard({ booking }: { booking: BookingHistoryItem }) {
-  const meta = STATUS_LABEL[booking.status] ?? { label: booking.status, bg: '#f3f4f6', fg: '#6b7280' };
+  const meta = STATUS_LABEL[booking.status] ?? {
+    label: booking.status,
+    bg: '#f3f4f6',
+    fg: '#6b7280',
+  };
   return (
     <li className="sb-card flex gap-3 items-start">
       {booking.profile_image_url ? (

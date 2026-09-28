@@ -1,82 +1,82 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 
-import Link from 'next/link'
-import type { Scenario, ScenarioStep, ScenarioTriggerType, MessageType, DeliveryMode } from '@line-crm/shared'
-import { api } from '@/lib/api'
-import Header from '@/components/layout/header'
-import FlexPreviewComponent from '@/components/flex-preview'
+import Link from 'next/link';
+import type { Scenario, ScenarioStep, ScenarioTriggerType, MessageType, DeliveryMode } from '@line-crm/shared';
+import { api } from '@/lib/api';
+import Header from '@/components/layout/header';
+import FlexPreviewComponent from '@/components/flex-preview';
 import ScheduleInput, {
   emptySchedule,
   buildSchedulePayload,
   uiFromOffsetMinutes,
   type ScheduleValue,
-} from '@/components/scenarios/schedule-input'
-import BulkPreviewModal from '@/components/scenarios/bulk-preview-modal'
+} from '@/components/scenarios/schedule-input';
+import BulkPreviewModal from '@/components/scenarios/bulk-preview-modal';
 
-type ScenarioWithSteps = Scenario & { steps: ScenarioStep[] }
+type ScenarioWithSteps = Scenario & { steps: ScenarioStep[] };
 
 const triggerOptions: { value: ScenarioTriggerType; label: string }[] = [
   { value: 'friend_add', label: '友だち追加時' },
   { value: 'tag_added', label: 'タグ付与時' },
   { value: 'manual', label: '手動' },
-]
+];
 
 const messageTypeOptions: { value: MessageType; label: string }[] = [
   { value: 'text', label: 'テキスト' },
   { value: 'image', label: '画像' },
   { value: 'flex', label: 'Flex' },
-]
+];
 
 const modeBadgeStyle: Record<DeliveryMode, { bg: string; text: string; label: string }> = {
   relative: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Legacy' },
   elapsed: { bg: 'bg-blue-50', text: 'text-blue-700', label: '経過時間' },
   absolute_time: { bg: 'bg-amber-50', text: 'text-amber-700', label: '時刻指定' },
-}
+};
 
 function formatDelay(minutes: number): string {
-  if (minutes === 0) return '即時'
-  if (minutes < 60) return `${minutes}分後`
+  if (minutes === 0) return '即時';
+  if (minutes < 60) return `${minutes}分後`;
   if (minutes < 1440) {
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    return m === 0 ? `${h}時間後` : `${h}時間${m}分後`
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m === 0 ? `${h}時間後` : `${h}時間${m}分後`;
   }
-  const d = Math.floor(minutes / 1440)
-  const remaining = minutes % 1440
-  if (remaining === 0) return `${d}日後`
-  const h = Math.floor(remaining / 60)
-  return h > 0 ? `${d}日${h}時間後` : `${d}日${remaining}分後`
+  const d = Math.floor(minutes / 1440);
+  const remaining = minutes % 1440;
+  if (remaining === 0) return `${d}日後`;
+  const h = Math.floor(remaining / 60);
+  return h > 0 ? `${d}日${h}時間後` : `${d}日${remaining}分後`;
 }
 
 function formatScheduleLabel(mode: DeliveryMode | undefined, step: ScenarioStep): string {
-  const m = mode ?? 'relative'
-  if (m === 'relative') return formatDelay(step.delayMinutes)
+  const m = mode ?? 'relative';
+  if (m === 'relative') return formatDelay(step.delayMinutes);
   if (m === 'elapsed') {
-    const days = step.offsetDays ?? 0
-    const mins = step.offsetMinutes ?? 0
-    const h = Math.floor(mins / 60)
-    const r = mins % 60
-    if (days === 0 && mins === 0) return '即時 (購読開始)'
-    const parts: string[] = []
-    if (days > 0) parts.push(`${days}日`)
-    if (h > 0) parts.push(`${h}時間`)
-    if (r > 0) parts.push(`${r}分`)
-    return `購読開始から${parts.join('')}後`
+    const days = step.offsetDays ?? 0;
+    const mins = step.offsetMinutes ?? 0;
+    const h = Math.floor(mins / 60);
+    const r = mins % 60;
+    if (days === 0 && mins === 0) return '即時 (購読開始)';
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}日`);
+    if (h > 0) parts.push(`${h}時間`);
+    if (r > 0) parts.push(`${r}分`);
+    return `購読開始から${parts.join('')}後`;
   }
   // absolute_time
-  return `購読開始から${step.offsetDays ?? 0}日後の ${step.deliveryTime ?? '00:00'}`
+  return `購読開始から${step.offsetDays ?? 0}日後の ${step.deliveryTime ?? '00:00'}`;
 }
 
 interface StepFormState {
-  stepOrder: number
-  schedule: ScheduleValue
-  messageType: MessageType
-  messageContent: string
-  templateId: string | null
-  onReachTagId: string | null
-  inputMode: 'direct' | 'template'
+  stepOrder: number;
+  schedule: ScheduleValue;
+  messageType: MessageType;
+  messageContent: string;
+  templateId: string | null;
+  onReachTagId: string | null;
+  inputMode: 'direct' | 'template';
 }
 
 function emptyStepForm(stepOrder: number): StepFormState {
@@ -88,169 +88,189 @@ function emptyStepForm(stepOrder: number): StepFormState {
     templateId: null,
     onReachTagId: null,
     inputMode: 'direct',
-  }
+  };
 }
 
 interface TemplateOpt {
-  id: string
-  name: string
-  category: string
-  messageType: string
-  messageContent: string
+  id: string;
+  name: string;
+  category: string;
+  messageType: string;
+  messageContent: string;
 }
 
 interface TagOpt {
-  id: string
-  name: string
+  id: string;
+  name: string;
 }
 
 interface ScenarioStats {
-  enrolledTotal: number
-  activeNow: number
-  completed: number
-  paused: number
-  steps: Array<{ stepOrder: number; reachedCount: number; reachRate: number }>
+  enrolledTotal: number;
+  activeNow: number;
+  completed: number;
+  paused: number;
+  steps: Array<{ stepOrder: number; reachedCount: number; reachRate: number }>;
 }
 
 function FlexPreview({ content }: { content: string }) {
-  return <FlexPreviewComponent content={content} maxWidth={300} />
+  return <FlexPreviewComponent content={content} maxWidth={300} />;
 }
 
 function ImagePreview({ content }: { content: string }) {
   try {
-    const parsed = JSON.parse(content)
-    const url = parsed.previewImageUrl || parsed.originalContentUrl
+    const parsed = JSON.parse(content);
+    const url = parsed.previewImageUrl || parsed.originalContentUrl;
     return (
       <div>
-        <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded mb-2 inline-block">画像</span>
+        <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded mb-2 inline-block">
+          画像
+        </span>
         {url ? (
           <img src={url} alt="preview" className="max-w-[200px] rounded-lg border border-gray-200 mt-1" />
         ) : (
           <p className="text-xs text-gray-400">プレビューなし</p>
         )}
       </div>
-    )
+    );
   } catch {
-    return <p className="text-xs text-red-500">画像 JSON パースエラー</p>
+    return <p className="text-xs text-red-500">画像 JSON パースエラー</p>;
   }
 }
 
 export default function ScenarioDetailClient({ scenarioId }: { scenarioId: string }) {
-  const id = scenarioId
+  const id = scenarioId;
 
-  const [scenario, setScenario] = useState<ScenarioWithSteps | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [scenario, setScenario] = useState<ScenarioWithSteps | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const [editing, setEditing] = useState(false)
-  const [editForm, setEditForm] = useState({ name: '', description: '', triggerType: 'friend_add' as ScenarioTriggerType, isActive: true })
-  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    triggerType: 'friend_add' as ScenarioTriggerType,
+    isActive: true,
+  });
+  const [saving, setSaving] = useState(false);
 
-  const [showStepForm, setShowStepForm] = useState(false)
-  const [editingStepId, setEditingStepId] = useState<string | null>(null)
-  const [stepForm, setStepForm] = useState<StepFormState>(() => emptyStepForm(1))
-  const [stepSaving, setStepSaving] = useState(false)
-  const [stepError, setStepError] = useState('')
+  const [showStepForm, setShowStepForm] = useState(false);
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
+  const [stepForm, setStepForm] = useState<StepFormState>(() => emptyStepForm(1));
+  const [stepSaving, setStepSaving] = useState(false);
+  const [stepError, setStepError] = useState('');
 
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false);
 
-  const [stats, setStats] = useState<ScenarioStats | null>(null)
-  const [templates, setTemplates] = useState<TemplateOpt[]>([])
-  const [tags, setTags] = useState<TagOpt[]>([])
+  const [stats, setStats] = useState<ScenarioStats | null>(null);
+  const [templates, setTemplates] = useState<TemplateOpt[]>([]);
+  const [tags, setTags] = useState<TagOpt[]>([]);
 
-  const deliveryMode: DeliveryMode = (scenario?.deliveryMode ?? 'relative') as DeliveryMode
+  const deliveryMode: DeliveryMode = (scenario?.deliveryMode ?? 'relative') as DeliveryMode;
 
   const loadScenario = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.scenarios.get(id)
+      const res = await api.scenarios.get(id);
       if (res.success) {
-        setScenario(res.data)
+        setScenario(res.data);
         setEditForm({
           name: res.data.name,
           description: res.data.description ?? '',
           triggerType: res.data.triggerType,
           isActive: res.data.isActive,
-        })
+        });
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('シナリオの読み込みに失敗しました')
+      setError('シナリオの読み込みに失敗しました');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [id])
+  }, [id]);
 
   useEffect(() => {
-    loadScenario()
-  }, [loadScenario])
+    loadScenario();
+  }, [loadScenario]);
 
   // 並列で stats / templates / tags を取得（リグレッションを起こさないよう失敗は無視）
   useEffect(() => {
-    if (!id) return
-    let cancelled = false
+    if (!id) return;
+    let cancelled = false;
     Promise.all([
       api.scenarios.stats(id).catch(() => null),
       api.templates.list().catch(() => null),
       api.tags.list().catch(() => null),
     ]).then(([statsRes, tplRes, tagRes]) => {
-      if (cancelled) return
-      if (statsRes && statsRes.success) setStats(statsRes.data)
+      if (cancelled) return;
+      if (statsRes && statsRes.success) setStats(statsRes.data);
       if (tplRes && tplRes.success) {
-        setTemplates(tplRes.data.map((t) => ({
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          messageType: t.messageType,
-          messageContent: t.messageContent,
-        })))
+        setTemplates(
+          tplRes.data.map((t) => ({
+            id: t.id,
+            name: t.name,
+            category: t.category,
+            messageType: t.messageType,
+            messageContent: t.messageContent,
+          })),
+        );
       }
       if (tagRes && tagRes.success) {
-        setTags(tagRes.data.map((t) => ({ id: t.id, name: t.name })))
+        setTags(tagRes.data.map((t) => ({ id: t.id, name: t.name })));
       }
-    })
-    return () => { cancelled = true }
-  }, [id])
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const reloadStats = useCallback(() => {
-    api.scenarios.stats(id).then((r) => { if (r.success) setStats(r.data) }).catch(() => {})
-  }, [id])
+    api.scenarios
+      .stats(id)
+      .then((r) => {
+        if (r.success) setStats(r.data);
+      })
+      .catch(() => {});
+  }, [id]);
 
   const handleSaveScenario = async () => {
-    if (!editForm.name.trim()) return
-    setSaving(true)
+    if (!editForm.name.trim()) return;
+    setSaving(true);
     try {
       const res = await api.scenarios.update(id, {
         name: editForm.name,
         description: editForm.description || null,
         triggerType: editForm.triggerType,
         isActive: editForm.isActive,
-      })
+      });
       if (res.success) {
-        setEditing(false)
-        loadScenario()
+        setEditing(false);
+        loadScenario();
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('保存に失敗しました')
+      setError('保存に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const openAddStep = () => {
-    const nextOrder = scenario ? (scenario.steps.length > 0 ? Math.max(...scenario.steps.map(s => s.stepOrder)) + 1 : 1) : 1
-    setStepForm(emptyStepForm(nextOrder))
-    setEditingStepId(null)
-    setShowStepForm(true)
-    setStepError('')
-  }
+    const nextOrder = scenario
+      ? scenario.steps.length > 0
+        ? Math.max(...scenario.steps.map((s) => s.stepOrder)) + 1
+        : 1
+      : 1;
+    setStepForm(emptyStepForm(nextOrder));
+    setEditingStepId(null);
+    setShowStepForm(true);
+    setStepError('');
+  };
 
   const openEditStep = (step: ScenarioStep) => {
-    const ui = uiFromOffsetMinutes(step.offsetMinutes)
+    const ui = uiFromOffsetMinutes(step.offsetMinutes);
     setStepForm({
       stepOrder: step.stepOrder,
       schedule: {
@@ -265,63 +285,61 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
       templateId: step.templateId ?? null,
       onReachTagId: step.onReachTagId ?? null,
       inputMode: step.templateId ? 'template' : 'direct',
-    })
-    setEditingStepId(step.id)
+    });
+    setEditingStepId(step.id);
     // 編集はステップ行直下にインライン表示するので、上部の新規追加フォームは閉じる
-    setShowStepForm(false)
-    setStepError('')
-  }
+    setShowStepForm(false);
+    setStepError('');
+  };
 
   const closeStepForm = () => {
-    setShowStepForm(false)
-    setEditingStepId(null)
-    setStepError('')
-  }
+    setShowStepForm(false);
+    setEditingStepId(null);
+    setStepError('');
+  };
 
   const handleSaveStep = async () => {
     // 直接入力モード: messageContent 必須 + Flex/画像 は JSON parse 検証
     if (stepForm.inputMode === 'direct') {
       if (!stepForm.messageContent.trim()) {
-        setStepError('メッセージ内容を入力してください')
-        return
+        setStepError('メッセージ内容を入力してください');
+        return;
       }
       if (stepForm.messageType === 'flex' || stepForm.messageType === 'image') {
         try {
-          JSON.parse(stepForm.messageContent)
+          JSON.parse(stepForm.messageContent);
         } catch {
           setStepError(
-            stepForm.messageType === 'flex'
-              ? 'Flex メッセージの JSON が不正です'
-              : '画像メッセージの JSON が不正です',
-          )
-          return
+            stepForm.messageType === 'flex' ? 'Flex メッセージの JSON が不正です' : '画像メッセージの JSON が不正です',
+          );
+          return;
         }
       }
     } else {
       if (!stepForm.templateId) {
-        setStepError('テンプレートを選択してください')
-        return
+        setStepError('テンプレートを選択してください');
+        return;
       }
     }
-    setStepSaving(true)
-    setStepError('')
+    setStepSaving(true);
+    setStepError('');
     try {
-      const schedulePayload = buildSchedulePayload(deliveryMode, stepForm.schedule)
+      const schedulePayload = buildSchedulePayload(deliveryMode, stepForm.schedule);
       // テンプレモード保存時は、選択中テンプレ内容を scenario_steps の messageType /
       // messageContent にスナップショットコピーする。テンプレ削除時に resolveStepContent
       // がここから正しい内容にフォールバックできるため。
-      let payloadMessageType: MessageType = stepForm.messageType
-      let payloadMessageContent: string = stepForm.messageContent || ' '
+      let payloadMessageType: MessageType = stepForm.messageType;
+      let payloadMessageContent: string = stepForm.messageContent || ' ';
       if (stepForm.inputMode === 'template' && stepForm.templateId) {
-        const tpl = templates.find((t) => t.id === stepForm.templateId)
+        const tpl = templates.find((t) => t.id === stepForm.templateId);
         if (tpl) {
           // messageType: テンプレが image/carousel のときは scenario_steps の CHECK に
           // ('text','image','flex') の制約があるため text/image/flex のみ許容。
           // carousel が来る可能性は低いが念のため text にフォールバック。
-          payloadMessageType = (['text', 'image', 'flex'].includes(tpl.messageType)
-            ? tpl.messageType
-            : 'text') as MessageType
-          payloadMessageContent = tpl.messageContent || ' '
+          payloadMessageType = (
+            ['text', 'image', 'flex'].includes(tpl.messageType) ? tpl.messageType : 'text'
+          ) as MessageType;
+          payloadMessageContent = tpl.messageContent || ' ';
         }
       }
       const payload = {
@@ -331,61 +349,61 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         messageContent: payloadMessageContent,
         templateId: stepForm.inputMode === 'template' ? stepForm.templateId : null,
         onReachTagId: stepForm.onReachTagId,
-      }
+      };
       if (editingStepId) {
-        const res = await api.scenarios.updateStep(id, editingStepId, payload)
+        const res = await api.scenarios.updateStep(id, editingStepId, payload);
         if (!res.success) {
-          setStepError(res.error)
-          return
+          setStepError(res.error);
+          return;
         }
       } else {
-        const res = await api.scenarios.addStep(id, payload)
+        const res = await api.scenarios.addStep(id, payload);
         if (!res.success) {
-          setStepError(res.error)
-          return
+          setStepError(res.error);
+          return;
         }
       }
-      closeStepForm()
-      loadScenario()
-      reloadStats()
+      closeStepForm();
+      loadScenario();
+      reloadStats();
     } catch {
-      setStepError('ステップの保存に失敗しました')
+      setStepError('ステップの保存に失敗しました');
     } finally {
-      setStepSaving(false)
+      setStepSaving(false);
     }
-  }
+  };
 
   const handleDeleteStep = async (stepId: string) => {
-    if (!confirm('このステップを削除してもよいですか？')) return
+    if (!confirm('このステップを削除してもよいですか？')) return;
     try {
-      await api.scenarios.deleteStep(id, stepId)
-      if (editingStepId === stepId) closeStepForm()
-      loadScenario()
+      await api.scenarios.deleteStep(id, stepId);
+      if (editingStepId === stepId) closeStepForm();
+      loadScenario();
     } catch {
-      setError('ステップの削除に失敗しました')
+      setError('ステップの削除に失敗しました');
     }
-  }
+  };
 
   const handleMoveStep = async (stepId: string, direction: 'up' | 'down') => {
-    if (!scenario) return
-    const sorted = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder)
-    const idx = sorted.findIndex((s) => s.id === stepId)
-    const swap = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swap < 0 || swap >= sorted.length) return
-    const a = sorted[idx]
-    const b = sorted[swap]
+    if (!scenario) return;
+    const sorted = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder);
+    const idx = sorted.findIndex((s) => s.id === stepId);
+    const swap = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || swap < 0 || swap >= sorted.length) return;
+    const a = sorted[idx];
+    const b = sorted[swap];
     try {
       await api.scenarios.reorderSteps(id, [
         { stepId: a.id, stepOrder: b.stepOrder },
         { stepId: b.id, stepOrder: a.stepOrder },
-      ])
-      loadScenario()
+      ]);
+      loadScenario();
       // 到達率バッジは stepOrder ベースでマッチングするので、並び替え後は stats も再取得
-      reloadStats()
+      reloadStats();
     } catch {
-      setError('並び替えに失敗しました')
+      setError('並び替えに失敗しました');
     }
-  }
+  };
 
   // 新規追加（上部）とステップ編集（行直下インライン）の両方で使うフォーム。
   // 同時に開くのは常に片方だけなので、state は stepForm を共有する。
@@ -436,7 +454,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
 
         {stepForm.inputMode === 'template' && (
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">テンプレート <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              テンプレート <span className="text-red-500">*</span>
+            </label>
             <select
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
               value={stepForm.templateId ?? ''}
@@ -444,7 +464,10 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
             >
               <option value="">-- 選択してください --</option>
               {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}{t.category ? ` (${t.category})` : ''}</option>
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.category ? ` (${t.category})` : ''}
+                </option>
               ))}
             </select>
             <p className="text-xs text-amber-700 mt-1">
@@ -463,12 +486,16 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                 onChange={(e) => setStepForm({ ...stepForm, messageType: e.target.value as MessageType })}
               >
                 {messageTypeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">メッセージ内容 <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                メッセージ内容 <span className="text-red-500">*</span>
+              </label>
               <textarea
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
                 rows={4}
@@ -492,12 +519,12 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
             >
               <option value="">-- なし --</option>
               {tags.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
               ))}
             </select>
-            <p className="text-xs text-gray-400 mt-0.5">
-              このステップが配信完了したら、選んだタグを友だちに付与します
-            </p>
+            <p className="text-xs text-gray-400 mt-0.5">このステップが配信完了したら、選んだタグを友だちに付与します</p>
           </div>
         </div>
 
@@ -521,25 +548,25 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         </div>
       </div>
     </div>
-  )
+  );
 
   if (loading) {
     return (
       <div>
-        <Header title="シナリオ詳細" />
+        <Header title="シナリオ詳細" description="シナリオのステップと配信状況を確認・編集します。" />
         <div className="bg-white rounded-lg border border-gray-200 p-8 animate-pulse space-y-4">
           <div className="h-6 bg-gray-200 rounded w-1/3" />
           <div className="h-4 bg-gray-100 rounded w-2/3" />
           <div className="h-4 bg-gray-100 rounded w-1/2" />
         </div>
       </div>
-    )
+    );
   }
 
   if (!scenario) {
     return (
       <div>
-        <Header title="シナリオ詳細" />
+        <Header title="シナリオ詳細" description="シナリオのステップと配信状況を確認・編集します。" />
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
           <p className="text-gray-500">{error || 'シナリオが見つかりません'}</p>
           <Link href="/scenarios" className="text-sm text-green-600 hover:text-green-700 mt-4 inline-block">
@@ -547,16 +574,17 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
           </Link>
         </div>
       </div>
-    )
+    );
   }
 
-  const sortedSteps = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder)
-  const modeBadge = modeBadgeStyle[deliveryMode]
+  const sortedSteps = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder);
+  const modeBadge = modeBadgeStyle[deliveryMode];
 
   return (
     <div>
       <Header
         title="シナリオ詳細"
+        description="シナリオのステップと配信状況を確認・編集します。"
         action={
           <Link
             href="/scenarios"
@@ -567,21 +595,23 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {/* Stats Header Bar */}
       {stats && stats.enrolledTotal > 0 && (
         <div className="mb-4 bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-4 text-sm flex-wrap">
           <span className="font-medium text-gray-700">📊 集計</span>
-          <span>登録 <span className="font-semibold">{stats.enrolledTotal}</span> 人</span>
+          <span>
+            登録 <span className="font-semibold">{stats.enrolledTotal}</span> 人
+          </span>
           <span className="text-gray-400">/</span>
-          <span>進行中 <span className="font-semibold text-blue-700">{stats.activeNow}</span></span>
+          <span>
+            進行中 <span className="font-semibold text-blue-700">{stats.activeNow}</span>
+          </span>
           <span className="text-gray-400">/</span>
-          <span>完了 <span className="font-semibold text-green-700">{stats.completed}</span></span>
+          <span>
+            完了 <span className="font-semibold text-green-700">{stats.completed}</span>
+          </span>
           {stats.paused > 0 && (
             <>
               <span className="text-gray-400">/</span>
@@ -596,7 +626,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         {editing ? (
           <div className="space-y-4 max-w-lg">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">シナリオ名 <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                シナリオ名 <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -621,7 +653,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                 onChange={(e) => setEditForm({ ...editForm, triggerType: e.target.value as ScenarioTriggerType })}
               >
                 {triggerOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -633,7 +667,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                 onChange={(e) => setEditForm({ ...editForm, isActive: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
-              <label htmlFor="editIsActive" className="text-sm text-gray-600">有効</label>
+              <label htmlFor="editIsActive" className="text-sm text-gray-600">
+                有効
+              </label>
             </div>
             <div className="flex gap-2">
               <button
@@ -646,13 +682,13 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
               </button>
               <button
                 onClick={() => {
-                  setEditing(false)
+                  setEditing(false);
                   setEditForm({
                     name: scenario.name,
                     description: scenario.description ?? '',
                     triggerType: scenario.triggerType,
                     isActive: scenario.isActive,
-                  })
+                  });
                 }}
                 className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
@@ -665,7 +701,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
             <div className="flex items-start justify-between gap-4 mb-3">
               <h2 className="text-lg font-semibold text-gray-900">{scenario.name}</h2>
               <div className="flex items-center gap-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${modeBadge.bg} ${modeBadge.text}`}>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${modeBadge.bg} ${modeBadge.text}`}
+                >
                   {modeBadge.label}
                 </span>
                 <span
@@ -683,11 +721,11 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                 </button>
               </div>
             </div>
-            {scenario.description && (
-              <p className="text-sm text-gray-500 mb-3">{scenario.description}</p>
-            )}
+            {scenario.description && <p className="text-sm text-gray-500 mb-3">{scenario.description}</p>}
             <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-              <span>トリガー: {triggerOptions.find(o => o.value === scenario.triggerType)?.label ?? scenario.triggerType}</span>
+              <span>
+                トリガー: {triggerOptions.find((o) => o.value === scenario.triggerType)?.label ?? scenario.triggerType}
+              </span>
               <span>ステップ数: {scenario.steps.length}</span>
               <span>作成日: {new Date(scenario.createdAt).toLocaleDateString('ja-JP')}</span>
             </div>
@@ -742,28 +780,32 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                         {step.stepOrder}
                       </span>
                       <span className="text-xs text-gray-500">{formatScheduleLabel(deliveryMode, step)}</span>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        step.messageType === 'text' ? 'bg-blue-50 text-blue-600' :
-                        step.messageType === 'image' ? 'bg-purple-50 text-purple-600' :
-                        'bg-orange-50 text-orange-600'
-                      }`}>
-                        {messageTypeOptions.find(o => o.value === step.messageType)?.label ?? step.messageType}
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          step.messageType === 'text'
+                            ? 'bg-blue-50 text-blue-600'
+                            : step.messageType === 'image'
+                              ? 'bg-purple-50 text-purple-600'
+                              : 'bg-orange-50 text-orange-600'
+                        }`}
+                      >
+                        {messageTypeOptions.find((o) => o.value === step.messageType)?.label ?? step.messageType}
                       </span>
                       {(() => {
-                        const stat = stats?.steps.find((s) => s.stepOrder === step.stepOrder)
+                        const stat = stats?.steps.find((s) => s.stepOrder === step.stepOrder);
                         return stat ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
                             📊 {stat.reachedCount}人到達 ({Math.round(stat.reachRate * 100)}%)
                           </span>
-                        ) : null
+                        ) : null;
                       })()}
                     </div>
                     {(() => {
                       // テンプレ参照時は、表示も「現在のテンプレ内容」を見せる。
                       // (templates state には list で取得済みの最新内容が入っている)
-                      const tpl = step.templateId ? templates.find((t) => t.id === step.templateId) : null
-                      const displayType = tpl ? tpl.messageType : step.messageType
-                      const displayContent = tpl ? tpl.messageContent : step.messageContent
+                      const tpl = step.templateId ? templates.find((t) => t.id === step.templateId) : null;
+                      const displayType = tpl ? tpl.messageType : step.messageType;
+                      const displayContent = tpl ? tpl.messageContent : step.messageContent;
                       return (
                         <div className="text-sm text-gray-700 bg-gray-50 rounded-md px-3 py-2">
                           {displayType === 'text' ? (
@@ -776,7 +818,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                             <p className="whitespace-pre-wrap break-words">{displayContent}</p>
                           )}
                         </div>
-                      )
+                      );
                     })()}
                     {step.templateId && (
                       <p className="mt-2 text-xs text-amber-700">
@@ -830,11 +872,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         )}
       </div>
 
-      <BulkPreviewModal
-        open={previewOpen}
-        scenarioId={id}
-        onClose={() => setPreviewOpen(false)}
-      />
+      <BulkPreviewModal open={previewOpen} scenarioId={id} onClose={() => setPreviewOpen(false)} />
     </div>
-  )
+  );
 }

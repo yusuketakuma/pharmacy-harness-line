@@ -8,9 +8,7 @@ const dbMocks = {
 };
 vi.mock('@line-crm/db', () => dbMocks);
 
-const { appendFriendToTrackedLinks, autoTrackContent, decorateForFriendPush } = await import(
-  './auto-track.js'
-);
+const { appendFriendToTrackedLinks, autoTrackContent, decorateForFriendPush } = await import('./auto-track.js');
 
 const DB = {} as D1Database;
 const WORKER = 'https://worker.example.com';
@@ -50,9 +48,7 @@ describe('appendFriendToTrackedLinks', () => {
   test('keeps sentence punctuation outside the appended query', async () => {
     const content = `詳しくはこちら ${SHORT}/t/Ab3xY9k。続きは ${SHORT}/t/xYz9876.`;
     const out = await appendFriendToTrackedLinks(DB, content, WORKER, FRIEND);
-    expect(out).toBe(
-      `詳しくはこちら ${SHORT}/t/Ab3xY9k?f=${FRIEND}。続きは ${SHORT}/t/xYz9876?f=${FRIEND}.`,
-    );
+    expect(out).toBe(`詳しくはこちら ${SHORT}/t/Ab3xY9k?f=${FRIEND}。続きは ${SHORT}/t/xYz9876?f=${FRIEND}.`);
   });
 
   test('no-op when friendId is missing', async () => {

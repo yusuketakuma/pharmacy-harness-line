@@ -17,11 +17,7 @@ import {
 import type { EntryRoute, Friend } from '@line-crm/db';
 import { fireEvent } from '../../services/event-bus.js';
 import { matchAndReply } from '../../services/auto-reply.js';
-import {
-  buildMessage,
-  isDeterministicInvalidReplyToken,
-  messageToLogPayload,
-} from '../../services/step-delivery.js';
+import { buildMessage, isDeterministicInvalidReplyToken, messageToLogPayload } from '../../services/step-delivery.js';
 import { pushImmediateFirstStep } from '../../services/immediate-first-step.js';
 import type { Env } from '../../index.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
@@ -33,10 +29,9 @@ import { isPharmacyModeAccount } from '../../custom/pharmacy/growth-loop/access.
 import { handleMedicationFollowUpPostback } from '../../custom/pharmacy/medication-followup/webhook.js'; // custom:pharmacy-medication-followup
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-credentials
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
-import {
-  deliverTrackedLinePush,
-  deliverTrackedLineReply,
-} from '../../services/outbound-line-delivery.js';
+import { log } from '../../lib/log.js';
+import { readBoundedBody } from '../../lib/read-bounded-body.js';
+import { deliverTrackedLinePush, deliverTrackedLineReply } from '../../services/outbound-line-delivery.js';
 
 const webhook = new Hono<Env>();
 
@@ -85,9 +80,14 @@ interface WebhookEventRunner {
  */
 function readWebhookEventId(event: WebhookEvent): string {
   const raw = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
-  return typeof raw === 'string' && raw.length > 0 && raw.length <= 128
-    ? raw
-    : `synthetic:${crypto.randomUUID()}`;
+  return typeof raw === 'string' && raw.length > 0 && raw.length <= 128 ? raw : `synthetic:${crypto.randomUUID()}`;
+}
+
+function readWebhookOccurredAt(event: WebhookEvent): string | undefined {
+  const timestamp = (event as WebhookEvent & { timestamp?: unknown }).timestamp;
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return undefined;
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
 }
 
 /**
@@ -102,11 +102,14 @@ async function storeWebhookEvent(
   webhookEventId: string,
   event: WebhookEvent,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
       (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
      VALUES (?, ?, ?, ?, ?, 'pending', 0)`,
-  ).bind(tenantId, lineAccountId, webhookEventId, jstNow(), JSON.stringify(event)).run();
+    )
+    .bind(tenantId, lineAccountId, webhookEventId, jstNow(), JSON.stringify(event))
+    .run();
   // D1 always provides meta.changes. Test doubles and older compatible
   // adapters may omit it; only an explicit zero means this is a redelivery.
   return !result.meta || result.meta.changes !== 0;
@@ -126,8 +129,9 @@ export async function runWebhookInboxEvent(
   const key = [row.tenant_id, row.line_account_id, row.webhook_event_id];
   const claimToken = crypto.randomUUID();
 
-  const claim = await db.prepare(
-    `UPDATE pharmacy_webhook_event_receipts
+  const claim = await db
+    .prepare(
+      `UPDATE pharmacy_webhook_event_receipts
         SET status = 'processing',
             claim_token = ?,
             lease_until = ?,
@@ -136,43 +140,42 @@ export async function runWebhookInboxEvent(
         AND status <> 'completed'
         AND dead_lettered_at IS NULL
         AND (lease_until IS NULL OR lease_until <= ?)`,
-  ).bind(
-    claimToken,
-    toJstString(new Date(now.getTime() + WEBHOOK_INBOX_LEASE_MS)),
-    ...key,
-    toJstString(now),
-  ).run();
+    )
+    .bind(claimToken, toJstString(new Date(now.getTime() + WEBHOOK_INBOX_LEASE_MS)), ...key, toJstString(now))
+    .run();
   if ((claim.meta?.changes ?? 0) !== 1) return 'skipped';
 
   let heartbeatInFlight: Promise<void> | null = null;
   const heartbeatTimer = setInterval(() => {
     if (heartbeatInFlight) return;
-    heartbeatInFlight = db.prepare(
-      `UPDATE pharmacy_webhook_event_receipts
+    heartbeatInFlight = db
+      .prepare(
+        `UPDATE pharmacy_webhook_event_receipts
           SET lease_until = ?
         WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
           AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
-    ).bind(
-      toJstString(new Date(Date.now() + WEBHOOK_INBOX_LEASE_MS)),
-      ...key,
-      claimToken,
-    ).run().then(() => undefined).catch(() => undefined).finally(() => {
-      heartbeatInFlight = null;
-    });
+      )
+      .bind(toJstString(new Date(Date.now() + WEBHOOK_INBOX_LEASE_MS)), ...key, claimToken)
+      .run()
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        heartbeatInFlight = null;
+      });
   }, WEBHOOK_INBOX_HEARTBEAT_MS);
 
   try {
     try {
-      const event = row.event
-        ?? (row.payload ? JSON.parse(row.payload) as WebhookEvent : null);
+      const event = row.event ?? (row.payload ? (JSON.parse(row.payload) as WebhookEvent) : null);
       if (!event) throw new Error('WEBHOOK_INBOX_PAYLOAD_MISSING');
 
-      const accessToken = runner.channelAccessToken
-        ?? await readLineCredential(db, runner.credentialRootSecret, {
+      const accessToken =
+        runner.channelAccessToken ??
+        (await readLineCredential(db, runner.credentialRootSecret, {
           tenantId: row.tenant_id,
           lineAccountId: row.line_account_id,
           kind: 'channel_access_token',
-        });
+        }));
       if (!accessToken) throw new Error('WEBHOOK_INBOX_CREDENTIAL_UNAVAILABLE');
 
       await handleEvent(
@@ -193,27 +196,33 @@ export async function runWebhookInboxEvent(
       clearInterval(heartbeatTimer);
       await heartbeatInFlight;
     }
-  } catch (err) {
-    console.error('Error handling webhook event:', err);
+  } catch {
+    log('pharmacy_webhook_inbox_event_failed', { reason: 'processing_failed' }, 'error');
     // Stay in the inbox. The sweep retries until the attempt cap, then the row
     // is dead-lettered — kept with its payload so it can be replayed by hand
     // (status back to 'pending', retry_count 0). No replay UI exists yet.
-    const failed = await db.prepare(
-      `UPDATE pharmacy_webhook_event_receipts
+    const failed = await db
+      .prepare(
+        `UPDATE pharmacy_webhook_event_receipts
           SET status = 'failed', claim_token = NULL, lease_until = NULL
         WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
           AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
-    ).bind(...key, claimToken).run();
+      )
+      .bind(...key, claimToken)
+      .run();
     if ((failed.meta?.changes ?? 0) !== 1) return 'skipped';
     return 'failed';
   }
 
-  const completed = await db.prepare(
-    `UPDATE pharmacy_webhook_event_receipts
+  const completed = await db
+    .prepare(
+      `UPDATE pharmacy_webhook_event_receipts
         SET status = 'completed', claim_token = NULL, lease_until = NULL
       WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
         AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
-  ).bind(...key, claimToken).run();
+    )
+    .bind(...key, claimToken)
+    .run();
   if ((completed.meta?.changes ?? 0) !== 1) return 'skipped';
   return 'completed';
 }
@@ -239,14 +248,17 @@ export async function sweepWebhookInbox(options: {
 
   // Attempt cap first, so a row that crashed mid-processing is retired by the
   // same rule as one that failed cleanly.
-  const retired = await db.prepare(
-    `UPDATE pharmacy_webhook_event_receipts
+  const retired = await db
+    .prepare(
+      `UPDATE pharmacy_webhook_event_receipts
         SET status = 'failed', claim_token = NULL, lease_until = NULL, dead_lettered_at = ?
       WHERE status <> 'completed'
         AND dead_lettered_at IS NULL
         AND retry_count >= ?
         AND (lease_until IS NULL OR lease_until <= ?)`,
-  ).bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS, nowJst).run();
+    )
+    .bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS, nowJst)
+    .run();
   summary.deadLettered = retired.meta?.changes ?? 0;
 
   // Stale-age cap: a row that is never picked up never hits the attempt cap
@@ -254,20 +266,24 @@ export async function sweepWebhookInbox(options: {
   // forever holding its raw payload. dead_lettered_at is set; status, retry_count,
   // and payload are left exactly as they were.
   const staleCutoffJst = toJstString(new Date(now.getTime() - WEBHOOK_INBOX_STALE_AGE_MS));
-  const staleRetired = await db.prepare(
-    `UPDATE pharmacy_webhook_event_receipts
+  const staleRetired = await db
+    .prepare(
+      `UPDATE pharmacy_webhook_event_receipts
         SET claim_token = NULL, lease_until = NULL, dead_lettered_at = ?
       WHERE status IN ('pending', 'processing')
         AND dead_lettered_at IS NULL
         AND received_at < ?
         AND (lease_until IS NULL OR lease_until < ?)`,
-  ).bind(nowJst, staleCutoffJst, nowJst).run();
+    )
+    .bind(nowJst, staleCutoffJst, nowJst)
+    .run();
   summary.deadLettered += staleRetired.meta?.changes ?? 0;
 
   if (!options.credentialRootSecret) return summary;
 
-  const due = await db.prepare(
-    `SELECT tenant_id, line_account_id, webhook_event_id, payload
+  const due = await db
+    .prepare(
+      `SELECT tenant_id, line_account_id, webhook_event_id, payload
        FROM pharmacy_webhook_event_receipts
       WHERE status <> 'completed'
         AND dead_lettered_at IS NULL
@@ -275,7 +291,9 @@ export async function sweepWebhookInbox(options: {
         AND (lease_until IS NULL OR lease_until <= ?)
       ORDER BY received_at
       LIMIT ?`,
-  ).bind(nowJst, options.limit ?? WEBHOOK_INBOX_SWEEP_LIMIT).all<WebhookInboxRow>();
+    )
+    .bind(nowJst, options.limit ?? WEBHOOK_INBOX_SWEEP_LIMIT)
+    .all<WebhookInboxRow>();
 
   const runner: WebhookEventRunner = {
     db,
@@ -287,8 +305,7 @@ export async function sweepWebhookInbox(options: {
   };
 
   for (const row of due.results ?? []) {
-    const outcome = await runWebhookInboxEvent(runner, row, now)
-      .catch(() => 'failed' as const);
+    const outcome = await runWebhookInboxEvent(runner, row, now).catch(() => 'failed' as const);
     if (outcome === 'skipped') continue;
     summary.claimed++;
     summary[outcome]++;
@@ -309,11 +326,14 @@ export async function purgeWebhookEventReceipts(
   const now = options.now ?? new Date();
   const retentionDays = options.retentionDays ?? WEBHOOK_RECEIPT_RETENTION_DAYS;
   const cutoff = toJstString(new Date(now.getTime() - retentionDays * 86_400_000));
-  const result = await db.prepare(
-    `DELETE FROM pharmacy_webhook_event_receipts
+  const result = await db
+    .prepare(
+      `DELETE FROM pharmacy_webhook_event_receipts
       WHERE received_at < ?
         AND (status = 'completed' OR dead_lettered_at IS NOT NULL)`,
-  ).bind(cutoff).run();
+    )
+    .bind(cutoff)
+    .run();
   return result.meta?.changes ?? 0;
 }
 
@@ -329,11 +349,11 @@ async function ensureFriendFromWebhookUser(
     let profile: Awaited<ReturnType<LineClient['getProfile']>> | null = null;
     try {
       profile = await lineClient.getProfile(userId);
-    } catch (err) {
+    } catch {
       // A signed webhook already proves this user interacted with the bot.
       // If profile lookup is temporarily unavailable, keep the event processable
       // by creating the friend with the LINE userId and filling profile later.
-      console.error('[webhook] Failed to get profile for unknown user', err);
+      log('pharmacy_webhook_profile_fetch_failed', { reason: 'profile_unavailable' }, 'error');
     }
 
     try {
@@ -366,15 +386,12 @@ webhook.post('/webhook', async (c) => {
     }
   }
 
-  const rawBody = await c.req.text();
-
-  // Post-read size guard for the case where Content-Length was absent or untrustworthy.
-  // Use UTF-8 byte count: `rawBody.length` counts UTF-16 code units, so multibyte
-  // payloads (Japanese/emoji) would otherwise bypass the cap.
-  const rawBodyByteLength = new TextEncoder().encode(rawBody).byteLength;
-  if (rawBodyByteLength > MAX_WEBHOOK_BODY_SIZE) {
+  // Enforce the actual byte limit while reading, even without a trustworthy header.
+  const bodyBytes = await readBoundedBody(c.req.raw.body, MAX_WEBHOOK_BODY_SIZE);
+  if (bodyBytes === null) {
     return c.json({ status: 'too_large' }, 413);
   }
+  const rawBody = new TextDecoder().decode(bodyBytes);
 
   const signature = c.req.header('X-Line-Signature') ?? '';
   const db = c.env.DB;
@@ -400,14 +417,19 @@ webhook.post('/webhook', async (c) => {
   // untrusted selector only: the selected account secret still must verify the
   // raw body. This keeps signature work O(1) instead of trying every tenant.
   const destination = (body as { destination?: unknown }).destination;
-  if (typeof destination !== 'string' || destination.length === 0 || destination.length > 128 ||
-      !Array.isArray(body.events)) {
+  if (
+    typeof destination !== 'string' ||
+    destination.length === 0 ||
+    destination.length > 128 ||
+    !Array.isArray(body.events)
+  ) {
     console.error('Invalid LINE webhook envelope');
     return c.json({ status: 'ok' }, 200);
   }
 
-  const account = await db.prepare(
-    `SELECT line_account.id, mapping.tenant_id
+  const account = await db
+    .prepare(
+      `SELECT line_account.id, mapping.tenant_id
        FROM pharmacy_line_channel_identities AS identity
        INNER JOIN line_accounts AS line_account
                ON line_account.id = identity.line_account_id
@@ -418,10 +440,12 @@ webhook.post('/webhook', async (c) => {
                ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE identity.bot_user_id = ?
       LIMIT 1`,
-  ).bind(destination).first<{
-    id: string;
-    tenant_id: string;
-  }>();
+    )
+    .bind(destination)
+    .first<{
+      id: string;
+      tenant_id: string;
+    }>();
   if (!account) {
     console.error('Unknown LINE webhook destination');
     return c.json({ status: 'ok' }, 200);
@@ -448,7 +472,7 @@ webhook.post('/webhook', async (c) => {
     return c.json({ status: 'ok' }, 200);
   }
 
-  if (!await verifySignature(channelSecret, rawBody, signature)) {
+  if (!(await verifySignature(channelSecret, rawBody, signature))) {
     console.error('Invalid LINE signature');
     return c.json({ status: 'ok' }, 200);
   }
@@ -470,8 +494,8 @@ webhook.post('/webhook', async (c) => {
         claimed.push({ webhookEventId, event });
       }
     }
-  } catch (err) {
-    console.error('[webhook] failed to store inbound events', err);
+  } catch {
+    log('pharmacy_webhook_inbox_store_failed', { reason: 'storage_failed' }, 'error');
     return c.json({ status: 'error' }, 500);
   }
 
@@ -487,19 +511,21 @@ webhook.post('/webhook', async (c) => {
   };
 
   // 非同期処理 — LINE は ~1s 以内のレスポンスを要求
-  c.executionCtx.waitUntil((async () => {
-    for (const item of claimed) {
-      await runWebhookInboxEvent(runner, {
-        tenant_id: matchedTenantId,
-        line_account_id: matchedAccountId,
-        webhook_event_id: item.webhookEventId,
-        payload: null,
-        event: item.event,
-      }).catch((err) => {
-        console.error('[webhook] inbox event runner failed', err);
-      });
-    }
-  })());
+  c.executionCtx.waitUntil(
+    (async () => {
+      for (const item of claimed) {
+        await runWebhookInboxEvent(runner, {
+          tenant_id: matchedTenantId,
+          line_account_id: matchedAccountId,
+          webhook_event_id: item.webhookEventId,
+          payload: null,
+          event: item.event,
+        }).catch(() => {
+          log('pharmacy_webhook_inbox_runner_failed', { reason: 'processing_failed' }, 'error');
+        });
+      }
+    })(),
+  );
 
   return c.json({ status: 'ok' }, 200);
 });
@@ -521,16 +547,15 @@ async function handleEvent(
   // Dedup and retry state live in the durable inbox row that the request
   // handler (or the cron sweep) already claimed before calling this.
   if (event.type === 'follow') {
-    const userId =
-      event.source.type === 'user' ? event.source.userId : undefined;
+    const userId = event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
     // プロフィール取得 & 友だち登録/更新
     let profile;
     try {
       profile = await lineClient.getProfile(userId);
-    } catch (err) {
-      console.error('Failed to get LINE profile', err);
+    } catch {
+      log('pharmacy_webhook_profile_fetch_failed', { reason: 'profile_unavailable' }, 'error');
     }
 
     let friend: Friend;
@@ -541,6 +566,8 @@ async function handleEvent(
         displayName: profile?.displayName ?? null,
         pictureUrl: profile?.pictureUrl ?? null,
         statusMessage: profile?.statusMessage ?? null,
+        ...(readWebhookOccurredAt(event) ? { followEventAt: readWebhookOccurredAt(event) } : {}),
+        followEventId: webhookEventId,
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'FRIEND_ACCOUNT_CONFLICT') {
@@ -561,8 +588,8 @@ async function handleEvent(
         accessToken: lineAccessToken,
         proxyDispatch,
       });
-    } catch (error) {
-      console.error('[pharmacy-growth] follow metric failed', error instanceof Error ? error.message : 'unknown error');
+    } catch {
+      log('pharmacy_growth_follow_metric_failed', { reason: 'metric_record_failed' }, 'error');
     }
 
     if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) return;
@@ -599,11 +626,9 @@ async function handleEvent(
         }
       }
     }
-    const referralRoute: EntryRoute | null = friendRefCode
-      ? await getEntryRouteByRefCode(db, friendRefCode)
-      : null;
-    const runAccountScenarios =
-      !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
+    const candidateRoute = friendRefCode ? await getEntryRouteByRefCode(db, friendRefCode) : null;
+    const referralRoute: EntryRoute | null = candidateRoute?.tenant_id === tenantId ? candidateRoute : null;
+    const runAccountScenarios = !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
 
     // friend_add シナリオに登録（このアカウントのシナリオのみ）
     // Account and tenant scoping is done in SQL (M-1): an account-unassigned
@@ -656,7 +681,7 @@ async function handleEvent(
       if (referralRoute.intro_template_id) {
         try {
           const template = await getMessageTemplateById(db, referralRoute.intro_template_id);
-          if (template) {
+          if (template?.tenant_id === tenantId) {
             const message = buildMessage(template.message_type, template.message_content);
             const logPayload = messageToLogPayload(message);
             const retryKey = await createBroadcastRetryKey(
@@ -729,15 +754,17 @@ async function handleEvent(
   }
 
   if (event.type === 'unfollow') {
-    const userId =
-      event.source.type === 'user' ? event.source.userId : undefined;
+    const userId = event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
-    await updateFriendFollowStatus(db, userId, false, lineAccountId);
+    await updateFriendFollowStatus(db, userId, false, lineAccountId, {
+      occurredAt: readWebhookOccurredAt(event),
+      eventId: webhookEventId,
+    });
     try {
       await recordPharmacyUnfollowMetrics({ db, lineAccountId, lineUserId: userId });
-    } catch (error) {
-      console.error('[pharmacy-growth] unfollow metric failed', error instanceof Error ? error.message : 'unknown error');
+    } catch {
+      log('pharmacy_growth_unfollow_metric_failed', { reason: 'metric_record_failed' }, 'error');
     }
     return;
   }
@@ -758,7 +785,10 @@ async function handleEvent(
     // delivery_type='push' は厳密には push ではないが、incoming/non-test として
     // 既存 chat list / 詳細 SQL のフィルタを通すための妥当な値 (auto_reply text 同様)。
     const postbackLogId = await createBroadcastRetryKey(
-      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
+      'webhook-incoming-log-v1',
+      tenantId,
+      lineAccountId,
+      webhookEventId,
     );
     await db
       .prepare(
@@ -778,8 +808,9 @@ async function handleEvent(
             webhookEventId,
             data: postbackData,
           });
-        } catch {
+        } catch (error) {
           console.error('[pharmacy-followup] patient response rejected');
+          throw error;
         }
       }
       return;
@@ -787,8 +818,13 @@ async function handleEvent(
 
     // postback data を auto_replies にマッチさせて返信 (テキスト経路と共通)。
     // silent + automation で「返信なしでタグだけ付ける」構成もここで成立する。
-    const { matched: postbackMatched, replyTokenConsumed: postbackReplyTokenConsumed } =
-      await matchAndReply(db, lineClient, friend, postbackData, event.replyToken, {
+    const { matched: postbackMatched, replyTokenConsumed: postbackReplyTokenConsumed } = await matchAndReply(
+      db,
+      lineClient,
+      friend,
+      postbackData,
+      event.replyToken,
+      {
         tenantId,
         eventKey: webhookEventId,
         lineAccountId,
@@ -796,15 +832,10 @@ async function handleEvent(
         liffUrl,
         logContext: 'postback',
         replyMessage: workerUrl
-          ? (token, messages) => replyViaHarnessProxy(
-              workerUrl,
-              lineAccessToken,
-              token,
-              messages,
-              proxyDispatch,
-            )
+          ? (token, messages) => replyViaHarnessProxy(workerUrl, lineAccessToken, token, messages, proxyDispatch)
           : undefined,
-      });
+      },
+    );
 
     // イベントバス発火: 専用イベント postback_received。
     // postback.data を text に載せることで、IF-THEN 自動化の keyword /
@@ -814,11 +845,19 @@ async function handleEvent(
     // メニュータップで誤発火し、条件側に source を見る術がないため。
     // なお upsertChatOnMessage は呼ばない: メニュータップは自発メッセージでは
     // ないので、未対応 inbox を汚さないのが正しい (テキスト経路との意図的な差分)。
-    await fireEvent(db, 'postback_received', {
-      friendId: friend.id,
-      eventData: { text: postbackData, matched: postbackMatched },
-      replyToken: postbackReplyTokenConsumed ? undefined : event.replyToken,
-    }, lineAccessToken, lineAccountId, tenantId, webhookEventId);
+    await fireEvent(
+      db,
+      'postback_received',
+      {
+        friendId: friend.id,
+        eventData: { text: postbackData, matched: postbackMatched },
+        replyToken: postbackReplyTokenConsumed ? undefined : event.replyToken,
+      },
+      lineAccessToken,
+      lineAccountId,
+      tenantId,
+      webhookEventId,
+    );
 
     return;
   }
@@ -889,9 +928,7 @@ async function handleEvent(
       }
     }
 
-    const logId = await createBroadcastRetryKey(
-      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
-    );
+    const logId = await createBroadcastRetryKey('webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId);
     await db
       .prepare(
         `INSERT OR IGNORE INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
@@ -918,8 +955,7 @@ async function handleEvent(
 
   if (event.type === 'message' && event.message.type === 'text') {
     const textMessage = event.message as TextEventMessage;
-    const userId =
-      event.source.type === 'user' ? event.source.userId : undefined;
+    const userId = event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
     const friend = await ensureFriendFromWebhookUser(db, lineClient, userId, lineAccountId);
@@ -927,9 +963,7 @@ async function handleEvent(
 
     const incomingText = textMessage.text;
     const now = jstNow();
-    const logId = await createBroadcastRetryKey(
-      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
-    );
+    const logId = await createBroadcastRetryKey('webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId);
 
     // 受信メッセージをログに記録
     await db
@@ -959,11 +993,15 @@ async function handleEvent(
       let confirmationReplyPending = false;
       let confirmationReplyAttempted = false;
       try {
-        const friendRecord = await db.prepare('SELECT user_id FROM friends WHERE id = ?').bind(friend.id).first<{ user_id: string | null }>();
+        const friendRecord = await db
+          .prepare('SELECT user_id FROM friends WHERE id = ?')
+          .bind(friend.id)
+          .first<{ user_id: string | null }>();
         if (friendRecord?.user_id) {
           // Find the same user on other accounts
-          const otherFriends = await db.prepare(
-            `SELECT f.id AS friend_id, f.provider_line_user_id AS line_user_id,
+          const otherFriends = await db
+            .prepare(
+              `SELECT f.id AS friend_id, f.provider_line_user_id AS line_user_id,
                     f.line_account_id, mapping.tenant_id
                FROM friends AS f
                INNER JOIN line_accounts AS account
@@ -976,7 +1014,8 @@ async function handleEvent(
                 AND f.line_account_id != ?
                 AND f.is_following = 1
                 AND mapping.tenant_id = ?`,
-          ).bind(friendRecord.user_id, lineAccountId, tenantId)
+            )
+            .bind(friendRecord.user_id, lineAccountId, tenantId)
             .all<{
               friend_id: string;
               line_user_id: string;
@@ -1004,22 +1043,84 @@ async function handleEvent(
               webhookEventId,
             );
             const crossAccountContent = JSON.stringify({
-              type: 'bubble', size: 'giga',
-              header: { type: 'box', layout: 'vertical', paddingAll: '20px', backgroundColor: '#fffbeb',
-                contents: [{ type: 'text', text: `${friend.display_name || ''}さんへ`, size: 'lg', weight: 'bold', color: '#1e293b' }],
-              },
-              body: { type: 'box', layout: 'vertical', paddingAll: '20px',
+              type: 'bubble',
+              size: 'giga',
+              header: {
+                type: 'box',
+                layout: 'vertical',
+                paddingAll: '20px',
+                backgroundColor: '#fffbeb',
                 contents: [
-                  { type: 'text', text: '別アカウントからのアクションを検知しました。', size: 'sm', color: '#06C755', weight: 'bold', wrap: true },
-                  { type: 'text', text: 'アカウント連携が正常に動作しています。体験ありがとうございました。', size: 'sm', color: '#1e293b', wrap: true, margin: 'md' },
-                  { type: 'separator', margin: 'lg' },
-                  { type: 'text', text: 'ステップ配信・フォーム即返信・アカウント連携・リッチメニュー・自動返信 — 全て無料、全てOSS。', size: 'xs', color: '#64748b', wrap: true, margin: 'lg' },
+                  {
+                    type: 'text',
+                    text: `${friend.display_name || ''}さんへ`,
+                    size: 'lg',
+                    weight: 'bold',
+                    color: '#1e293b',
+                  },
                 ],
               },
-              footer: { type: 'box', layout: 'vertical', paddingAll: '16px',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                paddingAll: '20px',
                 contents: [
-                  { type: 'button', action: { type: 'message', label: '導入について相談する', text: '導入支援を希望します' }, style: 'primary', color: '#06C755' },
-                  ...(liffUrl ? [{ type: 'button', action: { type: 'uri', label: 'フィードバックを送る', uri: `${liffUrl}?page=form` }, style: 'secondary', margin: 'sm' }] : []),
+                  {
+                    type: 'text',
+                    text: '別アカウントからのアクションを検知しました。',
+                    size: 'sm',
+                    color: '#06C755',
+                    weight: 'bold',
+                    wrap: true,
+                  },
+                  {
+                    type: 'text',
+                    text: 'アカウント連携が正常に動作しています。体験ありがとうございました。',
+                    size: 'sm',
+                    color: '#1e293b',
+                    wrap: true,
+                    margin: 'md',
+                  },
+                  { type: 'separator', margin: 'lg' },
+                  {
+                    type: 'text',
+                    text: 'ステップ配信・フォーム即返信・アカウント連携・リッチメニュー・自動返信 — 全て無料、全てOSS。',
+                    size: 'xs',
+                    color: '#64748b',
+                    wrap: true,
+                    margin: 'lg',
+                  },
+                ],
+              },
+              footer: {
+                type: 'box',
+                layout: 'vertical',
+                paddingAll: '16px',
+                contents: [
+                  {
+                    type: 'button',
+                    action: {
+                      type: 'message',
+                      label: '導入について相談する',
+                      text: '導入支援を希望します',
+                    },
+                    style: 'primary',
+                    color: '#06C755',
+                  },
+                  ...(liffUrl
+                    ? [
+                        {
+                          type: 'button',
+                          action: {
+                            type: 'uri',
+                            label: 'フィードバックを送る',
+                            uri: `${liffUrl}?page=form`,
+                          },
+                          style: 'secondary',
+                          margin: 'sm',
+                        },
+                      ]
+                    : []),
                 ],
               },
             });
@@ -1049,10 +1150,27 @@ async function handleEvent(
           // Reply on Account ② confirming
           const confirmationContent = JSON.stringify({
             type: 'bubble',
-            body: { type: 'box', layout: 'vertical', paddingAll: '20px',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              paddingAll: '20px',
               contents: [
-                { type: 'text', text: 'Account ① にメッセージを送りました', size: 'sm', color: '#06C755', weight: 'bold', align: 'center' },
-                { type: 'text', text: 'Account ① のトーク画面を確認してください', size: 'xs', color: '#64748b', align: 'center', margin: 'md' },
+                {
+                  type: 'text',
+                  text: 'Account ① にメッセージを送りました',
+                  size: 'sm',
+                  color: '#06C755',
+                  weight: 'bold',
+                  align: 'center',
+                },
+                {
+                  type: 'text',
+                  text: 'Account ① のトーク画面を確認してください',
+                  size: 'xs',
+                  color: '#64748b',
+                  align: 'center',
+                  margin: 'md',
+                },
               ],
             },
           });
@@ -1108,13 +1226,7 @@ async function handleEvent(
         workerUrl,
         liffUrl,
         replyMessage: workerUrl
-          ? (token, messages) => replyViaHarnessProxy(
-              workerUrl,
-              lineAccessToken,
-              token,
-              messages,
-              proxyDispatch,
-            )
+          ? (token, messages) => replyViaHarnessProxy(workerUrl, lineAccessToken, token, messages, proxyDispatch)
           : undefined,
       },
     );
@@ -1126,11 +1238,19 @@ async function handleEvent(
 
     // イベントバス発火: message_received
     // Pass replyToken only when auto_reply didn't actually consume it
-    await fireEvent(db, 'message_received', {
-      friendId: friend.id,
-      eventData: { text: incomingText, matched },
-      replyToken: replyTokenConsumed ? undefined : event.replyToken,
-    }, lineAccessToken, lineAccountId, tenantId, webhookEventId);
+    await fireEvent(
+      db,
+      'message_received',
+      {
+        friendId: friend.id,
+        eventData: { text: incomingText, matched },
+        replyToken: replyTokenConsumed ? undefined : event.replyToken,
+      },
+      lineAccessToken,
+      lineAccountId,
+      tenantId,
+      webhookEventId,
+    );
 
     return;
   }

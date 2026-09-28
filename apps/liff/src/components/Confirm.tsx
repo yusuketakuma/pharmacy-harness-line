@@ -48,7 +48,9 @@ export default function Confirm({
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="text-sm text-gray-500">← 戻る</button>
+      <button onClick={onBack} className="text-sm text-gray-500">
+        ← 戻る
+      </button>
       <h1 className="text-xl font-bold">内容のご確認</h1>
       <dl className="space-y-2 border rounded p-4 text-sm">
         <Row label="メニュー" value={menu.name} />

@@ -45,7 +45,10 @@ describe('buildRewardMessage', () => {
       tenant_id: null,
       name: 'reward flex',
       message_type: 'flex',
-      message_content: JSON.stringify({ type: 'bubble', body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: 'やった！' }] } }),
+      message_content: JSON.stringify({
+        type: 'bubble',
+        body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: 'やった！' }] },
+      }),
       created_at: '2026-04-07 00:00:00',
       updated_at: '2026-04-07 00:00:00',
     };

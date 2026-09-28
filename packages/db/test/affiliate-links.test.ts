@@ -180,11 +180,7 @@ describe('affiliate-links CRUD', () => {
       return callCount === 1 ? conflictSlug : `BBBBBB`.slice(0, len);
     };
 
-    const link = await createAffiliateLink(
-      db,
-      { affiliateId: AFF_ID },
-      deterministicGen,
-    );
+    const link = await createAffiliateLink(db, { affiliateId: AFF_ID }, deterministicGen);
     expect(callCount).toBe(2);
     expect(link.ref_code).toBe('BBBBBB');
   });
@@ -212,11 +208,7 @@ describe('affiliate-links CRUD', () => {
       return 'XXXXXXXX';
     };
 
-    const link = await createAffiliateLink(
-      db,
-      { affiliateId: AFF_ID },
-      deterministicGen,
-    );
+    const link = await createAffiliateLink(db, { affiliateId: AFF_ID }, deterministicGen);
     // callCount should be 4 (3 × 6-char failures + 1 × 8-char success)
     expect(callCount).toBe(4);
     expect(link.ref_code).toMatch(/^[0-9A-Za-z]{8}$/);
@@ -295,9 +287,7 @@ describe('affiliate-links CRUD', () => {
   test('getAffiliateByFriendId returns affiliate when friend_id is set', async () => {
     insertFriend(sqlite, 'friend-002', 'U0000000000000000000000000000098');
     // Set friend_id on the affiliate
-    sqlite
-      .prepare(`UPDATE affiliates SET friend_id = ? WHERE id = ?`)
-      .run('friend-002', AFF_ID);
+    sqlite.prepare(`UPDATE affiliates SET friend_id = ? WHERE id = ?`).run('friend-002', AFF_ID);
 
     const aff = await getAffiliateByFriendId(db, 'friend-002');
     expect(aff).not.toBeNull();

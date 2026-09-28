@@ -76,7 +76,8 @@ describe('createBroadcast', () => {
   });
 
   test('recovers a stale tracked standard broadcast after partial progress', async () => {
-    sqlite.prepare(`INSERT INTO broadcasts
+    sqlite
+      .prepare(`INSERT INTO broadcasts
       (id, title, message_type, message_content, target_type, status,
        total_count, success_count, line_account_id, batch_offset,
        segment_conditions, batch_lock_at, track_links)
@@ -86,13 +87,14 @@ describe('createBroadcast', () => {
 
     await recoverStalledBroadcasts(db);
 
-    expect(sqlite.prepare(
-      'SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?',
-    ).get('broadcast-stalled')).toEqual({ batch_offset: 0, batch_lock_at: null });
+    expect(
+      sqlite.prepare('SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?').get('broadcast-stalled'),
+    ).toEqual({ batch_offset: 0, batch_lock_at: null });
   });
 
   test('recovers a stale provider-wide all broadcast', async () => {
-    sqlite.prepare(`INSERT INTO broadcasts
+    sqlite
+      .prepare(`INSERT INTO broadcasts
       (id, title, message_type, message_content, target_type, status,
        sent_at, total_count, success_count, line_account_id, batch_offset,
        segment_conditions, account_ids, batch_lock_at, track_links)
@@ -103,8 +105,10 @@ describe('createBroadcast', () => {
 
     await recoverStalledBroadcasts(db);
 
-    expect(sqlite.prepare(
-      'SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?',
-    ).get('broadcast-provider-wide-stalled')).toEqual({ batch_offset: 0, batch_lock_at: null });
+    expect(
+      sqlite
+        .prepare('SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?')
+        .get('broadcast-provider-wide-stalled'),
+    ).toEqual({ batch_offset: 0, batch_lock_at: null });
   });
 });

@@ -7,9 +7,9 @@ const LOOKAHEAD_DAYS = 8;
 
 export interface ScheduleRule {
   type: 'daily' | 'weekly' | 'once';
-  time?: string;   // "HH:MM" (daily / weekly, JST)
+  time?: string; // "HH:MM" (daily / weekly, JST)
   days?: number[]; // 0=日 .. 6=土 (weekly)
-  at?: string;     // ISO8601 (once)
+  at?: string; // ISO8601 (once)
 }
 
 export interface SessionState {
@@ -41,11 +41,7 @@ export function parseScheduleRules(json: string): ScheduleRule[] {
     if (!r || typeof r !== 'object') continue;
     if (r.type === 'once' && typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at))) {
       rules.push({ type: 'once', at: r.at });
-    } else if (
-      (r.type === 'daily' || r.type === 'weekly') &&
-      typeof r.time === 'string' &&
-      parseTime(r.time)
-    ) {
+    } else if ((r.type === 'daily' || r.type === 'weekly') && typeof r.time === 'string' && parseTime(r.time)) {
       if (r.type === 'weekly' && !Array.isArray(r.days)) continue;
       rules.push({
         type: r.type,
@@ -58,11 +54,7 @@ export function parseScheduleRules(json: string): ScheduleRule[] {
 }
 
 /** now の前後 (過去 durationSeconds 〜 未来 8 日) の候補開始時刻を列挙 */
-function candidateStarts(
-  rules: ScheduleRule[],
-  now: number,
-  durationSeconds: number,
-): number[] {
+function candidateStarts(rules: ScheduleRule[], now: number, durationSeconds: number): number[] {
   const starts = new Set<number>();
   for (const rule of rules) {
     if (rule.type === 'once') {
@@ -84,11 +76,7 @@ function candidateStarts(
   return [...starts].sort((a, b) => a - b);
 }
 
-export function resolveSession(
-  rules: ScheduleRule[],
-  durationSeconds: number,
-  nowEpochSeconds: number,
-): SessionState {
+export function resolveSession(rules: ScheduleRule[], durationSeconds: number, nowEpochSeconds: number): SessionState {
   const starts = candidateStarts(rules, nowEpochSeconds, durationSeconds);
   let liveStart: number | null = null;
   let next: number | null = null;

@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/privacy-policy/PrivacyPolicyAdminPage'
+export { default } from '@/custom/pharmacy/privacy-policy/PrivacyPolicyAdminPage';

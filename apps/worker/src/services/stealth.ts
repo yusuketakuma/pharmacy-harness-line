@@ -50,10 +50,7 @@ export function addMessageVariation(text: string, index: number): string {
  * @param batchIndex 現在のバッチインデックス（0始まり）
  * @returns このバッチ送信前の遅延（ミリ秒）
  */
-export function calculateStaggerDelay(
-  totalMessages: number,
-  batchIndex: number,
-): number {
+export function calculateStaggerDelay(totalMessages: number, batchIndex: number): number {
   // Cloudflare Worker実行時間制限内に収めるための上限（20秒）
   const MAX_TOTAL_DELAY_MS = 20_000;
   const totalBatches = Math.ceil(totalMessages / 500);

@@ -47,10 +47,7 @@ export function isTextAssetPath(path: string): boolean {
  * `workerUrl` is normalized to a bare origin (no trailing slash) because
  * the admin client concatenates paths as `${API_URL}${path}`.
  */
-export function materializeAdminFiles(
-  files: Map<string, Buffer>,
-  workerUrl: string,
-): Map<string, Buffer> {
+export function materializeAdminFiles(files: Map<string, Buffer>, workerUrl: string): Map<string, Buffer> {
   let end = workerUrl.length;
   while (end > 0 && workerUrl[end - 1] === '/') end -= 1;
   const origin = workerUrl.slice(0, end);
@@ -109,9 +106,7 @@ export function findResidualPlaceholders(files: Map<string, Buffer>): string[] {
 export function isBenignSchemaErrorText(text: string): boolean {
   const t = text.toLowerCase();
   return (
-    t.includes('duplicate column') ||
-    t.includes('already exists') ||
-    (t.includes('table') && t.includes('already'))
+    t.includes('duplicate column') || t.includes('already exists') || (t.includes('table') && t.includes('already'))
   );
 }
 

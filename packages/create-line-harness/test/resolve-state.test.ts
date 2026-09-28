@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  findReleaseForAdminRepair,
-  resolveState,
-} from '../src/commands/update.js';
+import { findReleaseForAdminRepair, resolveState } from '../src/commands/update.js';
 import type { ReleaseEntry } from '@line-harness/update-engine';
 
 const WORKER_URL = 'https://line-harness.acc.workers.dev';
@@ -157,9 +154,7 @@ describe('normalizeInstallBindings', () => {
       ...OPTS,
       workerPublicUrl: 'https://line-harness.new-sub.workers.dev',
     });
-    expect(out.find((b) => b.name === 'WORKER_PUBLIC_URL')?.text).toBe(
-      'https://line-harness.new-sub.workers.dev',
-    );
+    expect(out.find((b) => b.name === 'WORKER_PUBLIC_URL')?.text).toBe('https://line-harness.new-sub.workers.dev');
   });
 
   it('does not mutate the input array', () => {

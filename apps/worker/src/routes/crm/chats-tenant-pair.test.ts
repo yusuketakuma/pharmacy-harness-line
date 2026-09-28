@@ -61,11 +61,15 @@ describe('POST /api/chats tenant pair scope', () => {
     });
     const { app, env } = mount(db);
 
-    const response = await app.request('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendId: 'friend-a', lineAccountId: 'account-b' }),
-    }, env);
+    const response = await app.request(
+      '/api/chats',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: 'friend-a', lineAccountId: 'account-b' }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(dbMocks.createChat).not.toHaveBeenCalled();

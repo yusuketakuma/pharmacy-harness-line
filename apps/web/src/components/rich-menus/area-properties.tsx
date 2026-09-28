@@ -1,38 +1,30 @@
-'use client'
+'use client';
 
-import type { Area } from './canvas-editor'
+import type { Area } from './canvas-editor';
 
-type PageOption = { id: string; name: string }
+type PageOption = { id: string; name: string };
 
 type Props = {
-  area: Area
-  pages: PageOption[]
-  onUpdate: (patch: Partial<Area>) => void
-  onDelete: () => void
-}
+  area: Area;
+  pages: PageOption[];
+  onUpdate: (patch: Partial<Area>) => void;
+  onDelete: () => void;
+};
 
 function defaultActionData(type: Area['actionType']): Record<string, unknown> {
   switch (type) {
     case 'uri':
-      return { uri: '' }
+      return { uri: '' };
     case 'message':
-      return { text: '' }
+      return { text: '' };
     case 'postback':
-      return { data: '', displayText: '' }
+      return { data: '', displayText: '' };
     case 'richmenuswitch':
-      return { targetPageId: '' }
+      return { targetPageId: '' };
   }
 }
 
-function NumField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-}) {
+function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <label className="block">
       <span className="text-xs text-gray-500">{label}</span>
@@ -43,20 +35,17 @@ function NumField({
         className="mt-0.5 block w-full border border-gray-300 rounded px-2 py-1 text-sm"
       />
     </label>
-  )
+  );
 }
 
 export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
-  const data = (area.actionData ?? {}) as Record<string, unknown>
+  const data = (area.actionData ?? {}) as Record<string, unknown>;
 
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-700">選択中エリア</h3>
-        <button
-          onClick={onDelete}
-          className="text-xs text-red-600 hover:underline"
-        >
+        <button onClick={onDelete} className="text-xs text-red-600 hover:underline">
           削除
         </button>
       </div>
@@ -64,16 +53,8 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
       <div className="grid grid-cols-2 gap-2">
         <NumField label="x" value={area.boundsX} onChange={(v) => onUpdate({ boundsX: v })} />
         <NumField label="y" value={area.boundsY} onChange={(v) => onUpdate({ boundsY: v })} />
-        <NumField
-          label="幅"
-          value={area.boundsWidth}
-          onChange={(v) => onUpdate({ boundsWidth: v })}
-        />
-        <NumField
-          label="高さ"
-          value={area.boundsHeight}
-          onChange={(v) => onUpdate({ boundsHeight: v })}
-        />
+        <NumField label="幅" value={area.boundsWidth} onChange={(v) => onUpdate({ boundsWidth: v })} />
+        <NumField label="高さ" value={area.boundsHeight} onChange={(v) => onUpdate({ boundsHeight: v })} />
       </div>
 
       <label className="block">
@@ -81,8 +62,8 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
         <select
           value={area.actionType}
           onChange={(e) => {
-            const next = e.target.value as Area['actionType']
-            onUpdate({ actionType: next, actionData: defaultActionData(next) })
+            const next = e.target.value as Area['actionType'];
+            onUpdate({ actionType: next, actionData: defaultActionData(next) });
           }}
           className="mt-0.5 block w-full border border-gray-300 rounded px-2 py-1 text-sm"
         >
@@ -103,9 +84,7 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
             placeholder="https://..."
             className="mt-0.5 block w-full border border-gray-300 rounded px-2 py-1 text-sm"
           />
-          <p className="mt-1 text-[11px] text-gray-500">
-            LINE 配信用 URL は tracked link (短縮 URL) 経由を推奨。
-          </p>
+          <p className="mt-1 text-[11px] text-gray-500">LINE 配信用 URL は tracked link (短縮 URL) 経由を推奨。</p>
         </label>
       )}
 
@@ -134,9 +113,7 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
             <span className="text-xs text-gray-500">displayText (任意)</span>
             <input
               value={(data.displayText as string) ?? ''}
-              onChange={(e) =>
-                onUpdate({ actionData: { ...data, displayText: e.target.value } })
-              }
+              onChange={(e) => onUpdate({ actionData: { ...data, displayText: e.target.value } })}
               className="mt-0.5 block w-full border border-gray-300 rounded px-2 py-1 text-sm"
             />
           </label>
@@ -148,9 +125,7 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
           <span className="text-xs text-gray-500">遷移先ページ</span>
           <select
             value={(data.targetPageId as string) ?? ''}
-            onChange={(e) =>
-              onUpdate({ actionData: { ...data, targetPageId: e.target.value } })
-            }
+            onChange={(e) => onUpdate({ actionData: { ...data, targetPageId: e.target.value } })}
             className="mt-0.5 block w-full border border-gray-300 rounded px-2 py-1 text-sm"
           >
             <option value="">選択...</option>
@@ -168,5 +143,5 @@ export function AreaProperties({ area, pages, onUpdate, onDelete }: Props) {
         </label>
       )}
     </div>
-  )
+  );
 }

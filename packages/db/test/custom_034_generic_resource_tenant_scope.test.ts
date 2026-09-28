@@ -16,16 +16,30 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function d1From(sqlite: Database.Database): D1Database {
-  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({ success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {} }) as D1Result<T>,
-    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
-    run: async () => {
-      const info = sqlite.prepare(sql).run(...values);
-      return { success: true, meta: { changes: info.changes }, results: [] } as unknown as D1Result;
-    },
-  }) as unknown as D1PreparedStatement;
+  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement =>
+    ({
+      bind: (...next: unknown[]) => statement(sql, next),
+      first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
+      all: async <T>() =>
+        ({
+          success: true,
+          results: sqlite.prepare(sql).all(...values) as T[],
+          meta: {},
+        }) as D1Result<T>,
+      raw: async <T>() =>
+        sqlite
+          .prepare(sql)
+          .raw()
+          .all(...values) as T[],
+      run: async () => {
+        const info = sqlite.prepare(sql).run(...values);
+        return {
+          success: true,
+          meta: { changes: info.changes },
+          results: [],
+        } as unknown as D1Result;
+      },
+    }) as unknown as D1PreparedStatement;
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 }
 
@@ -38,10 +52,12 @@ describe('tenant-scoped generic resources', () => {
     sqlite.pragma('foreign_keys = ON');
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     const now = '2026-08-19T00:00:00.000Z';
-    sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+    sqlite
+      .prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
       VALUES (?, ?, ?, 'active', ?, ?)`)
       .run('tenant-a', 'a', 'A', now, now);
-    sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+    sqlite
+      .prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
       VALUES (?, ?, ?, 'active', ?, ?)`)
       .run('tenant-b', 'b', 'B', now, now);
     db = d1From(sqlite);
@@ -52,20 +68,31 @@ describe('tenant-scoped generic resources', () => {
     await createTag(db, { name: 'other', tenantId: 'tenant-b' });
 
     expect((await getTags(db, 'tenant-a')).map((tag) => tag.name)).toEqual(['own']);
-    await expect(updateTagMileageSettings(db, own.id, {
-      rewardMiles: 10,
-      referralRewardMiles: 0,
-      multiplierBps: null,
-      multiplierPriority: 0,
-    }, 'tenant-b')).resolves.toBeNull();
+    await expect(
+      updateTagMileageSettings(
+        db,
+        own.id,
+        {
+          rewardMiles: 10,
+          referralRewardMiles: 0,
+          multiplierBps: null,
+          multiplierPriority: 0,
+        },
+        'tenant-b',
+      ),
+    ).resolves.toBeNull();
   });
 
   it('lists and mutates webhook settings only inside the authenticated tenant', async () => {
     const own = await createIncomingWebhook(db, {
-      name: 'own', secret: 'a'.repeat(32), tenantId: 'tenant-a',
+      name: 'own',
+      secret: 'a'.repeat(32),
+      tenantId: 'tenant-a',
     });
     await createIncomingWebhook(db, {
-      name: 'other', secret: 'b'.repeat(32), tenantId: 'tenant-b',
+      name: 'other',
+      secret: 'b'.repeat(32),
+      tenantId: 'tenant-b',
     });
 
     expect((await getIncomingWebhooks(db, 'tenant-a')).map((row) => row.name)).toEqual(['own']);
@@ -78,18 +105,24 @@ describe('tenant-scoped generic resources', () => {
 
   it('selects outgoing event subscribers only inside the event tenant', async () => {
     await createOutgoingWebhook(db, {
-      name: 'own', url: 'https://a.example/hook', eventTypes: ['event'], tenantId: 'tenant-a',
+      name: 'own',
+      url: 'https://a.example/hook',
+      eventTypes: ['event'],
+      tenantId: 'tenant-a',
     });
     await createOutgoingWebhook(db, {
-      name: 'other', url: 'https://b.example/hook', eventTypes: ['event'], tenantId: 'tenant-b',
+      name: 'other',
+      url: 'https://b.example/hook',
+      eventTypes: ['event'],
+      tenantId: 'tenant-b',
     });
     await createOutgoingWebhook(db, {
-      name: 'legacy-global', url: 'https://global.example/hook', eventTypes: ['event'],
+      name: 'legacy-global',
+      url: 'https://global.example/hook',
+      eventTypes: ['event'],
     });
 
-    expect((await getActiveOutgoingWebhooksByEvent(db, 'event', 'tenant-a')).map((row) => row.name))
-      .toEqual(['own']);
-    expect((await getActiveOutgoingWebhooksByEvent(db, 'event')).map((row) => row.name))
-      .toEqual(['legacy-global']);
+    expect((await getActiveOutgoingWebhooksByEvent(db, 'event', 'tenant-a')).map((row) => row.name)).toEqual(['own']);
+    expect((await getActiveOutgoingWebhooksByEvent(db, 'event')).map((row) => row.name)).toEqual(['legacy-global']);
   });
 });

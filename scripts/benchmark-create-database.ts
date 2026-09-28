@@ -1,8 +1,11 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createDatabase } from '../packages/create-line-harness/src/steps/database.ts';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  createDatabaseForBenchmark,
+  type DatabaseOwnershipReceipt,
+} from '../packages/create-line-harness/src/steps/database.ts';
 import { setAccountId, wrangler } from '../packages/create-line-harness/src/lib/wrangler.ts';
 
 interface CliOptions {
@@ -57,11 +60,7 @@ function parseArgs(): CliOptions {
   return { accountId, mode, repoSource, prefix };
 }
 
-function prepareRepoVariant(
-  workspaceRoot: string,
-  variantRoot: string,
-  mode: 'legacy' | 'bootstrap',
-): string {
+function prepareRepoVariant(workspaceRoot: string, variantRoot: string, mode: 'legacy' | 'bootstrap'): string {
   const sourceDbDir = join(workspaceRoot, 'packages', 'db');
   const targetRepoDir = join(variantRoot, mode);
   const targetDbDir = join(targetRepoDir, 'packages', 'db');
@@ -81,44 +80,69 @@ function prepareRepoVariant(
   return targetRepoDir;
 }
 
-async function cleanupDatabase(databaseName: string): Promise<void> {
+export async function cleanupDatabase(receipt: DatabaseOwnershipReceipt | null): Promise<void> {
+  if (!receipt) return;
+  const listOutput = await wrangler(['d1', 'list', '--json']);
+  let databases: Array<{ name?: string; uuid?: string }>;
   try {
-    await wrangler(['d1', 'delete', databaseName, '--skip-confirmation']);
+    const parsed: unknown = JSON.parse(listOutput);
+    if (!Array.isArray(parsed)) throw new Error('unexpected D1 list response');
+    databases = parsed as Array<{ name?: string; uuid?: string }>;
   } catch (error) {
-    console.error(
-      `[cleanup] failed to delete ${databaseName}: ${
+    throw new Error(
+      `[cleanup] ownership check failed for ${receipt.databaseName}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
+  const current = databases.find((database) => database.name === receipt.databaseName);
+  if (current?.uuid !== receipt.databaseId) {
+    throw new Error(`[cleanup] ownership changed for ${receipt.databaseName}; refusing delete`);
+  }
+  await wrangler(['d1', 'delete', receipt.databaseName, '--skip-confirmation']);
 }
 
-async function runCase(
+export async function runCase(
   label: 'legacy' | 'bootstrap',
   repoDir: string,
   databaseName: string,
 ): Promise<BenchmarkResult> {
   const startedAt = Date.now();
+  let ownership: DatabaseOwnershipReceipt | null = null;
+  let result: BenchmarkResult | undefined;
+  let operationError: unknown;
   try {
-    await createDatabase(repoDir, databaseName);
-    return {
+    await createDatabaseForBenchmark(repoDir, databaseName, (receipt) => {
+      ownership = receipt;
+    });
+    result = {
       label,
       databaseName,
       elapsedMs: Date.now() - startedAt,
     };
-  } finally {
-    await cleanupDatabase(databaseName);
+  } catch (error) {
+    operationError = error;
   }
+
+  let cleanupError: unknown;
+  try {
+    await cleanupDatabase(ownership);
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (operationError && cleanupError) {
+    throw new AggregateError([operationError, cleanupError], 'benchmark database operation and cleanup both failed');
+  }
+  if (operationError) throw operationError;
+  if (cleanupError) throw cleanupError;
+  return result!;
 }
 
 async function main(): Promise<void> {
   const options = parseArgs();
   setAccountId(options.accountId);
 
-  const workspace = join(
-    tmpdir(),
-    `line-harness-db-benchmark-${Date.now().toString(36)}`,
-  );
+  const workspace = join(tmpdir(), `line-harness-db-benchmark-${Date.now().toString(36)}`);
   mkdirSync(workspace, { recursive: true });
 
   const legacyRepo = prepareRepoVariant(options.repoSource, workspace, 'legacy');
@@ -138,8 +162,7 @@ async function main(): Promise<void> {
 
     const legacy = results.legacy ?? null;
     const bootstrap = results.bootstrap ?? null;
-    const savedMs =
-      legacy && bootstrap ? legacy.elapsedMs - bootstrap.elapsedMs : null;
+    const savedMs = legacy && bootstrap ? legacy.elapsedMs - bootstrap.elapsedMs : null;
     const speedup =
       legacy && bootstrap && legacy.elapsedMs > 0 && bootstrap.elapsedMs > 0
         ? Number((legacy.elapsedMs / bootstrap.elapsedMs).toFixed(2))
@@ -151,7 +174,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

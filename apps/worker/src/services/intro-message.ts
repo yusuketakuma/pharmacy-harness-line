@@ -4,9 +4,7 @@ import type { MessageTemplate } from '@line-crm/db';
  * LINE Messaging API message shape we send via push.
  * Subset to keep this module decoupled from the SDK.
  */
-export type IntroMessage =
-  | { type: 'text'; text: string }
-  | { type: 'flex'; altText: string; contents: unknown };
+export type IntroMessage = { type: 'text'; text: string } | { type: 'flex'; altText: string; contents: unknown };
 
 /**
  * Default Flex sent when no intro template is configured.
@@ -80,10 +78,7 @@ export function DEFAULT_FORM_LINK_FLEX(formUrl: string): IntroMessage {
  * placeholders work in any text/uri/string field of a Flex template
  * without needing tree traversal.
  */
-export function buildIntroMessage(
-  template: MessageTemplate | null,
-  formUrl: string,
-): IntroMessage {
+export function buildIntroMessage(template: MessageTemplate | null, formUrl: string): IntroMessage {
   if (!template) return DEFAULT_FORM_LINK_FLEX(formUrl);
 
   // Defensive fallback: if the template never references {formUrl}, sending it

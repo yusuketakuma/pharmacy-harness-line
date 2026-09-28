@@ -7,7 +7,10 @@ import {
   pausePatientContinuity,
 } from './repository.js';
 
-function fakeDb(firstRows: unknown[] = [], allRows: unknown[] = []): {
+function fakeDb(
+  firstRows: unknown[] = [],
+  allRows: unknown[] = [],
+): {
   db: D1Database;
   calls: Array<{ sql: string; values: unknown[]; operation: string }>;
 } {
@@ -39,7 +42,8 @@ function fakeDb(firstRows: unknown[] = [], allRows: unknown[] = []): {
 }
 
 const source = {
-  patient_id: 'patient-1', owner_friend_id: 'friend-1',
+  patient_id: 'patient-1',
+  owner_friend_id: 'friend-1',
   consent_at: '2026-08-17T00:00:00.000Z',
 };
 
@@ -47,8 +51,11 @@ describe('continuity repository', () => {
   it('opens one account-scoped follow-up record after a closed submission', async () => {
     const obligation = { id: 'obligation-1', status: 'active', patient_id: 'patient-1' };
     const { db, calls } = fakeDb([source, obligation]);
-    await expect(openContinuityObligation(db, 'account-1', 'submission-1', 'staff-1', new Date('2026-08-17T00:00:00Z'))).resolves.toMatchObject({
-      id: 'obligation-1', status: 'active',
+    await expect(
+      openContinuityObligation(db, 'account-1', 'submission-1', 'staff-1', new Date('2026-08-17T00:00:00Z')),
+    ).resolves.toMatchObject({
+      id: 'obligation-1',
+      status: 'active',
     });
     expect(calls[0].sql).toContain('pharmacy_prescription_patients');
     expect(calls.some((call) => call.sql.includes('INSERT INTO pharmacy_continuity_obligations'))).toBe(true);
@@ -60,16 +67,29 @@ describe('continuity repository', () => {
       { patient_id: 'patient-1', owner_friend_id: 'friend-1' },
       { id: 'obligation-1', status: 'active', patient_id: 'patient-1' },
     ]);
-    await expect(linkContinuitySubmission(db, 'account-1', 'submission-2', 'friend-1', 'system')).resolves.toMatchObject({
-      id: 'obligation-1', status: 'linked',
+    await expect(
+      linkContinuitySubmission(db, 'account-1', 'submission-2', 'friend-1', 'system'),
+    ).resolves.toMatchObject({
+      id: 'obligation-1',
+      status: 'linked',
     });
     expect(calls.some((call) => call.sql.includes("SET status = 'linked'"))).toBe(true);
   });
 
   it('fulfills a linked record and opens the next cycle once the candidate closes', async () => {
     const { db, calls } = fakeDb([
-      { id: 'obligation-1', status: 'linked', patient_id: 'patient-1', owner_friend_id: 'friend-1', source_submission_id: 'submission-1' },
-      { patient_id: 'patient-1', owner_friend_id: 'friend-1', consent_at: '2026-08-17T00:00:00.000Z' },
+      {
+        id: 'obligation-1',
+        status: 'linked',
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        source_submission_id: 'submission-1',
+      },
+      {
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        consent_at: '2026-08-17T00:00:00.000Z',
+      },
       { id: 'obligation-2', status: 'active', patient_id: 'patient-1' },
     ]);
     await completeContinuityAfterClose(db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
@@ -79,12 +99,24 @@ describe('continuity repository', () => {
 
   it('makes the close side effect replay-safe for the fulfilled event', async () => {
     const { db, calls } = fakeDb([
-      { id: 'obligation-1', status: 'linked', patient_id: 'patient-1', owner_friend_id: 'friend-1', source_submission_id: 'submission-1' },
-      { patient_id: 'patient-1', owner_friend_id: 'friend-1', consent_at: '2026-08-17T00:00:00.000Z' },
+      {
+        id: 'obligation-1',
+        status: 'linked',
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        source_submission_id: 'submission-1',
+      },
+      {
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        consent_at: '2026-08-17T00:00:00.000Z',
+      },
       { id: 'obligation-2', status: 'active', patient_id: 'patient-1' },
     ]);
     await completeContinuityAfterClose(db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
-    const fulfilledEvent = calls.find((call) => call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes("'fulfilled'"));
+    const fulfilledEvent = calls.find(
+      (call) => call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes("'fulfilled'"),
+    );
     expect(fulfilledEvent?.sql).toContain('NOT EXISTS');
   });
 
@@ -96,19 +128,40 @@ describe('continuity repository', () => {
     await linkContinuitySubmission(link.db, 'account-1', 'submission-2', 'friend-1', 'system');
 
     const close = fakeDb([
-      { id: 'obligation-1', status: 'linked', patient_id: 'patient-1', owner_friend_id: 'friend-1', source_submission_id: 'submission-1' },
-      { patient_id: 'patient-1', owner_friend_id: 'friend-1', consent_at: '2026-08-17T00:00:00.000Z' },
+      {
+        id: 'obligation-1',
+        status: 'linked',
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        source_submission_id: 'submission-1',
+      },
+      {
+        patient_id: 'patient-1',
+        owner_friend_id: 'friend-1',
+        consent_at: '2026-08-17T00:00:00.000Z',
+      },
       { id: 'obligation-2', status: 'active', patient_id: 'patient-1' },
     ]);
-    await completeContinuityAfterClose(close.db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
+    await completeContinuityAfterClose(
+      close.db,
+      'account-1',
+      'submission-2',
+      'staff-1',
+      new Date('2026-08-17T00:00:00Z'),
+    );
 
     const pause = fakeDb();
     await pausePatientContinuity(pause.db, 'account-1', 'friend-1', 'obligation-1');
 
-    for (const [fake, status] of [[link, 'linked'], [close, 'fulfilled'], [pause, 'paused']] as const) {
+    for (const [fake, status] of [
+      [link, 'linked'],
+      [close, 'fulfilled'],
+      [pause, 'paused'],
+    ] as const) {
       const transition = fake.calls.find((call) => call.sql.includes(`SET status = '${status}'`));
-      const event = fake.calls.find((call) =>
-        call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes(`'${status}'`));
+      const event = fake.calls.find(
+        (call) => call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes(`'${status}'`),
+      );
       expect(transition?.operation).toBe('batch');
       expect(event?.operation).toBe('batch');
     }

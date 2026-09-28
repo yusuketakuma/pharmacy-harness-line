@@ -92,7 +92,12 @@ function asD1(sqlite: Database.Database): D1Database {
 function insertFriend(
   sqlite: Database.Database,
   id: string,
-  opts: { createdAt: string; userId?: string | null; pictureUrl?: string | null; displayName?: string } = { createdAt: '2026-01-01T00:00:00.000+09:00' },
+  opts: {
+    createdAt: string;
+    userId?: string | null;
+    pictureUrl?: string | null;
+    displayName?: string;
+  } = { createdAt: '2026-01-01T00:00:00.000+09:00' },
 ): void {
   sqlite
     .prepare(
@@ -101,7 +106,10 @@ function insertFriend(
     )
     .run(
       id,
-      `U${id.replace(/[^0-9a-f]/gi, '').padEnd(32, '0').slice(0, 32)}`,
+      `U${id
+        .replace(/[^0-9a-f]/gi, '')
+        .padEnd(32, '0')
+        .slice(0, 32)}`,
       opts.displayName ?? 'Test User',
       opts.pictureUrl ?? null,
       opts.userId ?? null,
@@ -127,7 +135,13 @@ function insertAffiliate(
 
 function insertLink(
   sqlite: Database.Database,
-  opts: { id: string; affiliateId: string; refCode: string; clickCount?: number; offerId?: string | null },
+  opts: {
+    id: string;
+    affiliateId: string;
+    refCode: string;
+    clickCount?: number;
+    offerId?: string | null;
+  },
 ): void {
   sqlite
     .prepare(
@@ -137,10 +151,7 @@ function insertLink(
     .run(opts.id, opts.affiliateId, opts.refCode, opts.clickCount ?? 0, opts.offerId ?? null);
 }
 
-function insertOffer(
-  sqlite: Database.Database,
-  opts: { id: string; name: string; rewardAmount: number },
-): void {
+function insertOffer(sqlite: Database.Database, opts: { id: string; name: string; rewardAmount: number }): void {
   sqlite
     .prepare(
       `INSERT INTO affiliate_offers (id, name, reward_amount, is_active, created_at)
@@ -151,7 +162,13 @@ function insertOffer(
 
 function insertTouch(
   sqlite: Database.Database,
-  opts: { id: string; refCode: string; friendId: string; createdAt: string; sourceUrl?: string | null },
+  opts: {
+    id: string;
+    refCode: string;
+    friendId: string;
+    createdAt: string;
+    sourceUrl?: string | null;
+  },
 ): void {
   sqlite
     .prepare(
@@ -161,10 +178,7 @@ function insertTouch(
     .run(opts.id, opts.refCode, opts.friendId, opts.sourceUrl ?? null, opts.createdAt);
 }
 
-function insertConversionPoint(
-  sqlite: Database.Database,
-  opts: { id: string; name: string; value: number },
-): void {
+function insertConversionPoint(sqlite: Database.Database, opts: { id: string; name: string; value: number }): void {
   sqlite
     .prepare(
       `INSERT INTO conversion_points (id, name, event_type, value, created_at)
@@ -176,8 +190,12 @@ function insertConversionPoint(
 function insertConversion(
   sqlite: Database.Database,
   opts: {
-    id: string; pointId: string; friendId: string; affiliateId: string | null;
-    refCode: string | null; createdAt: string;
+    id: string;
+    pointId: string;
+    friendId: string;
+    affiliateId: string | null;
+    refCode: string | null;
+    createdAt: string;
     approvalStatus?: 'pending' | 'approved' | 'rejected' | null;
   },
 ): void {
@@ -187,14 +205,21 @@ function insertConversion(
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
-      opts.id, opts.pointId, opts.friendId, opts.affiliateId, opts.refCode, opts.createdAt,
+      opts.id,
+      opts.pointId,
+      opts.friendId,
+      opts.affiliateId,
+      opts.refCode,
+      opts.createdAt,
       opts.approvalStatus ?? null,
     );
 }
 
 function insertForm(sqlite: Database.Database, opts: { id: string; name: string }): void {
   sqlite
-    .prepare(`INSERT INTO forms (id, name, created_at, updated_at) VALUES (?, ?, '2024-01-01T00:00:00.000+09:00', '2024-01-01T00:00:00.000+09:00')`)
+    .prepare(
+      `INSERT INTO forms (id, name, created_at, updated_at) VALUES (?, ?, '2024-01-01T00:00:00.000+09:00', '2024-01-01T00:00:00.000+09:00')`,
+    )
     .run(opts.id, opts.name);
 }
 
@@ -236,20 +261,35 @@ describe('journey + affiliate report v2 — canonical scenario', () => {
 
     // friend added between touch A and touch B
     insertFriend(sqlite, 'friend-1', { createdAt: jstDaysAgo(20) });
-    insertTouch(sqlite, { id: 't-a', refCode: 'refA', friendId: 'friend-1', createdAt: jstDaysAgo(25), sourceUrl: 'https://example.test/lp' });
-    insertTouch(sqlite, { id: 't-b', refCode: 'refB', friendId: 'friend-1', createdAt: jstDaysAgo(10) });
+    insertTouch(sqlite, {
+      id: 't-a',
+      refCode: 'refA',
+      friendId: 'friend-1',
+      createdAt: jstDaysAgo(25),
+      sourceUrl: 'https://example.test/lp',
+    });
+    insertTouch(sqlite, {
+      id: 't-b',
+      refCode: 'refB',
+      friendId: 'friend-1',
+      createdAt: jstDaysAgo(10),
+    });
     insertConversion(sqlite, {
-      id: 'cv-1', pointId: 'cp-1', friendId: 'friend-1',
-      affiliateId: 'aff-B', refCode: 'refB', createdAt: jstDaysAgo(5),
+      id: 'cv-1',
+      pointId: 'cp-1',
+      friendId: 'friend-1',
+      affiliateId: 'aff-B',
+      refCode: 'refB',
+      createdAt: jstDaysAgo(5),
     });
   });
 
   test('journey returns 4 events in ascending time order', async () => {
     const journey = await getFriendJourney(db, 'friend-1');
     expect(journey.map((e) => e.type)).toEqual([
-      'touch',      // touch A @ -25d
+      'touch', // touch A @ -25d
       'friend_add', // add @ -20d
-      'touch',      // touch B @ -10d
+      'touch', // touch B @ -10d
       'conversion', // cv @ -5d
     ]);
     expect(journey[0].refCode).toBe('refA');
@@ -304,7 +344,12 @@ describe('getAffiliateReportV2 — friendAdds attribution rules', () => {
     insertFriend(sqlite, 'friend-self', { createdAt: jstDaysAgo(1) });
     insertAffiliate(sqlite, 'aff-self', { friendId: 'friend-self' });
     insertLink(sqlite, { id: 'link-s', affiliateId: 'aff-self', refCode: 'refself' });
-    insertTouch(sqlite, { id: 't-s', refCode: 'refself', friendId: 'friend-self', createdAt: jstDaysAgo(3) });
+    insertTouch(sqlite, {
+      id: 't-s',
+      refCode: 'refself',
+      friendId: 'friend-self',
+      createdAt: jstDaysAgo(3),
+    });
 
     const report = await getAffiliateReportV2(db, 'aff-self', { identityKeySql: IDENTITY_KEY_SQL });
     expect(report!.friendAdds).toBe(0);
@@ -315,7 +360,12 @@ describe('getAffiliateReportV2 — friendAdds attribution rules', () => {
     insertAffiliate(sqlite, 'aff-old');
     insertLink(sqlite, { id: 'link-o', affiliateId: 'aff-old', refCode: 'refold' });
     // touch 91 days before add
-    insertTouch(sqlite, { id: 't-o', refCode: 'refold', friendId: 'friend-old', createdAt: jstDaysAgo(91) });
+    insertTouch(sqlite, {
+      id: 't-o',
+      refCode: 'refold',
+      friendId: 'friend-old',
+      createdAt: jstDaysAgo(91),
+    });
 
     const report = await getAffiliateReportV2(db, 'aff-old', { identityKeySql: IDENTITY_KEY_SQL });
     expect(report!.friendAdds).toBe(0);
@@ -328,10 +378,25 @@ describe('getAffiliateReportV2 — friendAdds attribution rules', () => {
     insertLink(sqlite, { id: 'ly', affiliateId: 'aff-y', refCode: 'refy' });
     // friend added at -10d: only touches before -10d count. refy(-12d) is newer than refx(-30d).
     insertFriend(sqlite, 'friend-w', { createdAt: jstDaysAgo(10) });
-    insertTouch(sqlite, { id: 'tx', refCode: 'refx', friendId: 'friend-w', createdAt: jstDaysAgo(30) });
-    insertTouch(sqlite, { id: 'ty', refCode: 'refy', friendId: 'friend-w', createdAt: jstDaysAgo(12) });
+    insertTouch(sqlite, {
+      id: 'tx',
+      refCode: 'refx',
+      friendId: 'friend-w',
+      createdAt: jstDaysAgo(30),
+    });
+    insertTouch(sqlite, {
+      id: 'ty',
+      refCode: 'refy',
+      friendId: 'friend-w',
+      createdAt: jstDaysAgo(12),
+    });
     // a later touch refx(-2d) is AFTER the add -> must not change add-time attribution
-    insertTouch(sqlite, { id: 'tx2', refCode: 'refx', friendId: 'friend-w', createdAt: jstDaysAgo(2) });
+    insertTouch(sqlite, {
+      id: 'tx2',
+      refCode: 'refx',
+      friendId: 'friend-w',
+      createdAt: jstDaysAgo(2),
+    });
 
     const rx = await getAffiliateReportV2(db, 'aff-x', { identityKeySql: IDENTITY_KEY_SQL });
     const ry = await getAffiliateReportV2(db, 'aff-y', { identityKeySql: IDENTITY_KEY_SQL });
@@ -360,7 +425,12 @@ describe('getAffiliateReportV2 — duplicateFlags', () => {
     // A third attributed friend with a unique identity → NOT flagged.
     insertFriend(sqlite, 'friend-d3', { createdAt: jstDaysAgo(8), userId: 'other-uid' });
     for (const fid of ['friend-d1', 'friend-d2', 'friend-d3']) {
-      insertTouch(sqlite, { id: `t-${fid}`, refCode: 'refd', friendId: fid, createdAt: jstDaysAgo(11) });
+      insertTouch(sqlite, {
+        id: `t-${fid}`,
+        refCode: 'refd',
+        friendId: fid,
+        createdAt: jstDaysAgo(11),
+      });
     }
 
     const report = await getAffiliateReportV2(db, 'aff-d', { identityKeySql: IDENTITY_KEY_SQL });
@@ -374,7 +444,12 @@ describe('getAffiliateReportV2 — duplicateFlags', () => {
     insertFriend(sqlite, 'friend-u1', { createdAt: jstDaysAgo(10), userId: 'u1' });
     insertFriend(sqlite, 'friend-u2', { createdAt: jstDaysAgo(9), userId: 'u2' });
     for (const fid of ['friend-u1', 'friend-u2']) {
-      insertTouch(sqlite, { id: `t-${fid}`, refCode: 'refd', friendId: fid, createdAt: jstDaysAgo(11) });
+      insertTouch(sqlite, {
+        id: `t-${fid}`,
+        refCode: 'refd',
+        friendId: fid,
+        createdAt: jstDaysAgo(11),
+      });
     }
     const report = await getAffiliateReportV2(db, 'aff-d', { identityKeySql: IDENTITY_KEY_SQL });
     expect(report!.duplicateFlags).toEqual([]);
@@ -398,11 +473,28 @@ describe('getAffiliateJourneys — cursor pagination', () => {
     for (let i = 1; i <= 3; i++) {
       const fid = `friend-p${i}`;
       insertFriend(sqlite, fid, { createdAt: jstDaysAgo(4 - i), displayName: `P${i}` });
-      insertTouch(sqlite, { id: `tp${i}`, refCode: 'refp', friendId: fid, createdAt: jstDaysAgo(5) });
+      insertTouch(sqlite, {
+        id: `tp${i}`,
+        refCode: 'refp',
+        friendId: fid,
+        createdAt: jstDaysAgo(5),
+      });
     }
     // friend-p1 also has a form submission and a conversion (later events)
-    insertSubmission(sqlite, { id: 'sub-1', formId: 'form-1', friendId: 'friend-p1', createdAt: jstDaysAgo(2) });
-    insertConversion(sqlite, { id: 'cv-p1', pointId: 'cp-p', friendId: 'friend-p1', affiliateId: 'aff-p', refCode: 'refp', createdAt: jstDaysAgo(1) });
+    insertSubmission(sqlite, {
+      id: 'sub-1',
+      formId: 'form-1',
+      friendId: 'friend-p1',
+      createdAt: jstDaysAgo(2),
+    });
+    insertConversion(sqlite, {
+      id: 'cv-p1',
+      pointId: 'cp-p',
+      friendId: 'friend-p1',
+      affiliateId: 'aff-p',
+      refCode: 'refp',
+      createdAt: jstDaysAgo(1),
+    });
   });
 
   test('newest-add first with per-friend counts', async () => {
@@ -456,11 +548,21 @@ describe('getAffiliateReport — linkCount + friendAdds aggregate', () => {
 
     // attributed friend: touch(refA1) before add → winner is aff-A.
     insertFriend(sqlite, 'friend-1', { createdAt: jstDaysAgo(20) });
-    insertTouch(sqlite, { id: 't-a', refCode: 'refA1', friendId: 'friend-1', createdAt: jstDaysAgo(25) });
+    insertTouch(sqlite, {
+      id: 't-a',
+      refCode: 'refA1',
+      friendId: 'friend-1',
+      createdAt: jstDaysAgo(25),
+    });
 
     // non-attributed friend: its only touch is 91d before add → outside window.
     insertFriend(sqlite, 'friend-2', { createdAt: NOW });
-    insertTouch(sqlite, { id: 't-b', refCode: 'refB1', friendId: 'friend-2', createdAt: jstDaysAgo(91) });
+    insertTouch(sqlite, {
+      id: 't-b',
+      refCode: 'refB1',
+      friendId: 'friend-2',
+      createdAt: jstDaysAgo(91),
+    });
   });
 
   test('per-affiliate link_count and friend_adds are correct', async () => {
@@ -509,21 +611,62 @@ describe('getAffiliateLinkStats — per-link friendAdds + conversions', () => {
 
     // friend-1 won by refA1 (touch before add), + 1 conversion on refA1.
     insertFriend(sqlite, 'friend-1', { createdAt: jstDaysAgo(20) });
-    insertTouch(sqlite, { id: 't-1', refCode: 'refA1', friendId: 'friend-1', createdAt: jstDaysAgo(25) });
-    insertConversion(sqlite, { id: 'cv-1', pointId: 'cp-1', friendId: 'friend-1', affiliateId: 'aff-A', refCode: 'refA1', createdAt: jstDaysAgo(5) });
+    insertTouch(sqlite, {
+      id: 't-1',
+      refCode: 'refA1',
+      friendId: 'friend-1',
+      createdAt: jstDaysAgo(25),
+    });
+    insertConversion(sqlite, {
+      id: 'cv-1',
+      pointId: 'cp-1',
+      friendId: 'friend-1',
+      affiliateId: 'aff-A',
+      refCode: 'refA1',
+      createdAt: jstDaysAgo(5),
+    });
 
     // friend-2 won by refA2, + 2 conversions on refA2.
     insertFriend(sqlite, 'friend-2', { createdAt: jstDaysAgo(15) });
-    insertTouch(sqlite, { id: 't-2', refCode: 'refA2', friendId: 'friend-2', createdAt: jstDaysAgo(18) });
-    insertConversion(sqlite, { id: 'cv-2', pointId: 'cp-1', friendId: 'friend-2', affiliateId: 'aff-A', refCode: 'refA2', createdAt: jstDaysAgo(4) });
-    insertConversion(sqlite, { id: 'cv-3', pointId: 'cp-1', friendId: 'friend-2', affiliateId: 'aff-A', refCode: 'refA2', createdAt: jstDaysAgo(3) });
+    insertTouch(sqlite, {
+      id: 't-2',
+      refCode: 'refA2',
+      friendId: 'friend-2',
+      createdAt: jstDaysAgo(18),
+    });
+    insertConversion(sqlite, {
+      id: 'cv-2',
+      pointId: 'cp-1',
+      friendId: 'friend-2',
+      affiliateId: 'aff-A',
+      refCode: 'refA2',
+      createdAt: jstDaysAgo(4),
+    });
+    insertConversion(sqlite, {
+      id: 'cv-3',
+      pointId: 'cp-1',
+      friendId: 'friend-2',
+      affiliateId: 'aff-A',
+      refCode: 'refA2',
+      createdAt: jstDaysAgo(3),
+    });
   });
 
   test('friendAdds + conversions split correctly across two links', async () => {
     const stats = await getAffiliateLinkStats(db, 'aff-A');
     // No approval_status set → NULL treated as pending; conversions = approved+pending.
-    expect(stats.get('refA1')).toEqual({ friendAdds: 1, conversions: 1, conversionsPending: 1, conversionsApproved: 0 });
-    expect(stats.get('refA2')).toEqual({ friendAdds: 1, conversions: 2, conversionsPending: 2, conversionsApproved: 0 });
+    expect(stats.get('refA1')).toEqual({
+      friendAdds: 1,
+      conversions: 1,
+      conversionsPending: 1,
+      conversionsApproved: 0,
+    });
+    expect(stats.get('refA2')).toEqual({
+      friendAdds: 1,
+      conversions: 2,
+      conversionsPending: 2,
+      conversionsApproved: 0,
+    });
   });
 
   test('per-link friendAdds sum equals the per-affiliate friendAdds', async () => {
@@ -572,16 +715,72 @@ describe('getAffiliateReportV2 — approval breakdown + confirmedReward + byOffe
 
     // off-1: 2 approved, 1 pending, 1 rejected.
     insertFriend(sqlite, 'f1', { createdAt: jstDaysAgo(10) });
-    insertConversion(sqlite, { id: 'c1', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref1', createdAt: jstDaysAgo(5), approvalStatus: 'approved' });
-    insertConversion(sqlite, { id: 'c2', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref1', createdAt: jstDaysAgo(5), approvalStatus: 'approved' });
-    insertConversion(sqlite, { id: 'c3', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref1', createdAt: jstDaysAgo(5), approvalStatus: 'pending' });
-    insertConversion(sqlite, { id: 'c4', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref1', createdAt: jstDaysAgo(5), approvalStatus: 'rejected' });
+    insertConversion(sqlite, {
+      id: 'c1',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref1',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'approved',
+    });
+    insertConversion(sqlite, {
+      id: 'c2',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref1',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'approved',
+    });
+    insertConversion(sqlite, {
+      id: 'c3',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref1',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'pending',
+    });
+    insertConversion(sqlite, {
+      id: 'c4',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref1',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'rejected',
+    });
     // off-2: 1 approved.
-    insertConversion(sqlite, { id: 'c5', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref2', createdAt: jstDaysAgo(5), approvalStatus: 'approved' });
+    insertConversion(sqlite, {
+      id: 'c5',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref2',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'approved',
+    });
     // generic link (no offer): 1 approved → contributes 0 reward, no byOffer row.
-    insertConversion(sqlite, { id: 'c6', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'refg', createdAt: jstDaysAgo(5), approvalStatus: 'approved' });
+    insertConversion(sqlite, {
+      id: 'c6',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'refg',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: 'approved',
+    });
     // legacy NULL-status attributed CV → treated as pending.
-    insertConversion(sqlite, { id: 'c7', pointId: 'cp-1', friendId: 'f1', affiliateId: 'aff-A', refCode: 'ref2', createdAt: jstDaysAgo(5), approvalStatus: null });
+    insertConversion(sqlite, {
+      id: 'c7',
+      pointId: 'cp-1',
+      friendId: 'f1',
+      affiliateId: 'aff-A',
+      refCode: 'ref2',
+      createdAt: jstDaysAgo(5),
+      approvalStatus: null,
+    });
   });
 
   test('headline conversions/revenue exclude rejected; breakdown counts are correct', async () => {
@@ -609,23 +808,46 @@ describe('getAffiliateReportV2 — approval breakdown + confirmedReward + byOffe
     // generic link CV must NOT create a byOffer bucket.
     expect(r.byOffer.length).toBe(2);
     expect(byId.get('off-1')).toEqual({
-      offerId: 'off-1', offerName: 'Freelance導入', rewardAmount: 30000,
-      conversionsApproved: 2, conversionsPending: 1, confirmedReward: 60000,
+      offerId: 'off-1',
+      offerName: 'Freelance導入',
+      rewardAmount: 30000,
+      conversionsApproved: 2,
+      conversionsPending: 1,
+      confirmedReward: 60000,
     });
     expect(byId.get('off-2')).toEqual({
-      offerId: 'off-2', offerName: 'Small案件', rewardAmount: 5000,
-      conversionsApproved: 1, conversionsPending: 1, confirmedReward: 5000,
+      offerId: 'off-2',
+      offerName: 'Small案件',
+      rewardAmount: 5000,
+      conversionsApproved: 1,
+      conversionsPending: 1,
+      confirmedReward: 5000,
     });
   });
 
   test('getAffiliateLinkStats splits pending/approved and excludes rejected', async () => {
     const stats = await getAffiliateLinkStats(db, 'aff-A');
     // ref1: 2 approved + 1 pending (rejected c4 excluded) → conversions=3.
-    expect(stats.get('ref1')).toEqual({ friendAdds: 0, conversions: 3, conversionsPending: 1, conversionsApproved: 2 });
+    expect(stats.get('ref1')).toEqual({
+      friendAdds: 0,
+      conversions: 3,
+      conversionsPending: 1,
+      conversionsApproved: 2,
+    });
     // ref2: 1 approved + 1 pending(NULL) → conversions=2.
-    expect(stats.get('ref2')).toEqual({ friendAdds: 0, conversions: 2, conversionsPending: 1, conversionsApproved: 1 });
+    expect(stats.get('ref2')).toEqual({
+      friendAdds: 0,
+      conversions: 2,
+      conversionsPending: 1,
+      conversionsApproved: 1,
+    });
     // refg: 1 approved.
-    expect(stats.get('refg')).toEqual({ friendAdds: 0, conversions: 1, conversionsPending: 0, conversionsApproved: 1 });
+    expect(stats.get('refg')).toEqual({
+      friendAdds: 0,
+      conversions: 1,
+      conversionsPending: 0,
+      conversionsApproved: 1,
+    });
   });
 });
 
@@ -649,7 +871,14 @@ describe('getAffiliateReport — CV via affiliate_id OR affiliate_code', () => {
   test('affiliate_id-only snapshot CV appears in the list aggregate', async () => {
     insertFriend(sqlite, 'friend-1', { createdAt: jstDaysAgo(10) });
     // affiliate_id set, affiliate_code NULL (ASP ref-code path).
-    insertConversion(sqlite, { id: 'cv-1', pointId: 'cp-1', friendId: 'friend-1', affiliateId: 'aff-A', refCode: 'refA1', createdAt: jstDaysAgo(2) });
+    insertConversion(sqlite, {
+      id: 'cv-1',
+      pointId: 'cp-1',
+      friendId: 'friend-1',
+      affiliateId: 'aff-A',
+      refCode: 'refA1',
+      createdAt: jstDaysAgo(2),
+    });
 
     const rows = await getAffiliateReport(db, 'aff-A');
     expect(rows[0].totalConversions).toBe(1);
@@ -657,7 +886,9 @@ describe('getAffiliateReport — CV via affiliate_id OR affiliate_code', () => {
   });
 
   test('legacy affiliate_code CV still appears', async () => {
-    const code = sqlite.prepare(`SELECT code FROM affiliates WHERE id = 'aff-A'`).get() as { code: string };
+    const code = sqlite.prepare(`SELECT code FROM affiliates WHERE id = 'aff-A'`).get() as {
+      code: string;
+    };
     insertFriend(sqlite, 'friend-2', { createdAt: jstDaysAgo(10) });
     // affiliate_code set (legacy), affiliate_id NULL.
     sqlite
@@ -673,7 +904,9 @@ describe('getAffiliateReport — CV via affiliate_id OR affiliate_code', () => {
   });
 
   test('a row matching BOTH affiliate_id and affiliate_code is counted once', async () => {
-    const code = sqlite.prepare(`SELECT code FROM affiliates WHERE id = 'aff-A'`).get() as { code: string };
+    const code = sqlite.prepare(`SELECT code FROM affiliates WHERE id = 'aff-A'`).get() as {
+      code: string;
+    };
     insertFriend(sqlite, 'friend-3', { createdAt: jstDaysAgo(10) });
     // BOTH affiliate_id AND affiliate_code point at aff-A → must NOT double-count.
     sqlite

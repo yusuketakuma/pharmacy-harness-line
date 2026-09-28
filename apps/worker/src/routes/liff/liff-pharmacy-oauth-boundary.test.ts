@@ -35,29 +35,42 @@ describe('legacy LINE OAuth boundary in pharmacy mode', () => {
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => sql.includes('FROM pharmacy_account_capabilities') ? { ok: 1 } : null,
-          all: async () => ({ results: [{
-            id: 'account-a', name: '薬局A', mode: 'pharmacy',
-            capabilities_json: JSON.stringify([
-              'pharmacy_info', 'account_settings', 'unknown', 'emergency_contraception',
-            ]),
-            capability_revision: 7,
-          }] }),
+          first: async () => (sql.includes('FROM pharmacy_account_capabilities') ? { ok: 1 } : null),
+          all: async () => ({
+            results: [
+              {
+                id: 'account-a',
+                name: '薬局A',
+                mode: 'pharmacy',
+                capabilities_json: JSON.stringify([
+                  'pharmacy_info',
+                  'account_settings',
+                  'unknown',
+                  'emergency_contraception',
+                ]),
+                capability_revision: 7,
+              },
+            ],
+          }),
         }),
       }),
     } as unknown as D1Database;
     const app = new Hono<Env>();
     app.route('/', liffRoutes);
 
-    const response = await app.request('/api/liff/config?liffId=pharmacy-liff', {}, { DB: db } as Env['Bindings']);
+    const response = await app.request('/api/liff/config?liffId=pharmacy-liff', {}, {
+      DB: db,
+    } as Env['Bindings']);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
-    await expect(response.json()).resolves.toMatchObject({ data: {
-      accountId: 'account-a',
-      enabledFeatures: ['emergency_contraception', 'pharmacy_info'],
-      capabilityRevision: 7,
-    } });
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        accountId: 'account-a',
+        enabledFeatures: ['emergency_contraception', 'pharmacy_info'],
+        capabilityRevision: 7,
+      },
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -65,7 +78,7 @@ describe('legacy LINE OAuth boundary in pharmacy mode', () => {
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => sql.includes('FROM pharmacy_account_capabilities') ? { ok: 1 } : null,
+          first: async () => (sql.includes('FROM pharmacy_account_capabilities') ? { ok: 1 } : null),
           all: async () => ({ results: [{ id: 'account-a' }, { id: 'account-b' }] }),
         }),
       }),
@@ -73,7 +86,9 @@ describe('legacy LINE OAuth boundary in pharmacy mode', () => {
     const app = new Hono<Env>();
     app.route('/', liffRoutes);
 
-    const response = await app.request('/api/liff/config?liffId=ambiguous', {}, { DB: db } as Env['Bindings']);
+    const response = await app.request('/api/liff/config?liffId=ambiguous', {}, {
+      DB: db,
+    } as Env['Bindings']);
 
     expect(response.status).toBe(409);
   });

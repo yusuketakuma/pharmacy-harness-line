@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
+import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import {
   createEncryptedLineAccount,
   LINE_ACCOUNT_CONFLICT_ERROR,
@@ -10,19 +10,6 @@ import { readLineCredential } from './line-credential-store.js';
 const ROOT_SECRET = 'synthetic-root-secret-for-account-store-v1';
 const ACCESS_TOKEN = `token-${'a'.repeat(64)}`;
 const CHANNEL_SECRET = 'b'.repeat(32);
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      reader: boolean;
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
-    close(): void;
-  };
 
 function database(batchError?: Error, updateChanges = 1) {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
@@ -115,32 +102,7 @@ function sqliteDatabase() {
               '2026-08-17T00:00:00.000Z');
   `);
 
-  type Statement = { sql: string; values: unknown[] };
-  const statement = (sql: string, values: unknown[] = []) => ({
-    sql,
-    values,
-    bind(...next: unknown[]) { return statement(sql, next); },
-    async first<T>() { return (sqlite.prepare(sql).get(...values) as T | undefined) ?? null; },
-    async all<T>() {
-      return { success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {} };
-    },
-    async run() {
-      const result = sqlite.prepare(sql).run(...values);
-      return { success: true, results: [], meta: { changes: result.changes } };
-    },
-  });
-  const db = {
-    prepare: (sql: string) => statement(sql),
-    batch: async (items: Statement[]) => sqlite.transaction((batchItems: Statement[]) =>
-      batchItems.map(({ sql, values }) => {
-        const prepared = sqlite.prepare(sql);
-        if (prepared.reader) {
-          return { success: true, results: prepared.all(...values), meta: { changes: 0 } };
-        }
-        const result = prepared.run(...values);
-        return { success: true, results: [], meta: { changes: result.changes } };
-      }))(items),
-  } as unknown as D1Database;
+  const db = d1FromSqlite(sqlite);
   return { db, close: () => sqlite.close() };
 }
 
@@ -183,9 +145,9 @@ describe('atomic encrypted LINE account creation', () => {
 
     const batch = fake.batch.mock.calls[0]?.[0] ?? [];
     expect(batch).toHaveLength(5);
-    expect(batch.map(({ sql }) => sql)).toEqual(expect.arrayContaining([
-      expect.stringContaining('INSERT INTO pharmacy_staff_accounts'),
-    ]));
+    expect(batch.map(({ sql }) => sql)).toEqual(
+      expect.arrayContaining([expect.stringContaining('INSERT INTO pharmacy_staff_accounts')]),
+    );
     const assignment = batch.find(({ sql }) => sql.includes('pharmacy_staff_accounts'));
     expect(assignment?.values).toEqual(expect.arrayContaining([account.id, 'staff-a']));
   });
@@ -193,15 +155,17 @@ describe('atomic encrypted LINE account creation', () => {
   it('does not continue after the atomic batch fails', async () => {
     const fake = database(new Error('batch failed'));
 
-    await expect(createEncryptedLineAccount(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a',
-      channelId: 'channel-a',
-      name: 'Pharmacy A',
-      credentials: [
-        { kind: 'channel_access_token', credential: ACCESS_TOKEN },
-        { kind: 'channel_secret', credential: CHANNEL_SECRET },
-      ],
-    })).rejects.toThrow('Unable to create LINE account');
+    await expect(
+      createEncryptedLineAccount(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        channelId: 'channel-a',
+        name: 'Pharmacy A',
+        credentials: [
+          { kind: 'channel_access_token', credential: ACCESS_TOKEN },
+          { kind: 'channel_secret', credential: CHANNEL_SECRET },
+        ],
+      }),
+    ).rejects.toThrow('Unable to create LINE account');
     expect(fake.batch).toHaveBeenCalledTimes(1);
   });
 });
@@ -250,13 +214,15 @@ describe('atomic encrypted LINE account update', () => {
   it('rejects a stale account update without reporting success', async () => {
     const fake = database(undefined, 0);
 
-    await expect(updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a',
-      lineAccountId: 'account-a',
-      expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
-      credentials: [{ kind: 'channel_secret', credential: CHANNEL_SECRET }],
-      metadata: {},
-    })).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
+    await expect(
+      updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+        credentials: [{ kind: 'channel_secret', credential: CHANNEL_SECRET }],
+        metadata: {},
+      }),
+    ).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
   });
 
   it('executes the atomic rotation and stale-write guard against SQLite', async () => {
@@ -273,20 +239,30 @@ describe('atomic encrypted LINE account update', () => {
         metadata: {},
       });
       expect(first.updated_at).not.toBe('2026-08-17T00:00:00.000Z');
-      await expect(readLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
-      })).resolves.toBe(ACCESS_TOKEN);
+      await expect(
+        readLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          kind: 'channel_access_token',
+        }),
+      ).resolves.toBe(ACCESS_TOKEN);
 
-      await expect(updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a',
-        lineAccountId: 'account-a',
-        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
-        credentials: [{ kind: 'channel_access_token', credential: `stale-${'z'.repeat(64)}` }],
-        metadata: {},
-      })).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
-      await expect(readLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
-      })).resolves.toBe(ACCESS_TOKEN);
+      await expect(
+        updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+          credentials: [{ kind: 'channel_access_token', credential: `stale-${'z'.repeat(64)}` }],
+          metadata: {},
+        }),
+      ).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
+      await expect(
+        readLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          kind: 'channel_access_token',
+        }),
+      ).resolves.toBe(ACCESS_TOKEN);
     } finally {
       fake.close();
     }
@@ -302,25 +278,27 @@ describe('atomic encrypted LINE account update', () => {
         credentials: [{ kind: 'login_channel_secret', credential: CHANNEL_SECRET }],
         metadata: { loginChannelId: 'login-channel-a' },
       });
-      await fake.db.prepare(
-        "UPDATE tenants SET status = 'suspended' WHERE id = 'tenant-a'",
-      ).run();
+      await fake.db.prepare("UPDATE tenants SET status = 'suspended' WHERE id = 'tenant-a'").run();
 
-      await expect(updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a',
-        lineAccountId: 'account-a',
-        expectedUpdatedAt: active.updated_at,
-        credentials: [{ kind: 'login_channel_secret', credential: null }],
-        metadata: { loginChannelId: null },
-      })).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
+      await expect(
+        updateEncryptedLineAccount(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          expectedUpdatedAt: active.updated_at,
+          credentials: [{ kind: 'login_channel_secret', credential: null }],
+          metadata: { loginChannelId: null },
+        }),
+      ).rejects.toThrow(LINE_ACCOUNT_CONFLICT_ERROR);
 
-      const remaining = await fake.db.prepare(
-        `SELECT COUNT(*) AS count
+      const remaining = await fake.db
+        .prepare(
+          `SELECT COUNT(*) AS count
            FROM pharmacy_line_credentials
           WHERE tenant_id = 'tenant-a'
             AND line_account_id = 'account-a'
             AND credential_kind = 'login_channel_secret'`,
-      ).first<{ count: number }>();
+        )
+        .first<{ count: number }>();
       expect(remaining?.count).toBe(1);
     } finally {
       fake.close();
@@ -339,11 +317,13 @@ describe('atomic encrypted LINE account update', () => {
           { kind: 'channel_secret', credential: CHANNEL_SECRET },
         ],
       });
-      await expect(readLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a',
-        lineAccountId: created.id,
-        kind: 'channel_access_token',
-      })).resolves.toBe(ACCESS_TOKEN);
+      await expect(
+        readLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: created.id,
+          kind: 'channel_access_token',
+        }),
+      ).resolves.toBe(ACCESS_TOKEN);
     } finally {
       fake.close();
     }

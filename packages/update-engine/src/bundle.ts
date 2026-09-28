@@ -82,7 +82,7 @@ export function parseBundleStream(input: Readable): Promise<ParsedBundle> {
       }
 
       const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('data', (chunk) => chunks.push(chunk as Buffer));
       stream.on('end', () => {
         const buf = Buffer.concat(chunks);
         routeEntry(result, header.name, buf);
@@ -210,17 +210,12 @@ export function assertHashesMatch(
   },
 ): void {
   if (computed.worker !== expected.worker_hash) {
-    throw new Error(
-      `bundle worker hash mismatch (tampered? ${computed.worker} vs ${expected.worker_hash})`,
-    );
+    throw new Error(`bundle worker hash mismatch (tampered? ${computed.worker} vs ${expected.worker_hash})`);
   }
   if (computed.admin !== expected.admin_hash) {
     throw new Error('bundle admin hash mismatch');
   }
-  if (
-    expected.worker_assets_hash &&
-    computed.workerAssets !== expected.worker_assets_hash
-  ) {
+  if (expected.worker_assets_hash && computed.workerAssets !== expected.worker_assets_hash) {
     throw new Error('bundle worker assets hash mismatch');
   }
   if (computed.liff !== expected.liff_hash) {
@@ -269,17 +264,12 @@ export function verifyBundleIntegrity(
     throw new BundleNotDeployableError(entry.version);
   }
   if (computed.worker !== entry.worker_bundle_hash) {
-    throw new Error(
-      `bundle worker hash mismatch (tampered? ${computed.worker} vs ${entry.worker_bundle_hash})`,
-    );
+    throw new Error(`bundle worker hash mismatch (tampered? ${computed.worker} vs ${entry.worker_bundle_hash})`);
   }
   if (computed.admin !== entry.admin_hash) {
     throw new Error('bundle admin hash mismatch');
   }
-  if (
-    entry.worker_assets_hash &&
-    computed.workerAssets !== entry.worker_assets_hash
-  ) {
+  if (entry.worker_assets_hash && computed.workerAssets !== entry.worker_assets_hash) {
     throw new Error('bundle worker assets hash mismatch');
   }
   if (computed.liff !== entry.liff_hash) {

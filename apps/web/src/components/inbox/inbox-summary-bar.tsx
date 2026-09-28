@@ -1,20 +1,20 @@
-'use client'
+'use client';
 
-const fmt = new Intl.NumberFormat('ja-JP')
+const fmt = new Intl.NumberFormat('ja-JP');
 
 function formatOldest(min: number | null): string {
-  if (min == null) return '—'
-  if (min < 60) return `${min}分`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}時間`
-  const day = Math.floor(hr / 24)
-  return `${day}日`
+  if (min == null) return '—';
+  if (min < 60) return `${min}分`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}時間`;
+  const day = Math.floor(hr / 24);
+  return `${day}日`;
 }
 
 interface Props {
-  total: number
-  byAccount: Array<{ accountId: string; accountName: string; count: number }>
-  oldestWaitMinutes: number | null
+  total: number;
+  byAccount: Array<{ accountId: string; accountName: string; count: number }>;
+  oldestWaitMinutes: number | null;
 }
 
 export default function InboxSummaryBar({ total, byAccount, oldestWaitMinutes }: Props) {
@@ -40,7 +40,7 @@ export default function InboxSummaryBar({ total, byAccount, oldestWaitMinutes }:
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -50,5 +50,5 @@ function Card({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{value}</div>
       {hint ? <div className="mt-1 text-xs text-gray-400">{hint}</div> : null}
     </div>
-  )
+  );
 }

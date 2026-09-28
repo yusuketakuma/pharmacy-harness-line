@@ -72,14 +72,12 @@ describe('GET /api/chats list preview', () => {
     });
     app.route('/', chats);
 
-    const response = await app.request(
-      new Request('http://worker.test/api/chats'),
-      {},
-      { DB: db } as never,
-    );
+    const response = await app.request(new Request('http://worker.test/api/chats'), {}, {
+      DB: db,
+    } as never);
 
     expect(response.status).toBe(200);
-    const body = await response.json() as {
+    const body = (await response.json()) as {
       data: Array<{
         lastMessageAt: string;
         lastMessageContent: string;

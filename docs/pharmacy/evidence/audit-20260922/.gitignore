@@ -1,0 +1,3 @@
+# Audit tooling scratch worktrees (temp copies with their own .git dirs).
+# Only top-level evidence files and named result dirs are committed.
+.*/

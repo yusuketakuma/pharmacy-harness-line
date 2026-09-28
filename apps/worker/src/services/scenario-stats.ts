@@ -29,10 +29,7 @@ interface StepReachRow {
  * ブロック中の友だち (push 失敗 → messages_log なし) や condition_type=false で skip した step は
  * 自然と除外される。
  */
-export async function computeScenarioStats(
-  db: D1Database,
-  scenarioId: string,
-): Promise<ScenarioStats> {
+export async function computeScenarioStats(db: D1Database, scenarioId: string): Promise<ScenarioStats> {
   // 1) enrollment 数。enrolledTotal は DISTINCT friend_id でカウントする。
   // friend_scenarios の同じ friend × scenario はリエンロール時に複数行になり得るため、
   // 「ユニーク参加人数」を分母にしないと到達率計算 (reached_count も DISTINCT friend_id) と

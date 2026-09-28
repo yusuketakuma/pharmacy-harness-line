@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from '../../../middleware/admin-auth-config.js';
 import { hashTenantAdminSessionToken, hashTenantPassword } from '../provisioning/credentials.js';
@@ -13,8 +13,7 @@ vi.mock('@line-crm/db', () => ({ getStaffByApiKey: vi.fn(async () => null) }));
 // The manual webhook retry reuses the durable-inbox runner rather than
 // reimplementing event processing; the route's contract is "reset the row,
 // then hand it to that one function", which is what this double asserts.
-const webhookRetry = vi.hoisted(() =>
-  vi.fn(async (_runner: unknown, _row: unknown) => 'completed' as const));
+const webhookRetry = vi.hoisted(() => vi.fn(async (_runner: unknown, _row: unknown) => 'completed' as const));
 vi.mock('../../../routes/integrations/webhook.js', () => ({ runWebhookInboxEvent: webhookRetry }));
 
 const patient = {
@@ -28,11 +27,22 @@ const patient = {
 
 vi.mock('../intake/repository.js', () => ({
   listAdminPharmacyPatients: vi.fn(async (_db: unknown, lineAccountId: string) =>
-    (lineAccountId === 'account-a' ? [patient] : [])),
+    lineAccountId === 'account-a' ? [patient] : [],
+  ),
   getAdminPharmacyPatientHistory: vi.fn(async (_db: unknown, lineAccountId: string, patientId: string) =>
-    (lineAccountId === 'account-a' && patientId === patient.id
-      ? { patient, intakes: [], latestIntake: null, prescriptions: [{ id: 'sub-1' }], quotes: [], continuity: [], medicationFollowUps: [], timeline: [] }
-      : null)),
+    lineAccountId === 'account-a' && patientId === patient.id
+      ? {
+          patient,
+          intakes: [],
+          latestIntake: null,
+          prescriptions: [{ id: 'sub-1' }],
+          quotes: [],
+          continuity: [],
+          medicationFollowUps: [],
+          timeline: [],
+        }
+      : null,
+  ),
 }));
 
 vi.mock('../continuity/next-intake.js', () => ({
@@ -47,15 +57,12 @@ vi.mock('../continuity/next-intake.js', () => ({
 // The route relies on this rather than filtering the result, because the real
 // query pages at LIMIT 100 and a post-hoc filter would drop rows.
 vi.mock('../myna/repository.js', () => ({
-  listMynaHandoffs: vi.fn(async (
-    _db: unknown,
-    _lineAccountId: string,
-    _status?: string,
-    patientId?: string,
-  ) => [
-    { id: 'myna-1', patient_id: 'patient-1' },
-    { id: 'myna-2', patient_id: 'patient-other' },
-  ].filter((row) => !patientId || row.patient_id === patientId)),
+  listMynaHandoffs: vi.fn(async (_db: unknown, _lineAccountId: string, _status?: string, patientId?: string) =>
+    [
+      { id: 'myna-1', patient_id: 'patient-1' },
+      { id: 'myna-2', patient_id: 'patient-other' },
+    ].filter((row) => !patientId || row.patient_id === patientId),
+  ),
 }));
 
 const admin = {
@@ -71,12 +78,18 @@ const admin = {
 
 const tenants = [
   {
-    id: 'tenant-a', tenant_code: 'pharmacy-a', display_name: 'Pharmacy A',
-    status: 'active', outbound_messaging_paused_at: null as string | null,
+    id: 'tenant-a',
+    tenant_code: 'pharmacy-a',
+    display_name: 'Pharmacy A',
+    status: 'active',
+    outbound_messaging_paused_at: null as string | null,
   },
   {
-    id: 'tenant-b', tenant_code: 'pharmacy-b', display_name: 'Pharmacy B',
-    status: 'suspended', outbound_messaging_paused_at: null as string | null,
+    id: 'tenant-b',
+    tenant_code: 'pharmacy-b',
+    display_name: 'Pharmacy B',
+    status: 'suspended',
+    outbound_messaging_paused_at: null as string | null,
   },
 ];
 
@@ -86,6 +99,7 @@ type Session = {
   kind: 'bootstrap' | 'standard';
   expiresAt: string;
   revokedAt: string | null;
+  lastSeenAt?: string | null;
 };
 
 type Grant = {
@@ -113,18 +127,31 @@ type WebhookReceipt = {
   claim_token: string | null;
 };
 
+type SharedPharmacyAccount = {
+  staff_id: string;
+  name: string;
+  is_active: number;
+  role: 'admin';
+  membership_active: number;
+  credential_version: number;
+  auth_enabled: number;
+  must_change_password: number;
+};
+
 type Store = {
   db: D1Database;
   auditEvents: Array<Record<string, unknown>>;
+  authAuditEvents: Array<Record<string, unknown>>;
   sessions: Map<string, Session>;
   tenants: typeof tenants;
   grants: Grant[];
   receipts: WebhookReceipt[];
+  shared: SharedPharmacyAccount | null;
   /**
    * Makes the NEXT webhook-receipt SELECT return this snapshot instead of the
    * live row — the read-then-update window a concurrent retry (or the cron
    * sweep) lands in. Only the UPDATE's own eligibility predicate can close it.
-  */
+   */
   staleReceiptRead(row: WebhookReceipt): void;
   revokePlatformSession(sessionTokenHash: string): void;
   revokeBeforeNextGrantInsert(): void;
@@ -151,27 +178,54 @@ function seedGrant(store: Store, sessionTokenHash: string | null, overrides: Par
   return grant;
 }
 
-function fakeDb(): Store {
+function fakeDb(rejectThrottle = false): Store {
   const sessions = new Map<string, Session>();
+  const throttles = new Map<
+    string,
+    {
+      failureCount: number;
+      windowStartedAt: string;
+      nextAllowedAt: string;
+      lockedUntil: string | null;
+    }
+  >();
   const auditEvents: Array<Record<string, unknown>> = [];
+  const authAuditEvents: Array<Record<string, unknown>> = [];
+  let shared: SharedPharmacyAccount | null = null;
   const rows = tenants.map((tenant) => ({ ...tenant }));
   const grants: Grant[] = [];
   const receipts: WebhookReceipt[] = [
     {
-      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-failed',
-      payload: '{"type":"message"}', status: 'failed',
-      retry_count: 3, dead_lettered_at: null, lease_until: '2026-01-01T00:00:00.000Z',
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      webhook_event_id: 'wh-failed',
+      payload: '{"type":"message"}',
+      status: 'failed',
+      retry_count: 3,
+      dead_lettered_at: null,
+      lease_until: '2026-01-01T00:00:00.000Z',
       claim_token: 'stale-token',
     },
     {
-      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-done',
-      payload: '{"type":"message"}', status: 'completed',
-      retry_count: 1, dead_lettered_at: null, lease_until: null, claim_token: null,
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      webhook_event_id: 'wh-done',
+      payload: '{"type":"message"}',
+      status: 'completed',
+      retry_count: 1,
+      dead_lettered_at: null,
+      lease_until: null,
+      claim_token: null,
     },
     {
-      tenant_id: 'tenant-b', line_account_id: 'account-b', webhook_event_id: 'wh-other-tenant',
-      payload: '{"type":"message"}', status: 'failed',
-      retry_count: 10, dead_lettered_at: '2026-01-02T00:00:00.000Z', lease_until: null,
+      tenant_id: 'tenant-b',
+      line_account_id: 'account-b',
+      webhook_event_id: 'wh-other-tenant',
+      payload: '{"type":"message"}',
+      status: 'failed',
+      retry_count: 10,
+      dead_lettered_at: '2026-01-02T00:00:00.000Z',
+      lease_until: null,
       claim_token: null,
     },
   ];
@@ -194,17 +248,72 @@ function fakeDb(): Store {
           return statement;
         },
         async first() {
+          if (sql.includes('INSERT INTO admin_login_throttles')) {
+            if (rejectThrottle) throw new Error('throttle unavailable');
+            const key = values.slice(0, 3).join('\0');
+            const now = String(values[3]);
+            const cutoff = String(values[6]);
+            const current = throttles.get(key);
+            if (current && ((current.lockedUntil && current.lockedUntil > now) || current.nextAllowedAt > now))
+              return null;
+            const reset = !current || current.lockedUntil !== null || current.windowStartedAt <= cutoff;
+            const failureCount = reset ? 1 : current.failureCount + 1;
+            const nextAllowedAt = reset
+              ? now
+              : String(
+                  values[
+                    current.failureCount === 1
+                      ? 9
+                      : current.failureCount === 2
+                        ? 10
+                        : current.failureCount === 3
+                          ? 11
+                          : 12
+                  ],
+                );
+            const lockedUntil = !reset && current.failureCount >= 4 ? String(values[14]) : null;
+            throttles.set(key, {
+              failureCount,
+              windowStartedAt: reset ? now : current.windowStartedAt,
+              nextAllowedAt,
+              lockedUntil,
+            });
+            return { failure_count: failureCount, locked_until: lockedUntil };
+          }
+          if (sql.includes("principal_kind = 'pharmacy_shared'")) {
+            return shared ? { ...shared } : null;
+          }
+          if (sql.includes('FROM tenant_admin_credentials AS credential') && sql.includes('credential.login_id = ?')) {
+            return shared && values[0] === 'tenant-a' && values[1] === 'pharmacy-a'
+              ? { staff_id: shared.staff_id, principal_kind: 'pharmacy_shared' }
+              : null;
+          }
           if (sql.includes('FROM platform_admin_sessions AS session')) {
             const session = sessions.get(String(values[0]));
-            if (!session || session.revokedAt || session.expiresAt <= String(values[1]) ||
-                !admin.is_active || !admin.staff_active ||
-                session.credentialVersion !== admin.credential_version) return null;
-            return { ...admin, session_kind: session.kind };
+            if (
+              !session ||
+              session.revokedAt ||
+              session.expiresAt <= String(values[1]) ||
+              !admin.is_active ||
+              !admin.staff_active ||
+              session.credentialVersion !== admin.credential_version
+            )
+              return null;
+            if (
+              sql.includes('session.last_seen_at') &&
+              session.lastSeenAt &&
+              session.lastSeenAt <= String(session.kind === 'bootstrap' ? values[2] : values[3])
+            ) {
+              return null;
+            }
+            return {
+              ...admin,
+              session_kind: session.kind,
+              last_seen_at: session.lastSeenAt ?? null,
+            };
           }
           if (sql.includes('FROM platform_admin_credentials AS credential')) {
-            return values[0] === admin.login_id && admin.is_active && admin.staff_active
-              ? { ...admin }
-              : null;
+            return values[0] === admin.login_id && admin.is_active && admin.staff_active ? { ...admin } : null;
           }
           if (sql.includes('FROM platform_admin_credentials')) {
             return values[0] === admin.staff_id ? { ...admin } : null;
@@ -214,24 +323,31 @@ function fakeDb(): Store {
           if (sql.includes('FROM platform_admin_access_grants')) {
             const bound = sql.includes('session_token_hash');
             const requiresLiveSession = sql.includes('JOIN platform_admin_sessions AS session');
-            return grants
-              .filter((grant) => {
-                if (grant.platform_admin_id !== values[0] ||
+            return (
+              grants
+                .filter((grant) => {
+                  if (
+                    grant.platform_admin_id !== values[0] ||
                     grant.tenant_id !== values[1] ||
                     !!grant.revoked_at ||
                     grant.expires_at <= String(values[2]) ||
-                    (bound && grant.session_token_hash !== values[3])) return false;
-                if (!requiresLiveSession) return true;
-                const session = sessions.get(String(grant.session_token_hash));
-                return !!session &&
-                  session.staffId === admin.staff_id &&
-                  !session.revokedAt &&
-                  session.expiresAt > String(values[2]) &&
-                  session.credentialVersion === admin.credential_version &&
-                  admin.is_active === 1 &&
-                  admin.staff_active === 1;
-              })
-              .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null;
+                    (bound && grant.session_token_hash !== values[3])
+                  )
+                    return false;
+                  if (!requiresLiveSession) return true;
+                  const session = sessions.get(String(grant.session_token_hash));
+                  return (
+                    !!session &&
+                    session.staffId === admin.staff_id &&
+                    !session.revokedAt &&
+                    session.expiresAt > String(values[2]) &&
+                    session.credentialVersion === admin.credential_version &&
+                    admin.is_active === 1 &&
+                    admin.staff_active === 1
+                  );
+                })
+                .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null
+            );
           }
           if (sql.includes('FROM tenants AS tenant')) {
             const found = rows.find((tenant) => tenant.id === values[0]);
@@ -243,8 +359,10 @@ function fakeDb(): Store {
               staleReceipt = null;
               return snapshot;
             }
-            return receipts.find((receipt) => receipt.tenant_id === values[0] &&
-              receipt.webhook_event_id === values[1]) ?? null;
+            return (
+              receipts.find((receipt) => receipt.tenant_id === values[0] && receipt.webhook_event_id === values[1]) ??
+              null
+            );
           }
           if (sql.includes('FROM tenants')) {
             return rows.find((tenant) => tenant.id === values[0]) ?? null;
@@ -257,9 +375,10 @@ function fakeDb(): Store {
           }
           if (sql.includes('FROM tenant_line_accounts AS mapping')) {
             return {
-              results: values[0] === 'tenant-a'
-                ? [{ id: 'account-a', name: 'Account A', channel_id: '1000', is_active: 1 }]
-                : [],
+              results:
+                values[0] === 'tenant-a'
+                  ? [{ id: 'account-a', name: 'Account A', channel_id: '1000', is_active: 1 }]
+                  : [],
             };
           }
           if (sql.includes('FROM tenant_line_accounts')) {
@@ -274,36 +393,101 @@ function fakeDb(): Store {
           if (sql.includes('FROM platform_admin_access_events')) {
             return { results: auditEvents.slice().reverse() };
           }
+          if (sql.includes('FROM pharmacy_auth_audit_events')) {
+            return { results: authAuditEvents.slice().reverse() };
+          }
           // listActiveGrants: only grants bound to the caller session.
           if (sql.includes('FROM platform_admin_access_grants')) {
             return {
-              results: grants.filter((grant) => grant.platform_admin_id === values[0] &&
-                grant.session_token_hash === values[1] &&
-                !grant.revoked_at && grant.expires_at > String(values[2])),
+              results: grants.filter(
+                (grant) =>
+                  grant.platform_admin_id === values[0] &&
+                  grant.session_token_hash === values[1] &&
+                  !grant.revoked_at &&
+                  grant.expires_at > String(values[2]),
+              ),
             };
           }
           return { results: [] };
         },
         async run() {
+          if (sql.includes('DELETE FROM admin_login_throttles')) {
+            const changes = throttles.delete(values.slice(0, 3).join('\0')) ? 1 : 0;
+            return { meta: { changes } };
+          }
           if (sql.includes('INSERT INTO platform_admin_sessions')) {
             // The change-password insert inlines 'standard', shifting the binds.
             const literal = sql.includes("'standard'");
+            const hasActivity = sql.includes('last_seen_at');
             sessions.set(String(values[0]), {
               staffId: String(values[1]),
               credentialVersion: Number(values[2]),
-              kind: literal ? 'standard' : values[3] as 'bootstrap' | 'standard',
+              kind: literal ? 'standard' : (values[3] as 'bootstrap' | 'standard'),
               expiresAt: String(literal ? values[3] : values[4]),
               revokedAt: null,
+              lastSeenAt: hasActivity ? String(literal ? values[4] : values[5]) : null,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO staff_members') && sql.includes("'pharmacy_shared'")) {
+            shared = {
+              staff_id: String(values[0]),
+              name: String(values[1]),
+              is_active: 1,
+              role: 'admin',
+              membership_active: 1,
+              credential_version: 0,
+              auth_enabled: 0,
+              must_change_password: 1,
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO tenant_admin_credentials')) {
+            if (!shared) return { meta: { changes: 0 } };
+            shared.credential_version = 1;
+            shared.auth_enabled = 1;
+            shared.must_change_password = 1;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('UPDATE tenant_admin_credentials')) {
+            if (
+              !shared ||
+              shared.staff_id !== values[3] ||
+              shared.credential_version !== Number(values[5]) ||
+              shared.auth_enabled !== 1
+            ) {
+              return { meta: { changes: 0 } };
+            }
+            shared.credential_version += 1;
+            shared.must_change_password = 1;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO pharmacy_auth_audit_events')) {
+            authAuditEvents.push({
+              id: values[0],
+              actor_kind: 'platform_admin',
+              actor_staff_id: values[1],
+              target_tenant_id: values[2],
+              target_staff_id: values[3],
+              action: values[4],
+              outcome: 'success',
+              reason_code: values[5],
+              request_id: values[6],
+              created_at: values[7],
             });
             return { meta: { changes: 1 } };
           }
           if (sql.includes('INSERT INTO platform_admin_access_events')) {
             if (sql.includes('FROM platform_admin_access_grants')) {
               if (sql.includes("'support_mode_started'")) {
-                const grant = grants.find((candidate) =>
-                  candidate.id === values[3] && candidate.platform_admin_id === values[4] &&
-                  candidate.tenant_id === values[5] && candidate.session_token_hash === values[6] &&
-                  !candidate.revoked_at);
+                const grant = grants.find(
+                  (candidate) =>
+                    candidate.id === values[3] &&
+                    candidate.platform_admin_id === values[4] &&
+                    candidate.tenant_id === values[5] &&
+                    candidate.session_token_hash === values[6] &&
+                    !candidate.revoked_at,
+                );
                 if (!grant) return { meta: { changes: 0 } };
                 auditEvents.push({
                   id: values[0],
@@ -317,9 +501,13 @@ function fakeDb(): Store {
                 });
                 return { meta: { changes: 1 } };
               }
-              const grant = grants.find((candidate) =>
-                candidate.id === values[2] && candidate.platform_admin_id === values[3] &&
-                candidate.session_token_hash === values[4] && !candidate.revoked_at);
+              const grant = grants.find(
+                (candidate) =>
+                  candidate.id === values[2] &&
+                  candidate.platform_admin_id === values[3] &&
+                  candidate.session_token_hash === values[4] &&
+                  !candidate.revoked_at,
+              );
               if (!grant) return { meta: { changes: 0 } };
               auditEvents.push({
                 id: values[0],
@@ -346,6 +534,12 @@ function fakeDb(): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('UPDATE platform_admin_sessions')) {
+            if (sql.includes('SET last_seen_at = ?')) {
+              const session = sessions.get(String(values[1]));
+              if (!session || session.revokedAt) return { meta: { changes: 0 } };
+              session.lastSeenAt = String(values[0]);
+              return { meta: { changes: 1 } };
+            }
             let changes = 0;
             if (sql.includes('WHERE token_hash')) {
               const session = sessions.get(String(values[1]));
@@ -355,8 +549,11 @@ function fakeDb(): Store {
               }
             } else {
               for (const session of sessions.values()) {
-                if (session.staffId === values[1] && !session.revokedAt &&
-                    session.credentialVersion <= Number(values[2])) {
+                if (
+                  session.staffId === values[1] &&
+                  !session.revokedAt &&
+                  session.credentialVersion <= Number(values[2])
+                ) {
                   session.revokedAt = String(values[0]);
                   changes += 1;
                 }
@@ -382,10 +579,15 @@ function fakeDb(): Store {
             }
             if (sql.includes('FROM platform_admin_sessions AS current_session')) {
               const session = sessions.get(String(values[9]));
-              if (!session || session.staffId !== values[11] || session.revokedAt ||
-                  session.expiresAt <= String(values[12]) ||
-                  session.credentialVersion !== admin.credential_version ||
-                  !admin.is_active || !admin.staff_active) {
+              if (
+                !session ||
+                session.staffId !== values[11] ||
+                session.revokedAt ||
+                session.expiresAt <= String(values[12]) ||
+                session.credentialVersion !== admin.credential_version ||
+                !admin.is_active ||
+                !admin.staff_active
+              ) {
                 return { meta: { changes: 0 } };
               }
             }
@@ -407,28 +609,45 @@ function fakeDb(): Store {
             // endAccessGrant targets one grant; the change-password batch
             // revokes every active grant this admin holds.
             const targets = sql.includes('WHERE id = ?')
-              ? grants.filter((grant) => grant.id === values[2] &&
-                grant.platform_admin_id === values[3] &&
-                grant.session_token_hash === values[4] && !grant.revoked_at)
-              : grants.filter((grant) => grant.platform_admin_id === values[2] &&
-                (!sql.includes('session_token_hash') || grant.session_token_hash === values[3]) &&
-                !grant.revoked_at);
+              ? grants.filter(
+                  (grant) =>
+                    grant.id === values[2] &&
+                    grant.platform_admin_id === values[3] &&
+                    grant.session_token_hash === values[4] &&
+                    !grant.revoked_at,
+                )
+              : grants.filter(
+                  (grant) =>
+                    grant.platform_admin_id === values[2] &&
+                    (!sql.includes('session_token_hash') || grant.session_token_hash === values[3]) &&
+                    !grant.revoked_at,
+                );
             for (const grant of targets) grant.revoked_at = String(values[0]);
             return { meta: { changes: targets.length } };
           }
           if (sql.includes('UPDATE pharmacy_webhook_event_receipts')) {
-            const target = receipts.find((receipt) => receipt.tenant_id === values[0] &&
-              receipt.line_account_id === values[1] && receipt.webhook_event_id === values[2]);
+            const target = receipts.find(
+              (receipt) =>
+                receipt.tenant_id === values[0] &&
+                receipt.line_account_id === values[1] &&
+                receipt.webhook_event_id === values[2],
+            );
             if (!target) return { meta: { changes: 0 } };
             // The claim is only atomic if eligibility is re-checked by the
             // UPDATE itself; a WHERE without it matches whatever the row
             // became after the SELECT.
-            if (sql.includes("status = 'failed' OR dead_lettered_at IS NOT NULL") &&
-                target.status !== 'failed' && !target.dead_lettered_at) {
+            if (
+              sql.includes("status = 'failed' OR dead_lettered_at IS NOT NULL") &&
+              target.status !== 'failed' &&
+              !target.dead_lettered_at
+            ) {
               return { meta: { changes: 0 } };
             }
             Object.assign(target, {
-              status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
+              status: 'pending',
+              retry_count: 0,
+              dead_lettered_at: null,
+              lease_until: null,
             });
             if (sql.includes('claim_token = NULL')) target.claim_token = null;
             return { meta: { changes: 1 } };
@@ -458,10 +677,17 @@ function fakeDb(): Store {
   return {
     db: db as unknown as D1Database,
     auditEvents,
+    authAuditEvents,
     sessions,
     tenants: rows,
     grants,
     receipts,
+    get shared() {
+      return shared;
+    },
+    set shared(value: SharedPharmacyAccount | null) {
+      shared = value;
+    },
     staleReceiptRead(row: WebhookReceipt) {
       staleReceipt = row;
     },
@@ -495,15 +721,34 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
   };
 }
 
+function seedShared(store: Store, overrides: Partial<SharedPharmacyAccount> = {}): SharedPharmacyAccount {
+  const account: SharedPharmacyAccount = {
+    staff_id: 'shared-pharmacy-a',
+    name: 'Pharmacy A 共通管理者',
+    is_active: 1,
+    role: 'admin',
+    membership_active: 1,
+    credential_version: 3,
+    auth_enabled: 1,
+    must_change_password: 0,
+    ...overrides,
+  };
+  store.shared = account;
+  return account;
+}
+
 function app(): Hono<Env> {
   const instance = new Hono<Env>();
-  instance.use('*', cors({
-    origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
-    credentials: true,
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: CORS_ALLOW_HEADERS,
-    maxAge: 600,
-  }));
+  instance.use(
+    '*',
+    cors({
+      origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
+      credentials: true,
+      allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowHeaders: CORS_ALLOW_HEADERS,
+      maxAge: 600,
+    }),
+  );
   instance.use('/api/platform-admin/*', platformAdminAuthMiddleware);
   instance.route('/', platformAdminRoutes);
   return instance;
@@ -544,24 +789,28 @@ function loginRequest(password = 'Temporary pass 42', loginId = admin.login_id) 
 async function standardSession(testEnv: Env['Bindings']) {
   const login = await app().request('/api/platform-admin/login', loginRequest(), testEnv);
   const bootstrapCookie = cookieHeader(login);
-  const bootstrapCsrf = (await login.clone().json() as { csrfToken: string }).csrfToken;
-  const changed = await app().request('/api/platform-admin/change-password', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      cookie: bootstrapCookie,
-      'x-platform-admin-csrf-token': bootstrapCsrf,
+  const bootstrapCsrf = ((await login.clone().json()) as { csrfToken: string }).csrfToken;
+  const changed = await app().request(
+    '/api/platform-admin/change-password',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: bootstrapCookie,
+        'x-platform-admin-csrf-token': bootstrapCsrf,
+      },
+      body: JSON.stringify({
+        currentPassword: 'Temporary pass 42',
+        newPassword: 'Permanent password 84',
+      }),
     },
-    body: JSON.stringify({
-      currentPassword: 'Temporary pass 42',
-      newPassword: 'Permanent password 84',
-    }),
-  }, testEnv);
+    testEnv,
+  );
   expect(changed.status).toBe(200);
   const cookie = cookieHeader(changed);
   return {
     cookie,
-    csrf: (await changed.clone().json() as { csrfToken: string }).csrfToken,
+    csrf: ((await changed.clone().json()) as { csrfToken: string }).csrfToken,
     sessionHash: await sessionHash(cookie),
   };
 }
@@ -574,30 +823,30 @@ type Auth = { cookie: string; csrf: string; sessionHash: string };
  * which is exactly the "same admin, two browsers" shape a stolen cookie has.
  */
 async function secondSession(testEnv: Env['Bindings']): Promise<Auth> {
-  const login = await app().request(
-    '/api/platform-admin/login',
-    loginRequest('Permanent password 84'),
-    testEnv,
-  );
+  const login = await app().request('/api/platform-admin/login', loginRequest('Permanent password 84'), testEnv);
   expect(login.status).toBe(200);
   const cookie = cookieHeader(login);
   return {
     cookie,
-    csrf: (await login.json() as { csrfToken: string }).csrfToken,
+    csrf: ((await login.json()) as { csrfToken: string }).csrfToken,
     sessionHash: await sessionHash(cookie),
   };
 }
 
 function postAs(testEnv: Env['Bindings'], auth: Auth, path: string, body?: unknown) {
-  return app().request(path, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      cookie: auth.cookie,
-      'x-platform-admin-csrf-token': auth.csrf,
+  return app().request(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: auth.cookie,
+        'x-platform-admin-csrf-token': auth.csrf,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  }, testEnv);
+    testEnv,
+  );
 }
 
 /** Status of the PHI list route — the thing a support-mode grant gates. */
@@ -619,16 +868,42 @@ beforeEach(async () => {
   admin.staff_active = 1;
 });
 
+afterEach(() => vi.useRealTimers());
+
 describe('platform admin authentication', () => {
+  it('rejects browser login from unknown and LIFF origins without issuing a session', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db, { LIFF_ORIGIN: 'https://liff.example.test' });
+    for (const origin of ['https://evil.example.test', testEnv.LIFF_ORIGIN!]) {
+      const request = loginRequest();
+      const response = await app().request(
+        '/api/platform-admin/login',
+        {
+          ...request,
+          headers: { ...request.headers, Origin: origin },
+        },
+        testEnv,
+      );
+
+      expect(response.status).toBe(403);
+      expect(cookieValue(response, 'lh_platform_admin_session')).toBe('');
+    }
+    expect(store.sessions.size).toBe(0);
+  });
+
   it('rejects missing fields, unknown logins and wrong passwords alike', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
 
-    const missing = await app().request('/api/platform-admin/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ loginId: admin.login_id }),
-    }, testEnv);
+    const missing = await app().request(
+      '/api/platform-admin/login',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ loginId: admin.login_id }),
+      },
+      testEnv,
+    );
     expect(missing.status).toBe(400);
 
     const unknown = await app().request(
@@ -641,11 +916,7 @@ describe('platform admin authentication', () => {
     expect(store.auditEvents).toHaveLength(0);
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const wrong = await app().request(
-      '/api/platform-admin/login',
-      loginRequest('Wrong password 42'),
-      testEnv,
-    );
+    const wrong = await app().request('/api/platform-admin/login', loginRequest('Wrong password 42'), testEnv);
     expect(wrong.status).toBe(401);
     expect(cookieValue(wrong, 'lh_platform_admin_session')).toBe('');
     expect(store.auditEvents).toMatchObject([{ action: 'login_failed', tenant_id: null }]);
@@ -657,12 +928,44 @@ describe('platform admin authentication', () => {
     warn.mockRestore();
   });
 
+  it('keeps the fifth failed password attempt locked in D1 across later requests', async () => {
+    vi.useFakeTimers();
+    admin.must_change_password = 0;
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const base = Date.parse('2026-09-01T12:00:00.000Z');
+
+    for (const seconds of [0, 0, 1, 3, 7]) {
+      vi.setSystemTime(new Date(base + seconds * 1000));
+      expect(
+        (await app().request('/api/platform-admin/login', loginRequest('Wrong password 42'), testEnv)).status,
+      ).toBe(401);
+    }
+    vi.setSystemTime(new Date(base + 8_000));
+    expect((await app().request('/api/platform-admin/login', loginRequest(), testEnv)).status).toBe(401);
+    vi.setSystemTime(new Date(base + 907_000));
+    expect((await app().request('/api/platform-admin/login', loginRequest(), testEnv)).status).toBe(200);
+  });
+
+  it('fails closed without a session when durable throttle state is unavailable', async () => {
+    const store = fakeDb(true);
+    const response = await app().request('/api/platform-admin/login', loginRequest(), env(store.db));
+
+    expect(response.status).toBe(503);
+    expect(cookieValue(response, 'lh_platform_admin_session')).toBe('');
+    expect(store.sessions.size).toBe(0);
+  });
+
   it('refuses to log in when the cookie topology is misconfigured', async () => {
     const store = fakeDb();
-    const response = await app().request('/api/platform-admin/login', loginRequest(), env(store.db, {
-      ADMIN_ORIGIN: 'https://pharmacy-admin.pages.dev',
-      WORKER_URL: 'https://pharmacy-api.workers.dev',
-    }));
+    const response = await app().request(
+      '/api/platform-admin/login',
+      loginRequest(),
+      env(store.db, {
+        ADMIN_ORIGIN: 'https://pharmacy-admin.pages.dev',
+        WORKER_URL: 'https://pharmacy-api.workers.dev',
+      }),
+    );
     expect(response.status).toBe(500);
     expect(cookieValue(response, 'lh_platform_admin_session')).toBe('');
   });
@@ -709,17 +1012,20 @@ describe('platform admin authentication', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const request = loginRequest();
-    const response = await app().request('/api/platform-admin/login', {
-      ...request,
-      headers: { ...request.headers, Origin: testEnv.ADMIN_ORIGIN! },
-    }, testEnv);
+    const response = await app().request(
+      '/api/platform-admin/login',
+      {
+        ...request,
+        headers: { ...request.headers, Origin: testEnv.ADMIN_ORIGIN! },
+      },
+      testEnv,
+    );
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(testEnv.ADMIN_ORIGIN);
     expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
 
-    const authCookie = cookies(response).find((value) =>
-      value.startsWith(`${PLATFORM_ADMIN_AUTH_COOKIE}=`));
+    const authCookie = cookies(response).find((value) => value.startsWith(`${PLATFORM_ADMIN_AUTH_COOKIE}=`));
     expect(authCookie).toEqual(expect.stringContaining('Path=/api/platform-admin'));
     expect(authCookie).toEqual(expect.stringContaining('HttpOnly'));
     expect(authCookie).toEqual(expect.stringContaining('Secure'));
@@ -739,18 +1045,30 @@ describe('platform admin authentication', () => {
     const testEnv = env(store.db);
     const { cookie, csrf } = await standardSession(testEnv);
 
-    const missing = await app().request('/api/platform-admin/tenants/tenant-a', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ status: 'suspended' }),
-    }, testEnv);
+    const missing = await app().request(
+      '/api/platform-admin/tenants/tenant-a',
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({ status: 'suspended' }),
+      },
+      testEnv,
+    );
     expect(missing.status).toBe(403);
 
-    const allowed = await app().request('/api/platform-admin/tenants/tenant-a', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json', cookie, 'x-platform-admin-csrf-token': csrf },
-      body: JSON.stringify({ status: 'suspended' }),
-    }, testEnv);
+    const allowed = await app().request(
+      '/api/platform-admin/tenants/tenant-a',
+      {
+        method: 'PATCH',
+        headers: {
+          'content-type': 'application/json',
+          cookie,
+          'x-platform-admin-csrf-token': csrf,
+        },
+        body: JSON.stringify({ status: 'suspended' }),
+      },
+      testEnv,
+    );
     expect(allowed.status).toBe(200);
   });
 
@@ -759,28 +1077,53 @@ describe('platform admin authentication', () => {
     const testEnv = env(store.db);
     const login = await app().request('/api/platform-admin/login', loginRequest(), testEnv);
     const oldCookie = cookieHeader(login);
-    const csrf = (await login.clone().json() as { csrfToken: string }).csrfToken;
+    const csrf = ((await login.clone().json()) as { csrfToken: string }).csrfToken;
 
-    const wrongCurrent = await app().request('/api/platform-admin/change-password', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: oldCookie, 'x-platform-admin-csrf-token': csrf },
-      body: JSON.stringify({ currentPassword: 'Nope nope nope', newPassword: 'Permanent password 84' }),
-    }, testEnv);
+    const wrongCurrent = await app().request(
+      '/api/platform-admin/change-password',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: oldCookie,
+          'x-platform-admin-csrf-token': csrf,
+        },
+        body: JSON.stringify({
+          currentPassword: 'Nope nope nope',
+          newPassword: 'Permanent password 84',
+        }),
+      },
+      testEnv,
+    );
     expect(wrongCurrent.status).toBe(401);
 
-    const changed = await app().request('/api/platform-admin/change-password', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: oldCookie, 'x-platform-admin-csrf-token': csrf },
-      body: JSON.stringify({ currentPassword: 'Temporary pass 42', newPassword: 'Permanent password 84' }),
-    }, testEnv);
+    const changed = await app().request(
+      '/api/platform-admin/change-password',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: oldCookie,
+          'x-platform-admin-csrf-token': csrf,
+        },
+        body: JSON.stringify({
+          currentPassword: 'Temporary pass 42',
+          newPassword: 'Permanent password 84',
+        }),
+      },
+      testEnv,
+    );
     expect(changed.status).toBe(200);
     expect(admin.credential_version).toBe(2);
     expect(admin.must_change_password).toBe(0);
 
-    expect((await app().request('/api/platform-admin/session', { headers: { cookie: oldCookie } }, testEnv)).status)
-      .toBe(401);
-    expect((await app().request('/api/platform-admin/tenants', { headers: { cookie: cookieHeader(changed) } }, testEnv)).status)
-      .toBe(200);
+    expect(
+      (await app().request('/api/platform-admin/session', { headers: { cookie: oldCookie } }, testEnv)).status,
+    ).toBe(401);
+    expect(
+      (await app().request('/api/platform-admin/tenants', { headers: { cookie: cookieHeader(changed) } }, testEnv))
+        .status,
+    ).toBe(200);
   });
 
   it('revokes the session on logout', async () => {
@@ -788,10 +1131,14 @@ describe('platform admin authentication', () => {
     const testEnv = env(store.db);
     const { cookie, csrf } = await standardSession(testEnv);
 
-    const logout = await app().request('/api/platform-admin/logout', {
-      method: 'POST',
-      headers: { cookie, 'x-platform-admin-csrf-token': csrf },
-    }, testEnv);
+    const logout = await app().request(
+      '/api/platform-admin/logout',
+      {
+        method: 'POST',
+        headers: { cookie, 'x-platform-admin-csrf-token': csrf },
+      },
+      testEnv,
+    );
     expect(logout.status).toBe(200);
     expect((await app().request('/api/platform-admin/session', { headers: { cookie } }, testEnv)).status).toBe(401);
   });
@@ -829,6 +1176,83 @@ describe('platform admin authentication', () => {
   });
 });
 
+describe('shared pharmacy login management', () => {
+  it('issues one pharmacy-code credential and exposes only safe audit fields', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+
+    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue');
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      data: {
+        pharmacyCode: string;
+        staffId: string;
+        temporaryPassword: string;
+        mustChangePassword: boolean;
+      };
+    };
+    expect(body.data).toMatchObject({
+      pharmacyCode: 'pharmacy-a',
+      mustChangePassword: true,
+    });
+    expect(body.data.staffId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(body.data.temporaryPassword).toEqual(expect.any(String));
+    expect(store.shared).toMatchObject({
+      auth_enabled: 1,
+      credential_version: 1,
+    });
+    expect(store.shared?.staff_id).toBe(body.data.staffId);
+    expect(store.authAuditEvents.at(-1)).toMatchObject({
+      action: 'shared_login_issue',
+      outcome: 'success',
+      target_tenant_id: 'tenant-a',
+      target_staff_id: body.data.staffId,
+    });
+    expect(JSON.stringify(store.authAuditEvents)).not.toContain(body.data.temporaryPassword);
+
+    const logs = await app().request(
+      '/api/platform-admin/logs?type=pharmacy_auth',
+      {
+        headers: { cookie: auth.cookie },
+      },
+      testEnv,
+    );
+    expect(logs.status).toBe(200);
+    const logBody = (await logs.json()) as {
+      data: { pharmacyAuth: Array<Record<string, unknown>> };
+    };
+    expect(logBody.data.pharmacyAuth[0]).toMatchObject({
+      action: 'shared_login_issue',
+      outcome: 'success',
+    });
+    expect(JSON.stringify(logBody)).not.toContain(body.data.temporaryPassword);
+
+    const duplicate = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue');
+    expect(duplicate.status).toBe(409);
+  });
+
+  it('resets the shared password with a versioned credential update and audit', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    seedShared(store);
+
+    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/reset-password');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      data: { pharmacyCode: string; temporaryPassword: string; mustChangePassword: boolean };
+    };
+    expect(body.data).toMatchObject({ pharmacyCode: 'pharmacy-a', mustChangePassword: true });
+    expect(body.data.temporaryPassword).toEqual(expect.any(String));
+    expect(store.shared).toMatchObject({ credential_version: 4, must_change_password: 1 });
+    expect(store.authAuditEvents.at(-1)).toMatchObject({
+      action: 'shared_login_reset',
+      outcome: 'success',
+    });
+  });
+});
+
 describe('platform admin cross-tenant access', () => {
   it('lists fleet health without projecting patient counts', async () => {
     const store = fakeDb();
@@ -837,13 +1261,18 @@ describe('platform admin cross-tenant access', () => {
 
     const response = await app().request('/api/platform-admin/tenants', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
-    const body = await response.json() as { data: Array<Record<string, unknown>> };
+    const body = (await response.json()) as { data: Array<Record<string, unknown>> };
     expect(body).toMatchObject({
       success: true,
       data: [
         {
-          id: 'tenant-a', tenantCode: 'pharmacy-a', status: 'active',
-          staffCount: 2, lineAccountCount: 1, webhookFailureCount: 1, lineConfigIssueCount: 0,
+          id: 'tenant-a',
+          tenantCode: 'pharmacy-a',
+          status: 'active',
+          staffCount: 2,
+          lineAccountCount: 1,
+          webhookFailureCount: 1,
+          lineConfigIssueCount: 0,
         },
         { id: 'tenant-b', status: 'suspended' },
       ],
@@ -867,7 +1296,10 @@ describe('platform admin cross-tenant access', () => {
         lineAccounts: [{ id: 'account-a', name: 'Account A' }],
       },
     });
-    expect(store.auditEvents.at(-1)).toMatchObject({ action: 'view_tenant', tenant_id: 'tenant-a' });
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'view_tenant',
+      tenant_id: 'tenant-a',
+    });
 
     const missing = await app().request('/api/platform-admin/tenants/tenant-zz', { headers: { cookie } }, testEnv);
     expect(missing.status).toBe(404);
@@ -877,17 +1309,30 @@ describe('platform admin cross-tenant access', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const { cookie, csrf } = await standardSession(testEnv);
-    const patch = (body: unknown) => app().request('/api/platform-admin/tenants/tenant-a', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json', cookie, 'x-platform-admin-csrf-token': csrf },
-      body: JSON.stringify(body),
-    }, testEnv);
+    const patch = (body: unknown) =>
+      app().request(
+        '/api/platform-admin/tenants/tenant-a',
+        {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            cookie,
+            'x-platform-admin-csrf-token': csrf,
+          },
+          body: JSON.stringify(body),
+        },
+        testEnv,
+      );
 
     expect((await patch({ tenantCode: 'renamed' })).status).toBe(400);
     expect((await patch({ status: 'deleted' })).status).toBe(400);
     expect((await patch({ displayName: '' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
-    expect(store.tenants[0]).toMatchObject({ tenant_code: 'pharmacy-a', display_name: 'Pharmacy A', status: 'active' });
+    expect(store.tenants[0]).toMatchObject({
+      tenant_code: 'pharmacy-a',
+      display_name: 'Pharmacy A',
+      status: 'active',
+    });
 
     const ok = await patch({ displayName: 'Pharmacy A2', status: 'suspended' });
     expect(ok.status).toBe(200);
@@ -911,12 +1356,19 @@ describe('platform admin cross-tenant access', () => {
     // PHI needs an active support-mode grant, not just a session.
     seedGrant(store, auth.sessionHash);
 
-    const response = await app().request('/api/platform-admin/tenants/tenant-a/patients', { headers: { cookie: auth.cookie } }, testEnv);
+    const response = await app().request(
+      '/api/platform-admin/tenants/tenant-a/patients',
+      { headers: { cookie: auth.cookie } },
+      testEnv,
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       data: [{ lineAccountId: 'account-a', id: 'patient-1' }],
     });
-    expect(store.auditEvents.at(-1)).toMatchObject({ action: 'list_patients', tenant_id: 'tenant-a' });
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'list_patients',
+      tenant_id: 'tenant-a',
+    });
   });
 
   it('assembles patient detail from the existing admin repositories, filtered to that patient', async () => {
@@ -940,11 +1392,13 @@ describe('platform admin cross-tenant access', () => {
         mynaHandoffs: [{ id: 'myna-1' }],
       },
     });
-    const body = await (await app().request(
-      '/api/platform-admin/tenants/tenant-a/patients/patient-1',
-      { headers: { cookie: auth.cookie } },
-      testEnv,
-    )).json() as { data: { nextIntakeExpectations: unknown[]; mynaHandoffs: unknown[] } };
+    const body = (await (
+      await app().request(
+        '/api/platform-admin/tenants/tenant-a/patients/patient-1',
+        { headers: { cookie: auth.cookie } },
+        testEnv,
+      )
+    ).json()) as { data: { nextIntakeExpectations: unknown[]; mynaHandoffs: unknown[] } };
     expect(body.data.nextIntakeExpectations).toHaveLength(1);
     expect(body.data.mynaHandoffs).toHaveLength(1);
     expect(store.auditEvents.at(-1)).toMatchObject({
@@ -990,10 +1444,16 @@ describe('platform admin cross-tenant access', () => {
       },
     });
 
-    const single = await app().request('/api/platform-admin/logs?type=webhook_receipts&limit=999', { headers: { cookie } }, testEnv);
-    const body = await single.json() as { data: Record<string, unknown> };
+    const single = await app().request(
+      '/api/platform-admin/logs?type=webhook_receipts&limit=999',
+      { headers: { cookie } },
+      testEnv,
+    );
+    const body = (await single.json()) as { data: Record<string, unknown> };
     expect(Object.keys(body.data)).toEqual(['webhookReceipts']);
-    expect((await app().request('/api/platform-admin/logs?type=nope', { headers: { cookie } }, testEnv)).status).toBe(400);
+    expect((await app().request('/api/platform-admin/logs?type=nope', { headers: { cookie } }, testEnv)).status).toBe(
+      400,
+    );
     expect(store.auditEvents.filter((event) => event.action === 'view_logs')).toHaveLength(2);
   });
 
@@ -1023,14 +1483,18 @@ describe('platform admin cross-tenant access', () => {
       created_at: '2026-08-24T00:00:00.000Z',
     });
 
-    const audit = await (await app().request(
-      '/api/platform-admin/audit', { headers: { cookie } }, testEnv,
-    )).json() as { data: Array<Record<string, unknown>> };
-    const logs = await (await app().request(
-      '/api/platform-admin/logs?type=platform_admin_access', { headers: { cookie } }, testEnv,
-    )).json() as { data: { platformAdminAccess: Array<Record<string, unknown>> } };
+    const audit = (await (
+      await app().request('/api/platform-admin/audit', { headers: { cookie } }, testEnv)
+    ).json()) as { data: Array<Record<string, unknown>> };
+    const logs = (await (
+      await app().request('/api/platform-admin/logs?type=platform_admin_access', { headers: { cookie } }, testEnv)
+    ).json()) as { data: { platformAdminAccess: Array<Record<string, unknown>> } };
     for (const event of [audit.data[0], logs.data.platformAdminAccess[0]]) {
-      expect(event).toMatchObject({ resource_type: 'patient', resource_id: null, detail_json: null });
+      expect(event).toMatchObject({
+        resource_type: 'patient',
+        resource_id: null,
+        detail_json: null,
+      });
     }
   });
 });
@@ -1061,7 +1525,19 @@ describe('platform admin audit coverage', () => {
       body: { currentPassword: 'Permanent password 84', newPassword: 'Third password 126' },
     },
     'GET /api/platform-admin/tenants': { path: '/api/platform-admin/tenants', method: 'GET' },
-    'GET /api/platform-admin/tenants/:id': { path: '/api/platform-admin/tenants/tenant-a', method: 'GET' },
+    'GET /api/platform-admin/tenants/:id': {
+      path: '/api/platform-admin/tenants/tenant-a',
+      method: 'GET',
+    },
+    'POST /api/platform-admin/tenants/:id/shared-login/issue': {
+      path: '/api/platform-admin/tenants/tenant-a/shared-login/issue',
+      method: 'POST',
+      status: 201,
+    },
+    'POST /api/platform-admin/tenants/:id/shared-login/reset-password': {
+      path: '/api/platform-admin/tenants/tenant-a/shared-login/reset-password',
+      method: 'POST',
+    },
     'PATCH /api/platform-admin/tenants/:id': {
       path: '/api/platform-admin/tenants/tenant-a',
       method: 'PATCH',
@@ -1114,23 +1590,30 @@ describe('platform admin audit coverage', () => {
     const testEnv = env(store.db);
     const isLogin = fixture.path === '/api/platform-admin/login';
     const auth = isLogin ? { cookie: '', csrf: '', sessionHash: '' } : await standardSession(testEnv);
+    if (fixture.path.endsWith('/shared-login/reset-password')) seedShared(store);
     // Support mode is on: the PHI fixtures need it, and the grant-end fixture
     // needs a grant to end. Seeded after standardSession, whose password change
     // deliberately revokes every open grant.
     if (!isLogin) seedGrant(store, auth.sessionHash);
     const before = store.auditEvents.length;
 
-    const response = await app().request(fixture.path, {
-      method: fixture.method,
-      headers: {
-        'content-type': 'application/json',
-        ...(auth.cookie ? { cookie: auth.cookie } : {}),
-        ...(auth.csrf ? { 'x-platform-admin-csrf-token': auth.csrf } : {}),
+    const response = await app().request(
+      fixture.path,
+      {
+        method: fixture.method,
+        headers: {
+          'content-type': 'application/json',
+          ...(auth.cookie ? { cookie: auth.cookie } : {}),
+          ...(auth.csrf ? { 'x-platform-admin-csrf-token': auth.csrf } : {}),
+        },
+        body: isLogin
+          ? JSON.stringify({ loginId: admin.login_id, password: 'Temporary pass 42' })
+          : fixture.body === undefined
+            ? undefined
+            : JSON.stringify(fixture.body),
       },
-      body: isLogin
-        ? JSON.stringify({ loginId: admin.login_id, password: 'Temporary pass 42' })
-        : fixture.body === undefined ? undefined : JSON.stringify(fixture.body),
-    }, testEnv);
+      testEnv,
+    );
 
     expect(response.status).toBe(fixture.status ?? 200);
     expect(store.auditEvents.length).toBeGreaterThan(before);
@@ -1153,7 +1636,8 @@ describe('platform admin support-mode grants', () => {
     const auth = await standardSession(testEnv);
 
     const wrong = await startGrant(testEnv, auth, 'tenant-a', {
-      ...GRANT_BODY, currentPassword: 'Not my password 99',
+      ...GRANT_BODY,
+      currentPassword: 'Not my password 99',
     });
     expect(wrong.status).toBe(403);
     expect(store.grants).toHaveLength(0);
@@ -1205,7 +1689,7 @@ describe('platform admin support-mode grants', () => {
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
     const created = await startGrant(testEnv, auth);
-    const grantId = (await created.json() as { data: { id: string } }).data.id;
+    const grantId = ((await created.json()) as { data: { id: string } }).data.id;
     expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
 
     const active = await app().request(
@@ -1220,15 +1704,15 @@ describe('platform admin support-mode grants', () => {
     expect(store.grants[0].revoked_at).not.toBeNull();
     expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
     expect(store.auditEvents.at(-1)).toMatchObject({
-      action: 'support_mode_ended', resource_type: 'access_grant', resource_id: grantId,
+      action: 'support_mode_ended',
+      resource_type: 'access_grant',
+      resource_id: grantId,
     });
 
     const auditCount = store.auditEvents.length;
     // Invalid end requests are neither revocations nor audit events.
-    expect((await postAs(testEnv, auth, `/api/platform-admin/support-grants/${grantId}/end`)).status)
-      .toBe(404);
-    expect((await postAs(testEnv, auth, '/api/platform-admin/support-grants/missing/end')).status)
-      .toBe(404);
+    expect((await postAs(testEnv, auth, `/api/platform-admin/support-grants/${grantId}/end`)).status).toBe(404);
+    expect((await postAs(testEnv, auth, '/api/platform-admin/support-grants/missing/end')).status).toBe(404);
     expect(store.auditEvents).toHaveLength(auditCount);
   });
 
@@ -1256,7 +1740,7 @@ describe('platform admin support-mode grants', () => {
 
     const created = await startGrant(testEnv, sessionA);
     expect(created.status).toBe(201);
-    const grantId = (await created.json() as { data: { id: string } }).data.id;
+    const grantId = ((await created.json()) as { data: { id: string } }).data.id;
     expect(store.grants[0].session_token_hash).toEqual(expect.any(String));
 
     expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
@@ -1264,27 +1748,33 @@ describe('platform admin support-mode grants', () => {
     // break-glass access another browser re-authenticated for.
     expect(await patientsStatus(testEnv, sessionB.cookie, 'tenant-a')).toBe(403);
 
-    const activeA = await app().request('/api/platform-admin/support-grants/active', {
-      headers: { cookie: sessionA.cookie },
-    }, testEnv);
-    const activeB = await app().request('/api/platform-admin/support-grants/active', {
-      headers: { cookie: sessionB.cookie },
-    }, testEnv);
+    const activeA = await app().request(
+      '/api/platform-admin/support-grants/active',
+      {
+        headers: { cookie: sessionA.cookie },
+      },
+      testEnv,
+    );
+    const activeB = await app().request(
+      '/api/platform-admin/support-grants/active',
+      {
+        headers: { cookie: sessionB.cookie },
+      },
+      testEnv,
+    );
     await expect(activeA.json()).resolves.toMatchObject({ data: [{ id: grantId }] });
     await expect(activeB.json()).resolves.toMatchObject({ data: [] });
 
     const auditCount = store.auditEvents.length;
-    expect((await postAs(
-      testEnv, sessionB, `/api/platform-admin/support-grants/${grantId}/end`,
-    )).status).toBe(404);
+    expect((await postAs(testEnv, sessionB, `/api/platform-admin/support-grants/${grantId}/end`)).status).toBe(404);
     expect(store.auditEvents).toHaveLength(auditCount);
     expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
 
-    expect((await postAs(
-      testEnv, sessionA, `/api/platform-admin/support-grants/${grantId}/end`,
-    )).status).toBe(200);
+    expect((await postAs(testEnv, sessionA, `/api/platform-admin/support-grants/${grantId}/end`)).status).toBe(200);
     expect(store.auditEvents.at(-1)).toMatchObject({
-      tenant_id: 'tenant-a', action: 'support_mode_ended', resource_id: grantId,
+      tenant_id: 'tenant-a',
+      action: 'support_mode_ended',
+      resource_id: grantId,
     });
   });
 
@@ -1334,7 +1824,9 @@ describe('platform admin tenant operations', () => {
     expect(store.tenants[0].outbound_messaging_paused_at).toEqual(expect.any(String));
     expect(store.tenants[1].outbound_messaging_paused_at).toBeNull();
     expect(store.auditEvents.at(-1)).toMatchObject({
-      action: 'pause_outbound_messaging', tenant_id: 'tenant-a', resource_id: 'tenant-a',
+      action: 'pause_outbound_messaging',
+      tenant_id: 'tenant-a',
+      resource_id: 'tenant-a',
     });
 
     const resumed = await postAs(testEnv, auth, path, { paused: false });
@@ -1351,12 +1843,21 @@ describe('platform admin tenant operations', () => {
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
 
-    expect((await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/outbound-messaging',
-      { paused: 'yes' })).status).toBe(400);
-    expect((await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-zz/outbound-messaging',
-      { paused: true })).status).toBe(404);
-    expect(store.auditEvents.some((event) =>
-      String(event.action).endsWith('_outbound_messaging'))).toBe(false);
+    expect(
+      (
+        await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/outbound-messaging', {
+          paused: 'yes',
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-zz/outbound-messaging', {
+          paused: true,
+        })
+      ).status,
+    ).toBe(404);
+    expect(store.auditEvents.some((event) => String(event.action).endsWith('_outbound_messaging'))).toBe(false);
   });
 
   it('retries a failed webhook event through the shared inbox runner', async () => {
@@ -1364,21 +1865,24 @@ describe('platform admin tenant operations', () => {
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
 
-    const response = await postAs(
-      testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry',
-    );
+    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry');
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       data: { webhookEventId: 'wh-failed', outcome: 'completed' },
     });
     // The row is handed to the runner reset, not deleted and not re-inserted.
     expect(store.receipts[0]).toMatchObject({
-      status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
+      status: 'pending',
+      retry_count: 0,
+      dead_lettered_at: null,
+      lease_until: null,
       claim_token: null,
     });
     expect(webhookRetry).toHaveBeenCalledOnce();
     expect(webhookRetry.mock.calls[0][1]).toMatchObject({
-      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-failed',
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      webhook_event_id: 'wh-failed',
     });
     expect(store.auditEvents.at(-1)).toMatchObject({
       action: 'retry_webhook_event',
@@ -1392,9 +1896,8 @@ describe('platform admin tenant operations', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
-    const retry = (tenantId: string, eventId: string) => postAs(
-      testEnv, auth, `/api/platform-admin/tenants/${tenantId}/webhook-events/${eventId}/retry`,
-    );
+    const retry = (tenantId: string, eventId: string) =>
+      postAs(testEnv, auth, `/api/platform-admin/tenants/${tenantId}/webhook-events/${eventId}/retry`);
 
     // The cron sweep still owns completed rows; replaying one repeats side effects.
     expect((await retry('tenant-a', 'wh-done')).status).toBe(400);
@@ -1406,16 +1909,18 @@ describe('platform admin tenant operations', () => {
 
     // Dead-lettered rows are exactly what manual retry exists for.
     expect((await retry('tenant-b', 'wh-other-tenant')).status).toBe(200);
-    expect(store.receipts[2]).toMatchObject({ status: 'pending', dead_lettered_at: null, retry_count: 0 });
+    expect(store.receipts[2]).toMatchObject({
+      status: 'pending',
+      dead_lettered_at: null,
+      retry_count: 0,
+    });
   });
 
   it('409s a duplicate retry instead of stealing the winner lease', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
-    const retry = () => postAs(
-      testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry',
-    );
+    const retry = () => postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry');
     const eligible = { ...store.receipts[0] };
 
     expect((await retry()).status).toBe(200);

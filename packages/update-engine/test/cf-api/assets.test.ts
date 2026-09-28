@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  hashWorkerAsset,
-  uploadWorkerAssets,
-} from '../../src/cf-api/assets.js';
+import { hashWorkerAsset, uploadWorkerAssets } from '../../src/cf-api/assets.js';
 
 const creds = { accountId: 'acc', apiToken: 'token' };
 
@@ -19,9 +16,7 @@ describe('Workers Assets upload', () => {
   });
 
   it('matches Wrangler asset hashing', () => {
-    expect(hashWorkerAsset('index.html', Buffer.from('hello'))).toBe(
-      'a2b82584e50075886b08927390f2f573',
-    );
+    expect(hashWorkerAsset('index.html', Buffer.from('hello'))).toBe('a2b82584e50075886b08927390f2f573');
   });
 
   it('returns the session JWT when every asset is already uploaded', async () => {
@@ -70,11 +65,7 @@ describe('Workers Assets upload', () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(Object.keys(body.manifest).sort()).toEqual([
-      '/assets/app.css',
-      '/assets/app.js',
-      '/index.html',
-    ]);
+    expect(Object.keys(body.manifest).sort()).toEqual(['/assets/app.css', '/assets/app.js', '/index.html']);
   });
 
   it('uploads requested hashes as base64 and returns the completion JWT', async () => {
@@ -102,9 +93,7 @@ describe('Workers Assets upload', () => {
 
     const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toContain('/workers/assets/upload?base64=true');
-    expect((init.headers as Record<string, string>).Authorization).toBe(
-      'Bearer session-jwt',
-    );
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer session-jwt');
     const form = init.body as FormData;
     const uploaded = form.get(hash) as Blob;
     expect(await uploaded.text()).toBe(Buffer.from('hello').toString('base64'));

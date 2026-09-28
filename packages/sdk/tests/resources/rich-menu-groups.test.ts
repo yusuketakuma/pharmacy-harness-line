@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { RichMenuGroupsResource } from '../../src/resources/rich-menu-groups.js'
-import type { HttpClient } from '../../src/http.js'
+import { describe, expect, it, vi } from 'vitest';
+import { RichMenuGroupsResource } from '../../src/resources/rich-menu-groups.js';
+import type { HttpClient } from '../../src/http.js';
 
 function mockHttp(overrides: Partial<HttpClient> = {}): HttpClient {
   return {
@@ -11,7 +11,7 @@ function mockHttp(overrides: Partial<HttpClient> = {}): HttpClient {
     delete: vi.fn(),
     postBinary: vi.fn(),
     ...overrides,
-  } as unknown as HttpClient
+  } as unknown as HttpClient;
 }
 
 describe('RichMenuGroupsResource', () => {
@@ -28,15 +28,15 @@ describe('RichMenuGroupsResource', () => {
       status: 'draft' as const,
       publishingAt: null,
       pages: [],
-    }
+    };
     const http = mockHttp({
       get: vi.fn().mockResolvedValue({ success: true, data: [group] }),
-    })
-    const resource = new RichMenuGroupsResource(http, 'account-a')
+    });
+    const resource = new RichMenuGroupsResource(http, 'account-a');
 
-    await expect(resource.list()).resolves.toEqual([group])
-    expect(http.get).toHaveBeenCalledWith('/api/rich-menu-groups?accountId=account-a')
-  })
+    await expect(resource.list()).resolves.toEqual([group]);
+    expect(http.get).toHaveBeenCalledWith('/api/rich-menu-groups?accountId=account-a');
+  });
 
   it('requires explicit confirmation for live operations and exposes dry-run payloads', async () => {
     const http = mockHttp({
@@ -44,17 +44,19 @@ describe('RichMenuGroupsResource', () => {
         success: true,
         data: { dryRun: true, confirmationToken: 'confirm-1', affected: 0 },
       }),
-    })
-    const resource = new RichMenuGroupsResource(http, 'account-a')
+    });
+    const resource = new RichMenuGroupsResource(http, 'account-a');
 
-    await expect(resource.applyToTag('group-1', {
+    await expect(
+      resource.applyToTag('group-1', {
+        mode: 'set-default',
+        dryRun: true,
+      }),
+    ).resolves.toMatchObject({ dryRun: true });
+
+    expect(http.post).toHaveBeenCalledWith('/api/rich-menu-groups/group-1/apply-to-tag?accountId=account-a', {
       mode: 'set-default',
       dryRun: true,
-    })).resolves.toMatchObject({ dryRun: true })
-
-    expect(http.post).toHaveBeenCalledWith(
-      '/api/rich-menu-groups/group-1/apply-to-tag?accountId=account-a',
-      { mode: 'set-default', dryRun: true },
-    )
-  })
-})
+    });
+  });
+});

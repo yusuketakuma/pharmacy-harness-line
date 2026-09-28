@@ -75,9 +75,7 @@ function makeDbStub(firstResult: unknown = null): D1Database {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn((...params: unknown[]) => ({
         params,
-        first: vi.fn().mockResolvedValue(
-          sql.includes('pharmacy_account_capabilities') ? null : firstResult,
-        ),
+        first: vi.fn().mockResolvedValue(sql.includes('pharmacy_account_capabilities') ? null : firstResult),
         run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       })),
     })),
@@ -88,13 +86,15 @@ function makePharmacyDbStub(): D1Database {
   return {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn(() => ({
-        first: vi.fn().mockResolvedValue(
-          sql.includes('SELECT mode FROM pharmacy_account_capabilities')
-            ? { mode: 'pharmacy' }
-            : sql.includes('pharmacy_account_capabilities')
-              ? { pharmacy_install: 1 }
-              : null,
-        ),
+        first: vi
+          .fn()
+          .mockResolvedValue(
+            sql.includes('SELECT mode FROM pharmacy_account_capabilities')
+              ? { mode: 'pharmacy' }
+              : sql.includes('pharmacy_account_capabilities')
+                ? { pharmacy_install: 1 }
+                : null,
+          ),
         run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       })),
     })),
@@ -106,15 +106,14 @@ function auditWrites(db: D1Database): unknown[][] {
   const prepare = (db as unknown as { prepare: ReturnType<typeof vi.fn> }).prepare;
   return prepare.mock.calls.flatMap((call: unknown[], index: number): unknown[][] =>
     String(call[0]).includes('INSERT INTO tenant_admin_audit_events')
-      ? (prepare.mock.results[index].value as { bind: ReturnType<typeof vi.fn> }).bind.mock.results
-        .map((result) => (result.value as { params: unknown[] }).params)
-      : []);
+      ? (prepare.mock.results[index].value as { bind: ReturnType<typeof vi.fn> }).bind.mock.results.map(
+          (result) => (result.value as { params: unknown[] }).params,
+        )
+      : [],
+  );
 }
 
-function setupApp(
-  role: 'owner' | 'admin' | 'staff' = 'owner',
-  dbStub: D1Database = makeDbStub(),
-) {
+function setupApp(role: 'owner' | 'admin' | 'staff' = 'owner', dbStub: D1Database = makeDbStub()) {
   const app = new Hono<TestEnv>();
   app.use('*', async (c, next) => {
     c.set('staff', { id: 'test-staff', role });
@@ -195,9 +194,7 @@ describe('POST /api/line-accounts/:id/connect', () => {
 
   test('owner verifies one tenant account, stores its bot identity, and configures the shared webhook', async () => {
     dbMocks.getLineAccountByIdForTenant.mockResolvedValue(fakeAccount);
-    lineClientMocks.request
-      .mockResolvedValueOnce({ data: { userId: 'U123' } })
-      .mockResolvedValueOnce({ data: {} });
+    lineClientMocks.request.mockResolvedValueOnce({ data: { userId: 'U123' } }).mockResolvedValueOnce({ data: {} });
     const { db, statements, batch } = connectionDb();
 
     const res = await setupApp('owner', db).request('/api/line-accounts/acc-1/connect', {
@@ -206,23 +203,22 @@ describe('POST /api/line-accounts/:id/connect', () => {
 
     expect(res.status).toBe(200);
     expect(dbMocks.getLineAccountByIdForTenant).toHaveBeenCalledWith(db, 'tenant-a', 'acc-1');
-    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
-      db,
-      'synthetic-line-credential-root-v1',
-      { tenantId: 'tenant-a', lineAccountId: 'acc-1', kind: 'channel_access_token' },
-    );
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(db, 'synthetic-line-credential-root-v1', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      kind: 'channel_access_token',
+    });
     expect(lineClientMocks.request).toHaveBeenNthCalledWith(1, 'GET', '/v2/bot/info');
-    expect(lineClientMocks.request).toHaveBeenNthCalledWith(
-      2,
-      'PUT',
-      '/v2/bot/channel/webhook/endpoint',
-      { endpoint: 'https://api.example.test/webhook' },
-    );
+    expect(lineClientMocks.request).toHaveBeenNthCalledWith(2, 'PUT', '/v2/bot/channel/webhook/endpoint', {
+      endpoint: 'https://api.example.test/webhook',
+    });
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(statements.map(({ sql }) => sql)).toEqual(expect.arrayContaining([
-      expect.stringContaining('pharmacy_line_channel_identities'),
-      expect.stringContaining('pharmacy_growth_events'),
-    ]));
+    expect(statements.map(({ sql }) => sql)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('pharmacy_line_channel_identities'),
+        expect.stringContaining('pharmacy_growth_events'),
+      ]),
+    );
     await expect(res.json()).resolves.toMatchObject({
       success: true,
       data: {
@@ -321,9 +317,7 @@ describe('POST /api/line-accounts/:id/connect', () => {
 
 describe('GET /api/line-accounts', () => {
   test('counts the current month from JST midnight at the UTC month boundary', () => {
-    expect(monthStartJst(new Date('2026-08-31T15:30:00.000Z'))).toBe(
-      '2026-09-01T00:00:00.000',
-    );
+    expect(monthStartJst(new Date('2026-08-31T15:30:00.000Z'))).toBe('2026-09-01T00:00:00.000');
   });
 
   test('exposes pharmacy mode without exposing account secrets', async () => {
@@ -331,15 +325,17 @@ describe('GET /api/line-accounts', () => {
     const db = {
       prepare: vi.fn((sql: string) => ({
         bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue(
-            sql.includes('outbound_messaging_paused_at')
-              ? { outbound_messaging_paused_at: '2026-08-19T09:00:00.000Z' }
-              : sql.includes('SELECT mode FROM pharmacy_account_capabilities')
-              ? { mode: 'pharmacy' }
-              : sql.includes('pharmacy_account_capabilities')
-                ? { pharmacy_install: 1 }
-                : { count: 0 },
-          ),
+          first: vi
+            .fn()
+            .mockResolvedValue(
+              sql.includes('outbound_messaging_paused_at')
+                ? { outbound_messaging_paused_at: '2026-08-19T09:00:00.000Z' }
+                : sql.includes('SELECT mode FROM pharmacy_account_capabilities')
+                  ? { mode: 'pharmacy' }
+                  : sql.includes('pharmacy_account_capabilities')
+                    ? { pharmacy_install: 1 }
+                    : { count: 0 },
+            ),
           all: vi.fn().mockResolvedValue({ results: [{ line_account_id: 'acc-1' }] }),
         })),
       })),
@@ -347,7 +343,7 @@ describe('GET /api/line-accounts', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
 
     const res = await setupApp('owner', db).request('/api/line-accounts');
-    const body = await res.json() as { data: Array<Record<string, unknown>> };
+    const body = (await res.json()) as { data: Array<Record<string, unknown>> };
 
     expect(res.status).toBe(200);
     expect(dbMocks.getLineAccountsForTenant).toHaveBeenCalledWith(db, 'tenant-a');
@@ -358,11 +354,11 @@ describe('GET /api/line-accounts', () => {
     });
     expect(body.data[0]).not.toHaveProperty('channelAccessToken');
     expect(body.data[0]).not.toHaveProperty('channelSecret');
-    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
-      db,
-      'synthetic-line-credential-root-v1',
-      { tenantId: 'tenant-a', lineAccountId: 'acc-1', kind: 'channel_access_token' },
-    );
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(db, 'synthetic-line-credential-root-v1', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      kind: 'channel_access_token',
+    });
     fetchMock.mockRestore();
   });
 
@@ -372,20 +368,22 @@ describe('GET /api/line-accounts', () => {
     const db = {
       prepare: vi.fn((sql: string) => ({
         bind: vi.fn(() => ({
-          first: vi.fn().mockResolvedValue(
-            sql.includes('SELECT mode FROM pharmacy_account_capabilities')
-              ? { mode: 'pharmacy' }
-              : sql.includes('pharmacy_account_capabilities')
-                ? { pharmacy_install: 1 }
-                : { count: 0 },
-          ),
+          first: vi
+            .fn()
+            .mockResolvedValue(
+              sql.includes('SELECT mode FROM pharmacy_account_capabilities')
+                ? { mode: 'pharmacy' }
+                : sql.includes('pharmacy_account_capabilities')
+                  ? { pharmacy_install: 1 }
+                  : { count: 0 },
+            ),
           all: vi.fn().mockResolvedValue({ results: [{ line_account_id: 'acc-1' }] }),
         })),
       })),
     } as unknown as D1Database;
 
     const res = await setupApp('staff', db).request('/api/line-accounts');
-    const body = await res.json() as { data: Array<{ id: string }> };
+    const body = (await res.json()) as { data: Array<{ id: string }> };
 
     expect(res.status).toBe(200);
     expect(body.data.map(({ id }) => id)).toEqual(['acc-1']);
@@ -400,7 +398,7 @@ describe('GET /api/line-accounts/:id', () => {
     });
 
     const res = await setupApp('owner').request('/api/line-accounts/acc-1');
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
 
     expect(res.status).toBe(200);
     expect(body.data).not.toHaveProperty('channelAccessToken');
@@ -423,11 +421,7 @@ describe('GET /api/line-accounts/:id/follower-insight', () => {
     const res = await app.request('/api/line-accounts/acc-1/follower-insight?date=20260616');
 
     expect(res.status).toBe(200);
-    expect(dbMocks.getLineAccountByIdForTenant).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'acc-1',
-    );
+    expect(dbMocks.getLineAccountByIdForTenant).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'acc-1');
     expect(lineClientMocks.getFollowersInsight).toHaveBeenCalledWith('20260616');
     expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
       expect.anything(),
@@ -472,16 +466,10 @@ describe('GET /api/line-accounts/:id/follower-insight', () => {
   test('denies an unassigned same-tenant account before reading credentials or LINE', async () => {
     boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
 
-    const res = await setupApp('staff').request(
-      '/api/line-accounts/acc-2/follower-insight?date=20260616',
-    );
+    const res = await setupApp('staff').request('/api/line-accounts/acc-2/follower-insight?date=20260616');
 
     expect(res.status).toBe(403);
-    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(
-      expect.anything(),
-      'tenant-a',
-      'acc-2',
-    );
+    expect(boundaryMocks.accountResourceOwnedByStaff).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'acc-2');
     expect(dbMocks.getLineAccountByIdForTenant).not.toHaveBeenCalled();
     expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
     expect(lineClientMocks.getFollowersInsight).not.toHaveBeenCalled();
@@ -494,7 +482,6 @@ describe('GET /api/line-accounts/:id/follower-insight', () => {
     expect(res.status).toBe(400);
     expect(lineClientMocks.getFollowersInsight).not.toHaveBeenCalled();
   });
-
 });
 
 describe('POST /api/line-accounts', () => {
@@ -617,9 +604,7 @@ describe('POST /api/line-accounts', () => {
       expect.anything(),
       'synthetic-line-credential-root-v1',
       expect.objectContaining({
-        credentials: expect.arrayContaining([
-          { kind: 'login_channel_secret', credential: 'login-secret' },
-        ]),
+        credentials: expect.arrayContaining([{ kind: 'login_channel_secret', credential: 'login-secret' }]),
       }),
     );
   });
@@ -970,7 +955,12 @@ describe('PUT /api/line-accounts/:id', () => {
     const audits = auditWrites(db);
     expect(audits).toHaveLength(1);
     expect(audits[0].slice(1, 8)).toEqual([
-      'tenant-a', 'acc-1', 'test-staff', 'line_account.credentials_updated', 'line_account', 'acc-1',
+      'tenant-a',
+      'acc-1',
+      'test-staff',
+      'line_account.credentials_updated',
+      'line_account',
+      'acc-1',
       JSON.stringify({ kinds: ['channel_access_token', 'channel_secret'] }),
     ]);
     expect(JSON.stringify(audits)).not.toContain('a'.repeat(32));

@@ -13,8 +13,11 @@ const recoveryMocks = vi.hoisted(() => {
     RecoveryOperationError: MockRecoveryOperationError,
     RECOVERY_ENVIRONMENT: 'current-worker-binding',
     RECOVERY_OPERATIONS: [
-      'fle_backfill', 'plaintext_scrub', 'plaintext_restore',
-      'retention_delete', 'restore_rehearsal',
+      'fle_backfill',
+      'plaintext_scrub',
+      'plaintext_restore',
+      'retention_delete',
+      'restore_rehearsal',
     ],
     assertRecoveryExecution: vi.fn(),
     approveRecoveryOperation: vi.fn(),
@@ -73,7 +76,9 @@ vi.mock('./audit.js', () => ({
 import { platformAdminDataProtectionRoutes } from './data-protection-routes.js';
 
 const scope = {
-  tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'current-worker-binding',
+  tenantId: 'tenant-a',
+  lineAccountId: 'account-a',
+  environment: 'current-worker-binding',
 };
 const preflight = {
   schemaDigest: 'a'.repeat(64),
@@ -181,52 +186,79 @@ beforeEach(() => {
     keyVersions: preflight.keyVersions,
   });
   retentionMocks.buildRetentionPreflight.mockResolvedValue(retentionPreflight);
-  retentionMocks.backfillIncomingImageTracking.mockResolvedValue({ tracked: 0, skipped: 0, blocked: 0 });
-  retentionMocks.reconcileIncomingImageInventory.mockResolvedValue({
-    orphan: 0, missing: 0, mismatch: 0, unknown: 0,
+  retentionMocks.backfillIncomingImageTracking.mockResolvedValue({
+    tracked: 0,
+    skipped: 0,
+    blocked: 0,
   });
-  retentionMocks.purgePrescriptionFilesPastRetention.mockResolvedValue({ purged: 1, failed: 0, skipped: 0 });
+  retentionMocks.reconcileIncomingImageInventory.mockResolvedValue({
+    orphan: 0,
+    missing: 0,
+    mismatch: 0,
+    unknown: 0,
+  });
+  retentionMocks.purgePrescriptionFilesPastRetention.mockResolvedValue({
+    purged: 1,
+    failed: 0,
+    skipped: 0,
+  });
   retentionMocks.purgeTrackedIncomingImages.mockResolvedValue({ purged: 1, failed: 0, skipped: 0 });
   retentionMocks.reconcileIncomingImageDeletionOutcomes.mockResolvedValue({
-    purged: 0, failed: 0, skipped: 0,
+    purged: 0,
+    failed: 0,
+    skipped: 0,
   });
-  retentionMocks.reconcilePrescriptionDeletionIntents.mockResolvedValue({ purged: 0, failed: 0, skipped: 0 });
+  retentionMocks.reconcilePrescriptionDeletionIntents.mockResolvedValue({
+    purged: 0,
+    failed: 0,
+    skipped: 0,
+  });
   retentionMocks.incomingImageRetentionReadiness.mockResolvedValue({
-    status: 'BLOCKED', blockedReasons: ['ec_sale_counter_audit_dependency_unresolved'],
-    tracked: 1, dispositions: 1,
+    status: 'BLOCKED',
+    blockedReasons: ['ec_sale_counter_audit_dependency_unresolved'],
+    tracked: 1,
+    dispositions: 1,
   });
 });
 
 describe('platform-admin data protection recovery routes', () => {
   it('rejects a client-supplied environment that is not the current Worker binding', async () => {
-    const response = await app().request(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...scope,
-        environment: 'production',
-        operation: 'retention_delete',
-        approvalExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        idempotencyKey: 'environment-spoof',
-      }),
-    }, env());
+    const response = await app().request(
+      endpoint,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...scope,
+          environment: 'production',
+          operation: 'retention_delete',
+          approvalExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          idempotencyKey: 'environment-spoof',
+        }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(400);
     expect(recoveryMocks.createRecoveryApproval).not.toHaveBeenCalled();
   });
 
   it('rejects body identity spoofing before creating an approval', async () => {
-    const response = await app().request(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...scope,
-        operation: 'plaintext_scrub',
-        approvalExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        idempotencyKey: 'request-a',
-        approvedBy: 'attacker',
-      }),
-    }, env());
+    const response = await app().request(
+      endpoint,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...scope,
+          operation: 'plaintext_scrub',
+          approvalExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          idempotencyKey: 'request-a',
+          approvedBy: 'attacker',
+        }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(400);
     expect(recoveryMocks.createRecoveryApproval).not.toHaveBeenCalled();
@@ -234,11 +266,15 @@ describe('platform-admin data protection recovery routes', () => {
   });
 
   it('rejects body identity spoofing on approval and uses only the session principal', async () => {
-    const response = await app().request(`${endpoint}/operation-a/approve`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ approvedBy: 'attacker' }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/approve`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ approvedBy: 'attacker' }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(400);
     expect(recoveryMocks.approveRecoveryOperation).not.toHaveBeenCalled();
@@ -246,11 +282,15 @@ describe('platform-admin data protection recovery routes', () => {
   });
 
   it('does not claim or mutate when execute is not explicitly dryRun=false', async () => {
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: true, preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: true, preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(400);
     expect(recoveryMocks.claimRecoveryOperation).not.toHaveBeenCalled();
@@ -258,25 +298,25 @@ describe('platform-admin data protection recovery routes', () => {
   });
 
   it('marks the claimed execution stale when the post-claim preflight drifts', async () => {
-    recoveryMocks.getRecoveryOperation
-      .mockResolvedValueOnce(operation)
-      .mockResolvedValueOnce({
-        ...operation,
-        status: 'running',
-        executorSubject: 'admin-executor',
-        executionId: 'execution-a',
-        fenceId: 'fence-a',
-        fenceToken: 'f'.repeat(32),
-      });
-    recoveryMocks.preflightRecoveryOperation.mockRejectedValue(
-      new recoveryMocks.RecoveryOperationError('STALE'),
-    );
+    recoveryMocks.getRecoveryOperation.mockResolvedValueOnce(operation).mockResolvedValueOnce({
+      ...operation,
+      status: 'running',
+      executorSubject: 'admin-executor',
+      executionId: 'execution-a',
+      fenceId: 'fence-a',
+      fenceToken: 'f'.repeat(32),
+    });
+    recoveryMocks.preflightRecoveryOperation.mockRejectedValue(new recoveryMocks.RecoveryOperationError('STALE'));
 
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     expect(recoveryMocks.claimRecoveryOperation).toHaveBeenCalledOnce();
@@ -303,11 +343,15 @@ describe('platform-admin data protection recovery routes', () => {
       coverageDigest: 'e'.repeat(64),
     });
 
-    const response = await app().request(`${endpoint}/operation-a/preflight`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/preflight`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     expect(recoveryMocks.preflightRecoveryOperation).not.toHaveBeenCalled();
@@ -327,11 +371,15 @@ describe('platform-admin data protection recovery routes', () => {
       coverageDigest: 'e'.repeat(64),
     });
 
-    const response = await app().request(`${endpoint}/operation-a/preflight`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/preflight`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     expect(recoveryMocks.preflightRecoveryOperation).not.toHaveBeenCalled();
@@ -360,20 +408,26 @@ describe('platform-admin data protection recovery routes', () => {
     });
     recoveryMocks.preflightRecoveryOperation.mockResolvedValue(operation);
 
-    const response = await app().request(`${endpoint}/operation-a/preflight`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ preflight: rotationPreflight }),
-    }, {
-      ...env(),
-      PHARMACY_PHI_KEY_V2: 'q'.repeat(32),
-      PHARMACY_PHI_ACTIVE_KEY_VERSION: '2',
-    });
+    const response = await app().request(
+      `${endpoint}/operation-a/preflight`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preflight: rotationPreflight }),
+      },
+      {
+        ...env(),
+        PHARMACY_PHI_KEY_V2: 'q'.repeat(32),
+        PHARMACY_PHI_ACTIVE_KEY_VERSION: '2',
+      },
+    );
 
     expect(response.status).toBe(200);
     expect(migrationMocks.patientIntakeRecoveryMetadata).toHaveBeenCalledWith(['1', '2']);
-    expect(recoveryMocks.preflightRecoveryOperation).toHaveBeenCalledWith(expect.anything(),
-      expect.objectContaining({ preflight: rotationPreflight }));
+    expect(recoveryMocks.preflightRecoveryOperation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ preflight: rotationPreflight }),
+    );
   });
 
   it('does not treat arbitrary schema or field strings as an authoritative preflight', async () => {
@@ -382,13 +436,17 @@ describe('platform-admin data protection recovery routes', () => {
       status: 'created',
       approverSubject: null,
     });
-    const response = await app().request(`${endpoint}/operation-a/preflight`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        preflight: { ...preflight, schemaDigest: 'f'.repeat(64) },
-      }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/preflight`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          preflight: { ...preflight, schemaDigest: 'f'.repeat(64) },
+        }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     expect(recoveryMocks.preflightRecoveryOperation).not.toHaveBeenCalled();
@@ -403,9 +461,7 @@ describe('platform-admin data protection recovery routes', () => {
       fenceId: 'fence-a',
       fenceToken: 'f'.repeat(32),
     };
-    recoveryMocks.getRecoveryOperation
-      .mockResolvedValueOnce(operation)
-      .mockResolvedValueOnce(claimed);
+    recoveryMocks.getRecoveryOperation.mockResolvedValueOnce(operation).mockResolvedValueOnce(claimed);
     recoveryMocks.preflightRecoveryOperation.mockResolvedValue(claimed);
     recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: claimed, fence: {} });
     migrationMocks.inspectPatientIntakeCoverage.mockResolvedValue({
@@ -421,11 +477,15 @@ describe('platform-admin data protection recovery routes', () => {
       nextCursor: null,
     });
 
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     expect(recoveryMocks.markRecoveryStale).toHaveBeenCalledWith(expect.anything(), {
@@ -437,6 +497,59 @@ describe('platform-admin data protection recovery routes', () => {
     expect(recoveryMocks.markRecoveryProgress).not.toHaveBeenCalled();
     expect(recoveryMocks.completeRecoveryOperation).not.toHaveBeenCalled();
   });
+
+  it.each(['PROGRESS_CONFLICT', 'COMPLETE_CONFLICT'])(
+    'preserves the active operation when a request loses a %s race',
+    async (code) => {
+      const running = {
+        ...operation,
+        status: 'running' as const,
+        executorSubject: 'admin-executor',
+        executionId: 'execution-a',
+        fenceId: 'fence-a',
+        fenceToken: 'f'.repeat(32),
+        lastBatchId: 'previous-batch',
+      };
+      recoveryMocks.getRecoveryOperation.mockResolvedValue(running);
+      recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
+      recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
+      migrationMocks.freezePatientIntakeWrites.mockResolvedValue({ errorCode: null });
+      migrationMocks.scrubPatientIntakeLegacyFields.mockResolvedValue({
+        counts: { scanned: 1, verified: 1 },
+        errorCode: null,
+        nextCursor: null,
+      });
+      recoveryMocks.markRecoveryProgress.mockResolvedValueOnce({
+        ...running,
+        processedRowCount: 1,
+      });
+      if (code === 'PROGRESS_CONFLICT') {
+        recoveryMocks.markRecoveryProgress
+          .mockReset()
+          .mockRejectedValueOnce(new recoveryMocks.RecoveryOperationError(code));
+      } else {
+        recoveryMocks.completeRecoveryOperation.mockRejectedValueOnce(new recoveryMocks.RecoveryOperationError(code));
+      }
+      const response = await app().request(
+        `${endpoint}/operation-a/execute`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dryRun: false, resume: true, preflight }),
+        },
+        env(),
+      );
+      expect(response.status).toBe(409);
+      expect(recoveryMocks.markRecoveryProgress).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          expectedLastBatchId: 'previous-batch',
+        }),
+      );
+      expect(recoveryMocks.markRecoveryFailed).not.toHaveBeenCalled();
+      expect(recoveryMocks.markRecoveryStale).not.toHaveBeenCalled();
+    },
+  );
 
   it('resumes a running batch for the same executor without claiming it again', async () => {
     const running = {
@@ -450,7 +563,9 @@ describe('platform-admin data protection recovery routes', () => {
     };
     recoveryMocks.getRecoveryOperation.mockResolvedValue(running);
     recoveryMocks.markRecoveryProgress.mockResolvedValue({
-      ...running, processedRowCount: 1, processedObjectCount: 0,
+      ...running,
+      processedRowCount: 1,
+      processedObjectCount: 0,
     });
     recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
     recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
@@ -463,21 +578,56 @@ describe('platform-admin data protection recovery routes', () => {
       nextCursor: null,
     });
 
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, resume: true, preflight }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, resume: true, preflight }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(200);
     expect(recoveryMocks.claimRecoveryOperation).not.toHaveBeenCalled();
     expect(migrationMocks.scrubPatientIntakeLegacyFields).toHaveBeenCalledWith(
-      expect.anything(), expect.objectContaining({ cursor: 'cursor-a' }),
+      expect.anything(),
+      expect.objectContaining({
+        cursor: 'cursor-a',
+        execution: {
+          operationId: running.id,
+          operation: running.operation,
+          ...scope,
+          executionId: running.executionId,
+          fenceToken: running.fenceToken,
+          executorSubject: 'admin-executor',
+        },
+      }),
     );
+    const spoofed = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRun: false,
+          resume: true,
+          preflight,
+          execution: { executionId: 'forged', executorSubject: 'forged', lineAccountId: 'other' },
+        }),
+      },
+      env(),
+    );
+    expect(spoofed.status).toBe(400);
+    expect(migrationMocks.scrubPatientIntakeLegacyFields).toHaveBeenCalledTimes(1);
   });
 
   it('blocks deletion until authoritative retention readiness is READY', async () => {
-    const approved = { ...operation, operation: 'retention_delete' as const, preflight: retentionPreflight };
+    const approved = {
+      ...operation,
+      operation: 'retention_delete' as const,
+      preflight: retentionPreflight,
+    };
     const running = {
       ...approved,
       status: 'running' as const,
@@ -492,32 +642,45 @@ describe('platform-admin data protection recovery routes', () => {
     recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
     recoveryMocks.completeRecoveryOperation.mockResolvedValue({ ...running, status: 'completed' });
 
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, limit: 10 }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, limit: 10 }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(200);
     expect(retentionMocks.buildRetentionPreflight).toHaveBeenCalledWith(expect.anything(), {
-      scope, backupGenerationId: 'backup-a', operationCreatedAt: operation.createdAt,
+      scope,
+      backupGenerationId: 'backup-a',
+      operationCreatedAt: operation.createdAt,
     });
     expect(retentionMocks.purgePrescriptionFilesPastRetention).not.toHaveBeenCalled();
     expect(retentionMocks.purgeTrackedIncomingImages).not.toHaveBeenCalled();
     expect(retentionMocks.reconcilePrescriptionDeletionIntents).not.toHaveBeenCalled();
     expect(recoveryMocks.completeRecoveryOperation).not.toHaveBeenCalled();
-    const payload = await response.json() as { data: { operation: { status: string } } };
+    const payload = (await response.json()) as { data: { operation: { status: string } } };
     expect(payload.data.operation.status).toBe('running');
 
     recoveryMocks.getRecoveryOperation.mockResolvedValue(running);
     retentionMocks.incomingImageRetentionReadiness.mockResolvedValue({
-      status: 'READY', blockedReasons: [], tracked: 1, dispositions: 1,
+      status: 'READY',
+      blockedReasons: [],
+      tracked: 1,
+      dispositions: 1,
     });
-    const ready = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, resume: true, limit: 10 }),
-    }, env());
+    const ready = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, resume: true, limit: 10 }),
+      },
+      env(),
+    );
 
     expect(ready.status).toBe(200);
     expect(retentionMocks.purgePrescriptionFilesPastRetention).toHaveBeenCalledOnce();
@@ -530,7 +693,11 @@ describe('platform-admin data protection recovery routes', () => {
   });
 
   it('stales retention before deletion when backfill changes the approved inventory', async () => {
-    const approved = { ...operation, operation: 'retention_delete' as const, preflight: retentionPreflight };
+    const approved = {
+      ...operation,
+      operation: 'retention_delete' as const,
+      preflight: retentionPreflight,
+    };
     const running = {
       ...approved,
       status: 'running' as const,
@@ -543,16 +710,27 @@ describe('platform-admin data protection recovery routes', () => {
     recoveryMocks.claimRecoveryOperation.mockResolvedValue(running);
     recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
     recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
-    retentionMocks.backfillIncomingImageTracking.mockResolvedValue({ tracked: 1, skipped: 0, blocked: 0 });
+    retentionMocks.backfillIncomingImageTracking.mockResolvedValue({
+      tracked: 1,
+      skipped: 0,
+      blocked: 0,
+    });
     retentionMocks.incomingImageRetentionReadiness.mockResolvedValue({
-      status: 'READY', blockedReasons: [], tracked: 1, dispositions: 1,
+      status: 'READY',
+      blockedReasons: [],
+      tracked: 1,
+      dispositions: 1,
     });
 
-    const response = await app().request(`${endpoint}/operation-a/execute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dryRun: false, limit: 10 }),
-    }, env());
+    const response = await app().request(
+      `${endpoint}/operation-a/execute`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, limit: 10 }),
+      },
+      env(),
+    );
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ error: 'STALE' });

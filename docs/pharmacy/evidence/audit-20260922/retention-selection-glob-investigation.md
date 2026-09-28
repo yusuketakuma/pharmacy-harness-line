@@ -1,0 +1,5 @@
+# F39候補 — retention候補選択のGLOB制限
+CONFIRMED_BUG/P2、primary、P=3158e7c337a3d43022b1db6fd0a4ce0fc4877257から不変の2constant。F38後の再探索で確認。
+対象: prescriptions/retention-purge.ts UTC_TIMESTAMP_GLOB/候補SELECT、retention/preflight.ts同constant/候補SELECT、同exportをimportするemergency-contraception/retention-purge.ts3query。
+実MiniflareD1にソースから取得した77byte patternをbindし正規UTC文字列をGLOB比較するとtoo complex。retention-selection-glob-probe.mjs/json、exit0は調査runnerの終了でありqueryは各エラー。実gate/R2実行や本番被害は未確認。候補取得/preflightの到達で失敗する静的経路、全実行経路の再現は次へ。
+次: 旧公開export互換を保持し、nativeで正確なUTC候補選択へ。保持年数/対象範囲/SQLscope/gateを変えず、異常日時を保持、正常候補を選ぶactualD1回帰を追加。元constantは3consumer共有なので一方だけを変えて完了しない。製品変更未実施。

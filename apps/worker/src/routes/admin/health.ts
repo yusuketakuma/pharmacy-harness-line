@@ -102,17 +102,20 @@ health.post('/api/accounts/:id/migrate', async (c) => {
       status: 'in_progress',
     });
 
-    return c.json({
-      success: true,
-      data: {
-        id: migration.id,
-        fromAccountId: migration.from_account_id,
-        toAccountId: migration.to_account_id,
-        status: 'in_progress',
-        totalCount: migration.total_count,
-        createdAt: migration.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: migration.id,
+          fromAccountId: migration.from_account_id,
+          toAccountId: migration.to_account_id,
+          status: 'in_progress',
+          totalCount: migration.total_count,
+          createdAt: migration.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/accounts/:id/migrate error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);

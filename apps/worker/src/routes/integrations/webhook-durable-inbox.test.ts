@@ -17,13 +17,16 @@ vi.mock('@line-crm/line-sdk', async () => {
   return {
     ...actual,
     verifySignature: vi.fn().mockResolvedValue(true),
-    LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
+    LineClient: vi.fn().mockImplementation(function () {
+      return lineClientMocks;
+    }),
   };
 });
 
 vi.mock('../../custom/pharmacy/provisioning/line-credential-store.js', () => ({
   readLineCredential: vi.fn(async (_db: unknown, _root: unknown, input: { kind: string }) =>
-    input.kind === 'channel_secret' ? 'channel-secret' : 'channel-access-token'),
+    input.kind === 'channel_secret' ? 'channel-secret' : 'channel-access-token',
+  ),
 }));
 
 vi.mock('../../services/local-line-proxy.js', () => ({
@@ -32,12 +35,7 @@ vi.mock('../../services/local-line-proxy.js', () => ({
 
 import { toJstString } from '@line-crm/db';
 
-import {
-  purgeWebhookEventReceipts,
-  runWebhookInboxEvent,
-  sweepWebhookInbox,
-  webhook,
-} from './webhook.js';
+import { purgeWebhookEventReceipts, runWebhookInboxEvent, sweepWebhookInbox, webhook } from './webhook.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/db');
 const require = createRequire(import.meta.url);
@@ -52,8 +50,7 @@ type Sqlite3Database = {
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
 };
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => Sqlite3Database;
+const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as new (filename: string) => Sqlite3Database;
 
 /** Adapts better-sqlite3 to the D1 surface the worker uses. */
 function d1From(
@@ -88,20 +85,25 @@ function d1From(
 
 function seedTenant(sqlite: Sqlite3Database, suffix: 'a' | 'b'): void {
   const now = '2026-08-19T00:00:00.000+09:00';
-  sqlite.prepare(`INSERT INTO line_accounts
+  sqlite
+    .prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(`account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+  sqlite
+    .prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
     VALUES (?, ?, ?, 'active', ?, ?)`)
     .run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
+  sqlite
+    .prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
     VALUES (?, ?, ?, ?)`)
     .run(`tenant-${suffix}`, `account-${suffix}`, now, now);
-  sqlite.prepare(`INSERT INTO pharmacy_line_channel_identities (line_account_id, bot_user_id, created_at)
+  sqlite
+    .prepare(`INSERT INTO pharmacy_line_channel_identities (line_account_id, bot_user_id, created_at)
     VALUES (?, ?, ?)`)
     .run(`account-${suffix}`, `bot-${suffix}`, now);
-  sqlite.prepare(`INSERT INTO friends
+  sqlite
+    .prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)`)
     .run(`friend-${suffix}`, `U-${suffix}`, `account-${suffix}`, now, now);
@@ -168,17 +170,24 @@ function post(
 ) {
   const app = new Hono();
   app.route('/', webhook);
-  return app.request('/webhook', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Line-Signature': `${'A'.repeat(43)}=` },
-    body: JSON.stringify({ destination: `bot-${suffix}`, events }),
-  }, { ...ENV, DB: db, ...envOverrides }, executionCtx);
+  return app.request(
+    '/webhook',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Line-Signature': `${'A'.repeat(43)}=` },
+      body: JSON.stringify({ destination: `bot-${suffix}`, events }),
+    },
+    { ...ENV, DB: db, ...envOverrides },
+    executionCtx,
+  );
 }
 
 function makeCtx() {
   const pending: Promise<unknown>[] = [];
   const ctx = {
-    waitUntil: vi.fn((p: Promise<unknown>) => { pending.push(p); }),
+    waitUntil: vi.fn((p: Promise<unknown>) => {
+      pending.push(p);
+    }),
     passThroughOnException: vi.fn(),
     props: {},
   } as unknown as ExecutionContext;
@@ -189,20 +198,31 @@ describe('webhook durable inbox (H-3)', () => {
   let sqlite: Sqlite3Database;
   let db: D1Database;
 
-  const receipts = () => sqlite.prepare(
-    `SELECT tenant_id, line_account_id, webhook_event_id, payload, status,
+  const receipts = () =>
+    sqlite
+      .prepare(
+        `SELECT tenant_id, line_account_id, webhook_event_id, payload, status,
             lease_until, retry_count, dead_lettered_at
        FROM pharmacy_webhook_event_receipts
       ORDER BY tenant_id, webhook_event_id`,
-  ).all() as Array<{
-    tenant_id: string; line_account_id: string; webhook_event_id: string;
-    payload: string | null; status: string; lease_until: string | null;
-    retry_count: number; dead_lettered_at: string | null;
-  }>;
+      )
+      .all() as Array<{
+      tenant_id: string;
+      line_account_id: string;
+      webhook_event_id: string;
+      payload: string | null;
+      status: string;
+      lease_until: string | null;
+      retry_count: number;
+      dead_lettered_at: string | null;
+    }>;
 
-  const incomingMessages = () => sqlite.prepare(
-    `SELECT id, friend_id, content FROM messages_log WHERE direction = 'incoming'`,
-  ).all() as Array<{ id: string; friend_id: string; content: string }>;
+  const incomingMessages = () =>
+    sqlite.prepare(`SELECT id, friend_id, content FROM messages_log WHERE direction = 'incoming'`).all() as Array<{
+      id: string;
+      friend_id: string;
+      content: string;
+    }>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -236,13 +256,50 @@ describe('webhook durable inbox (H-3)', () => {
   test('fails the request when the durable write fails instead of acking a lost event', async () => {
     const failing = d1From(sqlite, (sql) => sql.includes('INSERT OR IGNORE INTO pharmacy_webhook_event_receipts'));
     const { ctx, settle } = makeCtx();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const response = await post(failing, 'a', [textEvent('a', 'event-lost')], ctx);
+    try {
+      const response = await post(failing, 'a', [textEvent('a', 'event-lost')], ctx);
 
-    expect(response.status).toBe(500);
-    expect(ctx.waitUntil).not.toHaveBeenCalled();
-    expect(receipts()).toHaveLength(0);
-    await settle();
+      expect(response.status).toBe(500);
+      expect(ctx.waitUntil).not.toHaveBeenCalled();
+      expect(receipts()).toHaveLength(0);
+      await settle();
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining('"event":"pharmacy_webhook_inbox_store_failed"')]),
+      );
+      expect(lines.join('\n')).not.toContain('SIMULATED_D1_FAILURE');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test('keeps inbox handler failures free of database error details', async () => {
+    sqlite.pragma('ignore_check_constraints = ON');
+    sqlite
+      .prepare(`UPDATE pharmacy_account_capabilities SET mode = 'generic'
+      WHERE line_account_id = 'account-a'`)
+      .run();
+    sqlite.pragma('ignore_check_constraints = OFF');
+    const failing = d1From(sqlite, (sql) => sql.includes('FROM auto_replies'));
+    const { ctx, settle } = makeCtx();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const response = await post(failing, 'a', [textEvent('a', 'event-handler-failed')], ctx);
+      await settle();
+
+      expect(response.status).toBe(200);
+      expect(receipts()[0]).toMatchObject({ status: 'failed', retry_count: 1 });
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining('"event":"pharmacy_webhook_inbox_event_failed"')]),
+      );
+      expect(lines.join('\n')).not.toContain('SIMULATED_D1_FAILURE');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   test('a pending row left behind by a dead isolate is completed by the cron sweep', async () => {
@@ -271,8 +328,10 @@ describe('webhook durable inbox (H-3)', () => {
 
   test('reuses the incoming log and mileage identity after a downstream retry', async () => {
     sqlite.pragma('ignore_check_constraints = ON');
-    sqlite.prepare(`UPDATE pharmacy_account_capabilities SET mode = 'generic'
-      WHERE line_account_id = 'account-a'`).run();
+    sqlite
+      .prepare(`UPDATE pharmacy_account_capabilities SET mode = 'generic'
+      WHERE line_account_id = 'account-a'`)
+      .run();
     sqlite.pragma('ignore_check_constraints = OFF');
     const failing = d1From(sqlite, (sql) => sql.includes('FROM auto_replies'));
     const { ctx, settle } = makeCtx();
@@ -283,10 +342,12 @@ describe('webhook durable inbox (H-3)', () => {
     expect(response.status).toBe(200);
     expect(receipts()[0]).toMatchObject({ status: 'failed', retry_count: 1 });
     expect(incomingMessages()).toHaveLength(1);
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get())
-      .toEqual({ count: 1 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get())
-      .toEqual({ count: 1 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({
+      count: 1,
+    });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get()).toEqual({
+      count: 1,
+    });
 
     const swept = await sweepWebhookInbox({
       db,
@@ -297,10 +358,12 @@ describe('webhook durable inbox (H-3)', () => {
     expect(swept).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     expect(receipts()[0]).toMatchObject({ status: 'completed', retry_count: 2 });
     expect(incomingMessages()).toHaveLength(1);
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get())
-      .toEqual({ count: 1 });
-    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get())
-      .toEqual({ count: 1 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get()).toEqual({
+      count: 1,
+    });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get()).toEqual({
+      count: 1,
+    });
   });
 
   test('an active handler heartbeats its claim so an expired-lease retry cannot reclaim it', async () => {
@@ -309,16 +372,22 @@ describe('webhook durable inbox (H-3)', () => {
     vi.setSystemTime(firstNow);
     const event = unfollowEvent('a', 'event-heartbeat');
     const payload = JSON.stringify(event);
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-heartbeat', ?, ?, 'pending', 0)`,
-    ).run(toJstString(firstNow), payload);
+      )
+      .run(toJstString(firstNow), payload);
 
     let releaseHandler!: () => void;
     let handlerPaused!: () => void;
-    const release = new Promise<void>((resolve) => { releaseHandler = resolve; });
-    const paused = new Promise<void>((resolve) => { handlerPaused = resolve; });
+    const release = new Promise<void>((resolve) => {
+      releaseHandler = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      handlerPaused = resolve;
+    });
     let shouldPause = true;
     const firstDb = d1From(sqlite, undefined, async (sql) => {
       if (shouldPause && sql.includes('SET is_following = 0')) {
@@ -334,28 +403,37 @@ describe('webhook durable inbox (H-3)', () => {
       payload,
       event,
     };
-    const first = runWebhookInboxEvent({
-      db: firstDb,
-      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
-      channelAccessToken: 'token-a',
-    }, row, firstNow);
+    const first = runWebhookInboxEvent(
+      {
+        db: firstDb,
+        credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+        channelAccessToken: 'token-a',
+      },
+      row,
+      firstNow,
+    );
 
     await paused;
     try {
       await vi.advanceTimersByTimeAsync(4 * 60_000);
-      const leaseAfterHeartbeat = sqlite.prepare(
-        `SELECT lease_until FROM pharmacy_webhook_event_receipts
+      const leaseAfterHeartbeat = sqlite
+        .prepare(
+          `SELECT lease_until FROM pharmacy_webhook_event_receipts
           WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
             AND webhook_event_id = 'event-heartbeat'`,
-      ).get() as { lease_until: string };
-      const second = await runWebhookInboxEvent({
-        db,
-        credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
-        channelAccessToken: 'token-a',
-      }, row, new Date(firstNow.getTime() + 6 * 60_000));
+        )
+        .get() as { lease_until: string };
+      const second = await runWebhookInboxEvent(
+        {
+          db,
+          credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+          channelAccessToken: 'token-a',
+        },
+        row,
+        new Date(firstNow.getTime() + 6 * 60_000),
+      );
 
-      expect(Date.parse(leaseAfterHeartbeat.lease_until))
-        .toBeGreaterThan(firstNow.getTime() + 6 * 60_000);
+      expect(Date.parse(leaseAfterHeartbeat.lease_until)).toBeGreaterThan(firstNow.getTime() + 6 * 60_000);
       expect(second).toBe('skipped');
       expect(receipts()[0].retry_count).toBe(1);
     } finally {
@@ -374,121 +452,154 @@ describe('webhook durable inbox (H-3)', () => {
   test.each([
     ['successful', false],
     ['failed', true],
-  ])('an expired worker with a %s handler cannot settle while a newer claim owns the row', async (_label, failFirst) => {
-    const firstNow = new Date('2026-08-19T00:00:00.000Z');
-    const event = unfollowEvent('a', 'event-fenced');
-    const payload = JSON.stringify(event);
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+  ])(
+    'an expired worker with a %s handler cannot settle while a newer claim owns the row',
+    async (_label, failFirst) => {
+      const firstNow = new Date('2026-08-19T00:00:00.000Z');
+      const event = unfollowEvent('a', 'event-fenced');
+      const payload = JSON.stringify(event);
+      sqlite
+        .prepare(
+          `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-fenced', ?, ?, 'pending', 0)`,
-    ).run(toJstString(firstNow), payload);
+        )
+        .run(toJstString(firstNow), payload);
 
-    let releaseFirst!: () => void;
-    let firstPaused!: () => void;
-    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const paused = new Promise<void>((resolve) => { firstPaused = resolve; });
-    let shouldPause = true;
-    const firstDb = d1From(sqlite, undefined, async (sql) => {
-      if (shouldPause && sql.includes('SET is_following = 0')) {
-        shouldPause = false;
-        firstPaused();
-        await release;
-        if (failFirst) throw new Error('SIMULATED_STALE_WORKER_FAILURE');
-      }
-    });
-    let releaseSecond!: () => void;
-    let secondPaused!: () => void;
-    const secondRelease = new Promise<void>((resolve) => { releaseSecond = resolve; });
-    const secondPausedAtHandler = new Promise<void>((resolve) => { secondPaused = resolve; });
-    let shouldPauseSecond = true;
-    const secondDb = d1From(sqlite, undefined, async (sql) => {
-      if (shouldPauseSecond && sql.includes('SET is_following = 0')) {
-        shouldPauseSecond = false;
-        secondPaused();
-        await secondRelease;
-      }
-    });
-    const row = {
-      tenant_id: 'tenant-a',
-      line_account_id: 'account-a',
-      webhook_event_id: 'event-fenced',
-      payload,
-      event,
-    };
-    const first = runWebhookInboxEvent({
-      db: firstDb,
-      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
-      channelAccessToken: 'token-a',
-    }, row, firstNow);
-
-    await paused;
-    try {
-      const firstToken = sqlite.prepare(
-        `SELECT claim_token FROM pharmacy_webhook_event_receipts
-          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
-            AND webhook_event_id = 'event-fenced'`,
-      ).get() as { claim_token: string | null };
-      expect(firstToken.claim_token).toMatch(/^[0-9a-f-]{36}$/);
-
-      const second = runWebhookInboxEvent({
-        db: secondDb,
-        credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
-        channelAccessToken: 'token-a',
-      }, row, new Date(firstNow.getTime() + 6 * 60_000));
-      await secondPausedAtHandler;
-
-      const secondOwner = sqlite.prepare(
-        `SELECT status, claim_token, lease_until, retry_count
-           FROM pharmacy_webhook_event_receipts
-          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
-            AND webhook_event_id = 'event-fenced'`,
-      ).get() as {
-        status: string;
-        claim_token: string | null;
-        lease_until: string | null;
-        retry_count: number;
+      let releaseFirst!: () => void;
+      let firstPaused!: () => void;
+      const release = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const paused = new Promise<void>((resolve) => {
+        firstPaused = resolve;
+      });
+      let shouldPause = true;
+      const firstDb = d1From(sqlite, undefined, async (sql) => {
+        if (shouldPause && sql.includes('SET is_following = 0')) {
+          shouldPause = false;
+          firstPaused();
+          await release;
+          if (failFirst) throw new Error('SIMULATED_STALE_WORKER_FAILURE');
+        }
+      });
+      let releaseSecond!: () => void;
+      let secondPaused!: () => void;
+      const secondRelease = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+      const secondPausedAtHandler = new Promise<void>((resolve) => {
+        secondPaused = resolve;
+      });
+      let shouldPauseSecond = true;
+      const secondDb = d1From(sqlite, undefined, async (sql) => {
+        if (shouldPauseSecond && sql.includes('SET is_following = 0')) {
+          shouldPauseSecond = false;
+          secondPaused();
+          await secondRelease;
+        }
+      });
+      const row = {
+        tenant_id: 'tenant-a',
+        line_account_id: 'account-a',
+        webhook_event_id: 'event-fenced',
+        payload,
+        event,
       };
-      expect(secondOwner).toMatchObject({
-        status: 'processing',
-        lease_until: expect.any(String),
-        retry_count: 2,
-      });
-      expect(secondOwner.claim_token).toMatch(/^[0-9a-f-]{36}$/);
-      expect(secondOwner.claim_token).not.toBe(firstToken.claim_token);
+      const first = runWebhookInboxEvent(
+        {
+          db: firstDb,
+          credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+          channelAccessToken: 'token-a',
+        },
+        row,
+        firstNow,
+      );
 
-      releaseFirst();
-      expect(await first).toBe('skipped');
-      expect(sqlite.prepare(
-        `SELECT status, claim_token, retry_count
+      await paused;
+      try {
+        const firstToken = sqlite
+          .prepare(
+            `SELECT claim_token FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-fenced'`,
+          )
+          .get() as { claim_token: string | null };
+        expect(firstToken.claim_token).toMatch(/^[0-9a-f-]{36}$/);
+
+        const second = runWebhookInboxEvent(
+          {
+            db: secondDb,
+            credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+            channelAccessToken: 'token-a',
+          },
+          row,
+          new Date(firstNow.getTime() + 6 * 60_000),
+        );
+        await secondPausedAtHandler;
+
+        const secondOwner = sqlite
+          .prepare(
+            `SELECT status, claim_token, lease_until, retry_count
            FROM pharmacy_webhook_event_receipts
           WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
             AND webhook_event_id = 'event-fenced'`,
-      ).get()).toEqual({
-        status: 'processing',
-        claim_token: secondOwner.claim_token,
-        retry_count: 2,
-      });
+          )
+          .get() as {
+          status: string;
+          claim_token: string | null;
+          lease_until: string | null;
+          retry_count: number;
+        };
+        expect(secondOwner).toMatchObject({
+          status: 'processing',
+          lease_until: expect.any(String),
+          retry_count: 2,
+        });
+        expect(secondOwner.claim_token).toMatch(/^[0-9a-f-]{36}$/);
+        expect(secondOwner.claim_token).not.toBe(firstToken.claim_token);
 
-      releaseSecond();
-      expect(await second).toBe('completed');
-    } finally {
-      releaseFirst();
-      releaseSecond();
-    }
+        releaseFirst();
+        expect(await first).toBe('skipped');
+        expect(
+          sqlite
+            .prepare(
+              `SELECT status, claim_token, retry_count
+           FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-fenced'`,
+            )
+            .get(),
+        ).toEqual({
+          status: 'processing',
+          claim_token: secondOwner.claim_token,
+          retry_count: 2,
+        });
 
-    expect(sqlite.prepare(
-      `SELECT status, claim_token, lease_until, retry_count
+        releaseSecond();
+        expect(await second).toBe('completed');
+      } finally {
+        releaseFirst();
+        releaseSecond();
+      }
+
+      expect(
+        sqlite
+          .prepare(
+            `SELECT status, claim_token, lease_until, retry_count
          FROM pharmacy_webhook_event_receipts
         WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
           AND webhook_event_id = 'event-fenced'`,
-    ).get()).toEqual({
-      status: 'completed',
-      claim_token: null,
-      lease_until: null,
-      retry_count: 2,
-    });
-  });
+          )
+          .get(),
+      ).toEqual({
+        status: 'completed',
+        claim_token: null,
+        lease_until: null,
+        retry_count: 2,
+      });
+    },
+  );
 
   test('the same webhookEventId delivered twice produces exactly one effect', async () => {
     const first = makeCtx();
@@ -521,18 +632,24 @@ describe('webhook durable inbox (H-3)', () => {
       ['tenant-a', 'completed'],
       ['tenant-b', 'completed'],
     ]);
-    expect(incomingMessages().map((row) => row.friend_id).sort()).toEqual(['friend-a', 'friend-b']);
+    expect(
+      incomingMessages()
+        .map((row) => row.friend_id)
+        .sort(),
+    ).toEqual(['friend-a', 'friend-b']);
   });
 
   test('a failing event is retried, then dead-lettered at the attempt cap', async () => {
     const now = new Date('2026-08-19T10:00:00.000Z');
     // An unparseable payload is a permanently failing event: it can never
     // succeed, so it must retire instead of being retried forever.
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-broken', '2026-08-19T00:00:00.000+09:00', 'not-json', 'pending', 0)`,
-    ).run();
+      )
+      .run();
 
     for (let attempt = 1; attempt <= WEBHOOK_ATTEMPT_CAP; attempt++) {
       const result = await sweepWebhookInbox({
@@ -558,28 +675,40 @@ describe('webhook durable inbox (H-3)', () => {
 
   test('an active attempt at the cap is fenced before dead-lettering', async () => {
     const now = new Date('2026-08-19T10:00:00.000Z');
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status,
           retry_count, lease_until, claim_token)
        VALUES ('tenant-a', 'account-a', 'event-active-cap', ?, '{}', 'processing', ?, ?, 'active-token')`,
-    ).run(toJstString(now), WEBHOOK_ATTEMPT_CAP, toJstString(new Date(now.getTime() + 5 * 60_000)));
+      )
+      .run(toJstString(now), WEBHOOK_ATTEMPT_CAP, toJstString(new Date(now.getTime() + 5 * 60_000)));
 
     expect(await sweepWebhookInbox({ db, now })).toMatchObject({ deadLettered: 0 });
-    expect(sqlite.prepare(
-      `SELECT status, claim_token, dead_lettered_at FROM pharmacy_webhook_event_receipts
+    expect(
+      sqlite
+        .prepare(
+          `SELECT status, claim_token, dead_lettered_at FROM pharmacy_webhook_event_receipts
         WHERE webhook_event_id = 'event-active-cap'`,
-    ).get()).toEqual({ status: 'processing', claim_token: 'active-token', dead_lettered_at: null });
+        )
+        .get(),
+    ).toEqual({ status: 'processing', claim_token: 'active-token', dead_lettered_at: null });
 
-    expect(await sweepWebhookInbox({
-      db,
-      now: new Date(now.getTime() + 6 * 60_000),
-    })).toMatchObject({ deadLettered: 1 });
-    expect(sqlite.prepare(
-      `SELECT status, claim_token, lease_until, dead_lettered_at
+    expect(
+      await sweepWebhookInbox({
+        db,
+        now: new Date(now.getTime() + 6 * 60_000),
+      }),
+    ).toMatchObject({ deadLettered: 1 });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT status, claim_token, lease_until, dead_lettered_at
          FROM pharmacy_webhook_event_receipts
         WHERE webhook_event_id = 'event-active-cap'`,
-    ).get()).toMatchObject({
+        )
+        .get(),
+    ).toMatchObject({
       status: 'failed',
       claim_token: null,
       lease_until: null,
@@ -590,37 +719,44 @@ describe('webhook durable inbox (H-3)', () => {
   test('a pending row stale for over 24h is dead-lettered without touching its payload', async () => {
     const now = new Date('2026-08-19T10:00:00.000Z');
     const stalePayload = JSON.stringify({ webhookEventId: 'event-stale' });
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-stale', ?, ?, 'pending', 0)`,
-    ).run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)), stalePayload);
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+      )
+      .run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)), stalePayload);
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-fresh', ?, '{}', 'pending', 0)`,
-    ).run(toJstString(new Date(now.getTime() - 1 * 60 * 60_000)));
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+      )
+      .run(toJstString(new Date(now.getTime() - 1 * 60 * 60_000)));
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-old-completed', ?, '{}', 'completed', 0)`,
-    ).run(toJstString(new Date(now.getTime() - 400 * 60 * 60_000)));
+      )
+      .run(toJstString(new Date(now.getTime() - 400 * 60 * 60_000)));
     // Stale but still under the attempt cap and mid-retry — must keep its retry path.
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
        VALUES ('tenant-a', 'account-a', 'event-failed-retrying', ?, '{}', 'failed', 3)`,
-    ).run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)));
+      )
+      .run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)));
     // Stale but currently leased (being processed right now) — must not be
     // dead-lettered mid-flight.
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count, lease_until)
        VALUES ('tenant-a', 'account-a', 'event-leased', ?, '{}', 'processing', 1, ?)`,
-    ).run(
-      toJstString(new Date(now.getTime() - 25 * 60 * 60_000)),
-      toJstString(new Date(now.getTime() + 5 * 60_000)),
-    );
+      )
+      .run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)), toJstString(new Date(now.getTime() + 5 * 60_000)));
 
     const swept = await sweepWebhookInbox({ db, now });
 
@@ -630,10 +766,25 @@ describe('webhook durable inbox (H-3)', () => {
     expect(byId['event-stale']).toMatchObject({ status: 'pending', retry_count: 0 });
     expect(byId['event-stale'].dead_lettered_at).not.toBeNull();
     expect(byId['event-stale'].payload).toBe(stalePayload);
-    expect(byId['event-fresh']).toMatchObject({ status: 'pending', retry_count: 0, dead_lettered_at: null });
-    expect(byId['event-old-completed']).toMatchObject({ status: 'completed', dead_lettered_at: null });
-    expect(byId['event-failed-retrying']).toMatchObject({ status: 'failed', retry_count: 3, dead_lettered_at: null });
-    expect(byId['event-leased']).toMatchObject({ status: 'processing', retry_count: 1, dead_lettered_at: null });
+    expect(byId['event-fresh']).toMatchObject({
+      status: 'pending',
+      retry_count: 0,
+      dead_lettered_at: null,
+    });
+    expect(byId['event-old-completed']).toMatchObject({
+      status: 'completed',
+      dead_lettered_at: null,
+    });
+    expect(byId['event-failed-retrying']).toMatchObject({
+      status: 'failed',
+      retry_count: 3,
+      dead_lettered_at: null,
+    });
+    expect(byId['event-leased']).toMatchObject({
+      status: 'processing',
+      retry_count: 1,
+      dead_lettered_at: null,
+    });
   });
 });
 
@@ -648,18 +799,23 @@ describe('webhook receipt purge (M-7)', () => {
     status: string,
     deadLetteredAt: string | null = null,
   ): void {
-    const receivedAt = new Date(NOW.getTime() - daysAgo * 86_400_000 + 9 * 60 * 60_000)
-      .toISOString().slice(0, -1) + '+09:00';
-    sqlite.prepare(
-      `INSERT INTO pharmacy_webhook_event_receipts
+    const receivedAt =
+      new Date(NOW.getTime() - daysAgo * 86_400_000 + 9 * 60 * 60_000).toISOString().slice(0, -1) + '+09:00';
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_webhook_event_receipts
          (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, dead_lettered_at)
        VALUES ('tenant-a', 'account-a', ?, ?, '{}', ?, ?)`,
-    ).run(webhookEventId, receivedAt, status, deadLetteredAt);
+      )
+      .run(webhookEventId, receivedAt, status, deadLetteredAt);
   }
 
-  const remaining = () => (sqlite.prepare(
-    `SELECT webhook_event_id FROM pharmacy_webhook_event_receipts ORDER BY webhook_event_id`,
-  ).all() as Array<{ webhook_event_id: string }>).map((row) => row.webhook_event_id);
+  const remaining = () =>
+    (
+      sqlite
+        .prepare(`SELECT webhook_event_id FROM pharmacy_webhook_event_receipts ORDER BY webhook_event_id`)
+        .all() as Array<{ webhook_event_id: string }>
+    ).map((row) => row.webhook_event_id);
 
   beforeEach(() => {
     sqlite = new Sqlite(':memory:');
@@ -680,9 +836,7 @@ describe('webhook receipt purge (M-7)', () => {
     const deleted = await purgeWebhookEventReceipts(db, { now: NOW });
 
     expect(deleted).toBe(2);
-    expect(remaining()).toEqual([
-      'completed-29d', 'pending-31d', 'pending-400d', 'processing-400d',
-    ]);
+    expect(remaining()).toEqual(['completed-29d', 'pending-31d', 'pending-400d', 'processing-400d']);
   });
 });
 
@@ -691,13 +845,19 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
   let db: D1Database;
   let originalFetch: typeof fetch;
 
-  const trackedObjects = () => sqlite.prepare(
-    `SELECT r2_key, tenant_id, line_account_id, message_id, stored_at
+  const trackedObjects = () =>
+    sqlite
+      .prepare(
+        `SELECT r2_key, tenant_id, line_account_id, message_id, stored_at
        FROM pharmacy_incoming_image_objects`,
-  ).all() as Array<{
-    r2_key: string; tenant_id: string; line_account_id: string;
-    message_id: string; stored_at: string;
-  }>;
+      )
+      .all() as Array<{
+      r2_key: string;
+      tenant_id: string;
+      line_account_id: string;
+      message_id: string;
+      stored_at: string;
+    }>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -707,8 +867,12 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
     seedTenant(sqlite, 'a');
     db = d1From(sqlite);
     originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () =>
-      new Response(new ArrayBuffer(10), { status: 200, headers: { 'Content-Type': 'image/jpeg' } }),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(new ArrayBuffer(10), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
+        }),
     ) as unknown as typeof fetch;
   });
 
@@ -720,10 +884,9 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
     const r2 = makeR2Stub();
     const { ctx, settle } = makeCtx();
 
-    const response = await post(
-      db, 'a', [imageEvent('a', 'event-img-1', 'message-img-1')], ctx,
-      { IMAGES: r2 },
-    );
+    const response = await post(db, 'a', [imageEvent('a', 'event-img-1', 'message-img-1')], ctx, {
+      IMAGES: r2,
+    });
     await settle();
 
     expect(response.status).toBe(200);
@@ -743,20 +906,15 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
     const failing = d1From(sqlite, (sql) => sql.includes('pharmacy_incoming_image_objects'));
     const { ctx, settle } = makeCtx();
 
-    const response = await post(
-      failing, 'a', [imageEvent('a', 'event-img-2', 'message-img-2')], ctx,
-      { IMAGES: r2 },
-    );
+    const response = await post(failing, 'a', [imageEvent('a', 'event-img-2', 'message-img-2')], ctx, { IMAGES: r2 });
     await settle();
 
     expect(response.status).toBe(200);
     expect(trackedObjects()).toHaveLength(0);
-    expect(sqlite.prepare(
-      `SELECT status FROM pharmacy_webhook_event_receipts WHERE webhook_event_id = 'event-img-2'`,
-    ).get()).toEqual({ status: 'failed' });
-    expect(sqlite.prepare(
-      `SELECT content FROM messages_log WHERE direction = 'incoming'`,
-    ).all()).toHaveLength(0);
+    expect(
+      sqlite.prepare(`SELECT status FROM pharmacy_webhook_event_receipts WHERE webhook_event_id = 'event-img-2'`).get(),
+    ).toEqual({ status: 'failed' });
+    expect(sqlite.prepare(`SELECT content FROM messages_log WHERE direction = 'incoming'`).all()).toHaveLength(0);
 
     const retried = await sweepWebhookInbox({
       db,
@@ -768,8 +926,6 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
 
     expect(retried).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     expect(trackedObjects()).toHaveLength(1);
-    expect(sqlite.prepare(
-      `SELECT content FROM messages_log WHERE direction = 'incoming'`,
-    ).all()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT content FROM messages_log WHERE direction = 'incoming'`).all()).toHaveLength(1);
   });
 });

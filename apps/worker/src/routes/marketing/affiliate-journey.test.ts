@@ -59,11 +59,10 @@ function call(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${API_KEY}`);
   headers.set('X-Tenant-Id', 'generic');
-  return worker.fetch(
-    new Request(`https://worker.example.com${path}`, { ...init, headers }),
-    env,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
-  );
+  return worker.fetch(new Request(`https://worker.example.com${path}`, { ...init, headers }), env, {
+    waitUntil() {},
+    passThroughOnException() {},
+  } as unknown as ExecutionContext);
 }
 
 beforeEach(() => {
@@ -78,7 +77,12 @@ describe('GET /api/friends/:id/journey', () => {
       { at: '2026-06-12T00:00:00.000+09:00', type: 'touch', refCode: 'refA', affiliateId: 'aff-A' },
       { at: '2026-06-17T00:00:00.000+09:00', type: 'friend_add' },
       { at: '2026-06-27T00:00:00.000+09:00', type: 'touch', refCode: 'refB', affiliateId: 'aff-B' },
-      { at: '2026-07-02T00:00:00.000+09:00', type: 'conversion', refCode: 'refB', affiliateId: 'aff-B' },
+      {
+        at: '2026-07-02T00:00:00.000+09:00',
+        type: 'conversion',
+        refCode: 'refB',
+        affiliateId: 'aff-B',
+      },
     ];
     dbMocks.getFriendJourney.mockResolvedValue(events);
 
@@ -114,11 +118,16 @@ describe('GET /api/affiliates/:id/journeys', () => {
       nextCursor: { beforeAt: '2026-07-01T00:00:00.000+09:00', beforeId: 'friend-1' },
     });
 
-    const res = await call('/api/affiliates/aff-A/journeys?limit=2&beforeAt=2026-07-05T00:00:00.000%2B09:00&beforeId=friend-9');
+    const res = await call(
+      '/api/affiliates/aff-A/journeys?limit=2&beforeAt=2026-07-05T00:00:00.000%2B09:00&beforeId=friend-9',
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown[]; nextCursor: unknown };
     expect(body.data).toHaveLength(1);
-    expect(body.nextCursor).toEqual({ beforeAt: '2026-07-01T00:00:00.000+09:00', beforeId: 'friend-1' });
+    expect(body.nextCursor).toEqual({
+      beforeAt: '2026-07-01T00:00:00.000+09:00',
+      beforeId: 'friend-1',
+    });
     expect(dbMocks.getAffiliateJourneys).toHaveBeenCalledWith(env.DB, 'aff-A', {
       limit: 2,
       beforeAt: '2026-07-05T00:00:00.000+09:00',

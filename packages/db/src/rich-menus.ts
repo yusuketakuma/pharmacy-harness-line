@@ -105,27 +105,16 @@ export function buildRichMenuAliasId(groupId: string, orderIndex: number): strin
   return `lhx-${groupId.slice(0, 8)}-${orderIndex}`;
 }
 
-export async function getRichMenuGroups(
-  db: D1Database,
-  accountId: string,
-): Promise<RichMenuGroup[]> {
+export async function getRichMenuGroups(db: D1Database, accountId: string): Promise<RichMenuGroup[]> {
   const result = await db
-    .prepare(
-      `SELECT * FROM rich_menu_groups WHERE account_id = ? ORDER BY updated_at DESC`,
-    )
+    .prepare(`SELECT * FROM rich_menu_groups WHERE account_id = ? ORDER BY updated_at DESC`)
     .bind(accountId)
     .all<RichMenuGroup>();
   return result.results ?? [];
 }
 
-export async function getRichMenuGroupById(
-  db: D1Database,
-  id: string,
-): Promise<RichMenuGroup | null> {
-  return (await db
-    .prepare(`SELECT * FROM rich_menu_groups WHERE id = ?`)
-    .bind(id)
-    .first<RichMenuGroup>()) ?? null;
+export async function getRichMenuGroupById(db: D1Database, id: string): Promise<RichMenuGroup | null> {
+  return (await db.prepare(`SELECT * FROM rich_menu_groups WHERE id = ?`).bind(id).first<RichMenuGroup>()) ?? null;
 }
 
 export async function getRichMenuGroupByGeneratorKey(
@@ -133,24 +122,19 @@ export async function getRichMenuGroupByGeneratorKey(
   accountId: string,
   generatorKey: string,
 ): Promise<RichMenuGroup | null> {
-  return (await db
-    .prepare(
-      `SELECT * FROM rich_menu_groups WHERE account_id = ? AND generator_key = ?`,
-    )
-    .bind(accountId, generatorKey)
-    .first<RichMenuGroup>()) ?? null;
+  return (
+    (await db
+      .prepare(`SELECT * FROM rich_menu_groups WHERE account_id = ? AND generator_key = ?`)
+      .bind(accountId, generatorKey)
+      .first<RichMenuGroup>()) ?? null
+  );
 }
 
-export async function getRichMenuGroupWithPages(
-  db: D1Database,
-  id: string,
-): Promise<RichMenuGroupWithPages | null> {
+export async function getRichMenuGroupWithPages(db: D1Database, id: string): Promise<RichMenuGroupWithPages | null> {
   const group = await getRichMenuGroupById(db, id);
   if (!group) return null;
   const pagesResult = await db
-    .prepare(
-      `SELECT * FROM rich_menu_pages WHERE group_id = ? ORDER BY order_index`,
-    )
+    .prepare(`SELECT * FROM rich_menu_pages WHERE group_id = ? ORDER BY order_index`)
     .bind(id)
     .all<RichMenuPage>();
   const pages = pagesResult.results ?? [];
@@ -159,9 +143,7 @@ export async function getRichMenuGroupWithPages(
   }
   const placeholders = pages.map(() => '?').join(',');
   const areasResult = await db
-    .prepare(
-      `SELECT * FROM rich_menu_areas WHERE page_id IN (${placeholders}) ORDER BY id`,
-    )
+    .prepare(`SELECT * FROM rich_menu_areas WHERE page_id IN (${placeholders}) ORDER BY id`)
     .bind(...pages.map((p) => p.id))
     .all<RichMenuArea>();
   const areas = areasResult.results ?? [];
@@ -301,15 +283,11 @@ export async function updateRichMenuGroupMeta(
 //   一旦 group の全 page を DELETE → 新構成で INSERT し直す。保持対象のメタは
 //   事前に取得しておいて INSERT 時に復元する。
 // - areas は常に全置換 (cascade DELETE で消えた後 INSERT)。
-export async function replaceRichMenuPages(
-  db: D1Database,
-  groupId: string,
-  pages: RichMenuPageInput[],
-): Promise<void> {
+export async function replaceRichMenuPages(db: D1Database, groupId: string, pages: RichMenuPageInput[]): Promise<void> {
   const now = jstNow();
 
   // 既存 page のメタ (image / line_richmenu_id / created_at) を保持するため事前取得。
-  const existing = (
+  const existing =
     (
       await db
         .prepare(
@@ -324,8 +302,7 @@ export async function replaceRichMenuPages(
           line_richmenu_id: string | null;
           created_at: string;
         }>()
-    ).results ?? []
-  );
+    ).results ?? [];
   const existingMap = new Map(existing.map((p) => [p.id, p]));
 
   // 入力を「保持 vs 新規」に振り分けつつメタを復元。
@@ -408,13 +385,10 @@ export async function replaceRichMenuPages(
   }
 
   if (newPageRecords.length > 0) {
-    const firstPage =
-      newPageRecords.find((p) => p.orderIndex === 0) ?? newPageRecords[0];
+    const firstPage = newPageRecords.find((p) => p.orderIndex === 0) ?? newPageRecords[0];
     stmts.push(
       db
-        .prepare(
-          `UPDATE rich_menu_groups SET default_page_id = ?, updated_at = ? WHERE id = ?`,
-        )
+        .prepare(`UPDATE rich_menu_groups SET default_page_id = ?, updated_at = ? WHERE id = ?`)
         .bind(firstPage.id, now, groupId),
     );
   }
@@ -422,14 +396,8 @@ export async function replaceRichMenuPages(
   await db.batch(stmts);
 }
 
-export async function deleteRichMenuGroup(
-  db: D1Database,
-  id: string,
-): Promise<boolean> {
-  const result = await db
-    .prepare(`DELETE FROM rich_menu_groups WHERE id = ?`)
-    .bind(id)
-    .run();
+export async function deleteRichMenuGroup(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare(`DELETE FROM rich_menu_groups WHERE id = ?`).bind(id).run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -440,18 +408,12 @@ export async function setRichMenuPageImage(
   imageContentType: string,
 ): Promise<void> {
   await db
-    .prepare(
-      `UPDATE rich_menu_pages SET image_r2_key = ?, image_content_type = ?, updated_at = ? WHERE id = ?`,
-    )
+    .prepare(`UPDATE rich_menu_pages SET image_r2_key = ?, image_content_type = ?, updated_at = ? WHERE id = ?`)
     .bind(imageR2Key, imageContentType, jstNow(), pageId)
     .run();
 }
 
-export async function pageBelongsToGroup(
-  db: D1Database,
-  groupId: string,
-  pageId: string,
-): Promise<boolean> {
+export async function pageBelongsToGroup(db: D1Database, groupId: string, pageId: string): Promise<boolean> {
   const row = await db
     .prepare(`SELECT 1 AS hit FROM rich_menu_pages WHERE id = ? AND group_id = ?`)
     .bind(pageId, groupId)
@@ -462,10 +424,7 @@ export async function pageBelongsToGroup(
 // Publish ロックを取る。既にロックされていれば false (HTTP 409 用)。
 const PUBLISH_LOCK_TTL_MS = 10 * 60 * 1000;
 
-export async function acquirePublishLock(
-  db: D1Database,
-  groupId: string,
-): Promise<string | null> {
+export async function acquirePublishLock(db: D1Database, groupId: string): Promise<string | null> {
   const now = jstNow();
   const staleBefore = new Date(Date.now() - PUBLISH_LOCK_TTL_MS).toISOString();
   const result = await db
@@ -510,11 +469,7 @@ export async function acquireRichMenuAccountLock(
   return row ? { groupId: row.id, token } : null;
 }
 
-export async function releasePublishLock(
-  db: D1Database,
-  groupId: string,
-  lockToken: string,
-): Promise<void> {
+export async function releasePublishLock(db: D1Database, groupId: string, lockToken: string): Promise<void> {
   await db
     .prepare(
       `UPDATE rich_menu_groups SET publishing_at = NULL
@@ -533,28 +488,28 @@ export async function markRichMenuGroupPublished(
 ): Promise<void> {
   const now = jstNow();
   const results = await db.batch([
-    ...pages.map((page) => db
-      .prepare(
-        `UPDATE rich_menu_pages
+    ...pages.map((page) =>
+      db
+        .prepare(
+          `UPDATE rich_menu_pages
             SET alias_id = ?, line_richmenu_id = ?, updated_at = ?
           WHERE id = ? AND group_id = ?
             AND (? IS NULL OR EXISTS (
               SELECT 1 FROM rich_menu_groups
                WHERE id = ? AND publishing_at = ?
             ))`,
-      )
-      .bind(
-        page.aliasId, page.lineRichMenuId, now, page.pageId, groupId,
-        lockToken, lockGroupId, lockToken,
-      )),
-    db.prepare(
-      `UPDATE rich_menu_groups
+        )
+        .bind(page.aliasId, page.lineRichMenuId, now, page.pageId, groupId, lockToken, lockGroupId, lockToken),
+    ),
+    db
+      .prepare(
+        `UPDATE rich_menu_groups
          SET status = 'published', updated_at = ?
        WHERE id = ? AND (? IS NULL OR EXISTS (
          SELECT 1 FROM rich_menu_groups AS locked
           WHERE locked.id = ? AND locked.publishing_at = ?
        ))`,
-    )
+      )
       .bind(now, groupId, lockToken, lockGroupId, lockToken),
   ]);
   if (results.some((result) => (result.meta?.changes ?? 0) !== 1)) {

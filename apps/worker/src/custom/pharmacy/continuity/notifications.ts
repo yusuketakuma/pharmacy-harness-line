@@ -1,10 +1,8 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
-import {
-  markNextIntakeExpectationReminded,
-  type DueNextIntakeExpectation,
-} from './next-intake.js';
+import { markNextIntakeExpectationReminded, type DueNextIntakeExpectation } from './next-intake.js';
 
 export interface ContinuityNotificationOptions {
   db: D1Database;
@@ -23,13 +21,20 @@ export async function deliverContinuityReminder(
 ): Promise<'sent' | 'failed' | 'skipped'> {
   const accessToken = options.lineCredentialKey
     ? await readLineCredential(options.db, options.lineCredentialKey, {
-      tenantId: reminder.tenant_id,
-      lineAccountId: reminder.line_account_id,
-      kind: 'channel_access_token',
-    }).catch(() => null)
+        tenantId: reminder.tenant_id,
+        lineAccountId: reminder.line_account_id,
+        kind: 'channel_access_token',
+      }).catch(() => null)
     : null;
   if (!reminder.line_user_id || !accessToken) return 'skipped';
+  const retryKey = `next-intake:${reminder.id}`;
   try {
+    const betaMembershipId = await getPharmacyBetaNotificationBinding(options.db, {
+      lineAccountId: reminder.line_account_id,
+      retryKey,
+      participantFriendId: reminder.owner_friend_id,
+      subjectPatientId: reminder.patient_id,
+    });
     const outcome = await sendPharmacyAutomatedPush({
       db: options.db,
       proxyBaseUrl: options.proxyBaseUrl,
@@ -38,9 +43,11 @@ export async function deliverContinuityReminder(
       to: reminder.line_user_id,
       lineAccountId: reminder.line_account_id,
       friendId: reminder.owner_friend_id,
+      patientId: reminder.patient_id,
+      ...(betaMembershipId ? { betaMembershipId } : {}),
       messageId: 'continuity_reminder_v1',
       category: 'continuity',
-      retryKey: `next-intake:${reminder.id}`,
+      retryKey,
     });
     // Only confirmed LINE delivery may mark the expectation as reminded.
     if (outcome !== 'sent' && outcome !== 'already_sent') return 'skipped';

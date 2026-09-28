@@ -50,18 +50,16 @@ export default function DateTimePicker({
   const dates = Object.keys(byDate);
   return (
     <div className="space-y-3">
-      <button onClick={onBack} className="text-sm text-gray-500">← 戻る</button>
+      <button onClick={onBack} className="text-sm text-gray-500">
+        ← 戻る
+      </button>
       <h1 className="text-xl font-bold">日時を選んでください</h1>
       <p className="text-xs text-gray-500">{ctaLabel}</p>
       {dates.length === 0 ? (
         emptyReason === 'no_working_hours' ? (
-          <p className="text-amber-800 mt-4">
-            予約受付時間が未設定のため、予約枠を表示できません。
-          </p>
+          <p className="text-amber-800 mt-4">予約受付時間が未設定のため、予約枠を表示できません。</p>
         ) : emptyReason === 'calendar_unavailable' ? (
-          <p className="text-gray-500 mt-4">
-            カレンダーとの同期に失敗しました。時間をおいて再度お試しください。
-          </p>
+          <p className="text-gray-500 mt-4">カレンダーとの同期に失敗しました。時間をおいて再度お試しください。</p>
         ) : (
           <p className="text-gray-500 mt-4">この期間に空きはありません。</p>
         )

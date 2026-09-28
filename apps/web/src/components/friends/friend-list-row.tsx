@@ -1,16 +1,16 @@
-'use client'
+'use client';
 
-import { useRouter } from 'next/navigation'
-import type { FriendListItem } from '@/lib/api'
-import TagBadge from './tag-badge'
+import { useRouter } from 'next/navigation';
+import type { FriendListItem } from '@/lib/api';
+import TagBadge from './tag-badge';
 
 interface Props {
-  friend: FriendListItem
+  friend: FriendListItem;
   // Toggles the inline tag-management section underneath the row. Wired up
   // to a discrete button (with stopPropagation) inside this component, NOT
   // to the row body — the row body navigates to /chats and we don't want
   // the tag-edit affordance to compete with that primary click target.
-  onTagEditClick?: () => void
+  onTagEditClick?: () => void;
 }
 
 // Single row of the L-step style friend list. Renders 5 columns:
@@ -20,11 +20,11 @@ interface Props {
 // resolved without leaving the list. The "タグ" button at the end of the
 // last column opens an inline tag editor (handled by the parent table).
 export default function FriendListRow({ friend, onTagEditClick }: Props) {
-  const router = useRouter()
-  const navigateToChat = () => router.push(`/chats?friend=${friend.id}`)
-  const incoming = friend.latestIncomingMessage
-  const scenario = friend.activeScenario
-  const isFollowing = friend.isFollowing
+  const router = useRouter();
+  const navigateToChat = () => router.push(`/chats?friend=${friend.id}`);
+  const incoming = friend.latestIncomingMessage;
+  const scenario = friend.activeScenario;
+  const isFollowing = friend.isFollowing;
 
   return (
     <div
@@ -36,10 +36,10 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         // an Enter/Space pressed on a nested button (e.g. タグ編集) would
         // bubble up here and override the button's own click handler,
         // navigating away instead of toggling the tag editor.
-        if (e.target !== e.currentTarget) return
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          navigateToChat()
+          e.preventDefault();
+          navigateToChat();
         }
       }}
       className="grid grid-cols-1 xl:grid-cols-[80px_220px_120px_minmax(160px,1fr)_240px] gap-3 px-4 py-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer items-start focus:outline-none focus:bg-gray-50"
@@ -77,9 +77,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate">{friend.displayName}</p>
           <p className="text-[10px] text-gray-600 mt-0.5">登録: {formatJstDate(friend.createdAt)}</p>
-          {!isFollowing && (
-            <p className="text-[10px] text-red-400 mt-0.5">ブロック / 退会</p>
-          )}
+          {!isFollowing && <p className="text-[10px] text-red-400 mt-0.5">ブロック / 退会</p>}
         </div>
       </div>
 
@@ -91,7 +89,11 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
               {scenario.name}
             </p>
             <p className="text-[10px] text-gray-600 mt-0.5">
-              {scenario.status === 'active' ? '配信中' : scenario.status === 'delivering' ? '配信処理中' : scenario.status}
+              {scenario.status === 'active'
+                ? '配信中'
+                : scenario.status === 'delivering'
+                  ? '配信処理中'
+                  : scenario.status}
             </p>
           </div>
         ) : (
@@ -106,9 +108,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
             <p className="text-xs text-gray-700 line-clamp-2 break-all">
               {incoming.messageType === 'text' ? incoming.content : `[${incoming.messageType}]`}
             </p>
-            <p className="text-[10px] text-gray-600 mt-1">
-              ({formatJstTimestamp(incoming.createdAt)})
-            </p>
+            <p className="text-[10px] text-gray-600 mt-1">({formatJstTimestamp(incoming.createdAt)})</p>
           </>
         ) : (
           <span className="text-xs text-gray-600">受信なし</span>
@@ -138,26 +138,31 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         )}
         {/* IG account attribution (written by IG Harness cross-link, first touch) */}
         {(() => {
-          const meta = (friend as unknown as { metadata?: Record<string, unknown> }).metadata
-          const igUsername = meta?.ig_account_username as string | undefined
-          const igAccountId = meta?.ig_account_id as string | undefined
-          if (!igUsername && !igAccountId) return null
+          const meta = (friend as unknown as { metadata?: Record<string, unknown> }).metadata;
+          const igUsername = meta?.ig_account_username as string | undefined;
+          const igAccountId = meta?.ig_account_id as string | undefined;
+          if (!igUsername && !igAccountId) return null;
           return (
             <p className="text-[10px] text-pink-600">
               <span className="text-gray-600">IG流入：</span>
               {igUsername ? `@${igUsername}` : igAccountId}
             </p>
-          )
+          );
         })()}
-        {friend.tags.length === 0 && !friend.firstTrackedLinkName && !friend.refCode &&
+        {friend.tags.length === 0 &&
+          !friend.firstTrackedLinkName &&
+          !friend.refCode &&
           !(friend as unknown as { metadata?: Record<string, unknown> }).metadata?.ig_account_username &&
           !(friend as unknown as { metadata?: Record<string, unknown> }).metadata?.ig_account_id && (
-          <span className="text-[10px] text-gray-600">—</span>
-        )}
+            <span className="text-[10px] text-gray-600">—</span>
+          )}
         {onTagEditClick && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onTagEditClick() }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTagEditClick();
+            }}
             className="mt-0.5 flex min-h-11 items-center text-xs text-blue-600 underline hover:text-blue-800"
           >
             タグ編集
@@ -165,7 +170,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 // Format ISO ts to "YYYY-MM-DD HH:MM:SS" in JST. The DB stores values
@@ -175,12 +180,12 @@ function formatJstTimestamp(iso: string): string {
   // Accept both `2026-05-08T13:45:00.000+09:00` and `2026-05-08T13:45:00`.
   // Slice off the timezone suffix and the millisecond decimals to land on
   // the 19-char canonical form, then swap T → space.
-  const trimmed = iso.replace(/(\.\d+)?(Z|[+\-]\d{2}:?\d{2})?$/, '')
-  return trimmed.replace('T', ' ').slice(0, 19)
+  const trimmed = iso.replace(/(\.\d+)?(Z|[+\-]\d{2}:?\d{2})?$/, '');
+  return trimmed.replace('T', ' ').slice(0, 19);
 }
 
 // Date-only variant for the registration column. Same JST-as-stored
 // rationale — slice off everything after the date portion.
 function formatJstDate(iso: string): string {
-  return iso.slice(0, 10).replace(/-/g, '/')
+  return iso.slice(0, 10).replace(/-/g, '/');
 }

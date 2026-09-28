@@ -54,16 +54,9 @@ type ResolvedFriend = { id: string; display_name: string; user_id: string | null
 async function resolveFriendFromLineToken(
   env: Env['Bindings'],
   accessToken: string,
-): Promise<
-  | { status: 'invalid_token' }
-  | { status: 'no_friend' }
-  | { status: 'ok'; friend: ResolvedFriend }
-> {
+): Promise<{ status: 'invalid_token' } | { status: 'no_friend' } | { status: 'ok'; friend: ResolvedFriend }> {
   const db = env.DB;
-  const v = await fetch(
-    'https://api.line.me/oauth2/v2.1/verify?access_token=' +
-      encodeURIComponent(accessToken),
-  );
+  const v = await fetch('https://api.line.me/oauth2/v2.1/verify?access_token=' + encodeURIComponent(accessToken));
   if (!v.ok) return { status: 'invalid_token' };
 
   // The verify response carries the LINE Login channel (`client_id`) that
@@ -72,9 +65,7 @@ async function resolveFriendFromLineToken(
   // user happens to share a lineUserId could impersonate an affiliate.
   // Allowed channels = env default + every DB account's login channel, mirroring
   // the multi-account verification pattern in liff.ts.
-  const verifyBody = await v
-    .json<{ client_id?: string }>()
-    .catch((): { client_id?: string } => ({}));
+  const verifyBody = await v.json<{ client_id?: string }>().catch((): { client_id?: string } => ({}));
   const tokenClientId = verifyBody.client_id;
   if (!tokenClientId) return { status: 'invalid_token' };
 
@@ -100,10 +91,7 @@ async function resolveFriendFromLineToken(
 }
 
 /** Map a non-ok resolution to its JSON error response. */
-function unresolvedResponse(
-  c: Context<Env>,
-  result: { status: 'invalid_token' } | { status: 'no_friend' },
-) {
+function unresolvedResponse(c: Context<Env>, result: { status: 'invalid_token' } | { status: 'no_friend' }) {
   if (result.status === 'invalid_token') {
     return c.json({ success: false, error: 'Invalid LINE access token' }, 401);
   }
@@ -175,29 +163,34 @@ affiliateSelfRoutes.get('/api/liff/mileage/me', async (c) => {
     if (resolved.status !== 'ok') return unresolvedResponse(c, resolved);
 
     const requestedLimit = Number.parseInt(c.req.query('limit') ?? '', 10);
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.min(100, Math.max(1, requestedLimit))
-      : 20;
+    const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit)) : 20;
     const [mileage, history, insights, rawOpportunities] = await Promise.all([
       getMileageSummaryForFriend(c.env.DB, resolved.friend.id),
       getMileageHistoryForFriend(c.env.DB, resolved.friend.id, { limit }),
       getMileageSelfInsights(c.env.DB, resolved.friend.id),
       getMileageEarningOpportunitiesForFriend(c.env.DB, resolved.friend.id),
     ]);
-    const opportunities = await Promise.all(rawOpportunities.map(async (opportunity) => {
-      if (opportunity.type !== 'friend_add'
-          || opportunity.completed
-          || !opportunity.targetAccountId
-          || !resolved.friend.user_id) {
-        return opportunity;
-      }
-      const token = await signCrossAccountToken(c.env.CROSS_ACCOUNT_TOKEN_KEY, {
-        userId: resolved.friend.user_id,
-        targetAccountId: opportunity.targetAccountId,
-      });
-      const separator = opportunity.url.includes('?') ? '&' : '?';
-      return { ...opportunity, url: `${opportunity.url}${separator}crossAccountToken=${encodeURIComponent(token)}` };
-    }));
+    const opportunities = await Promise.all(
+      rawOpportunities.map(async (opportunity) => {
+        if (
+          opportunity.type !== 'friend_add' ||
+          opportunity.completed ||
+          !opportunity.targetAccountId ||
+          !resolved.friend.user_id
+        ) {
+          return opportunity;
+        }
+        const token = await signCrossAccountToken(c.env.CROSS_ACCOUNT_TOKEN_KEY, {
+          userId: resolved.friend.user_id,
+          targetAccountId: opportunity.targetAccountId,
+        });
+        const separator = opportunity.url.includes('?') ? '&' : '?';
+        return {
+          ...opportunity,
+          url: `${opportunity.url}${separator}crossAccountToken=${encodeURIComponent(token)}`,
+        };
+      }),
+    );
     return c.json({ success: true, mileage, history, insights, opportunities });
   } catch (err) {
     console.error('GET /api/liff/mileage/me error:', err);
@@ -212,9 +205,7 @@ affiliateSelfRoutes.get('/api/liff/mileage/me', async (c) => {
  */
 affiliateSelfRoutes.post('/api/liff/affiliate/register', async (c) => {
   try {
-    const body = await c.req
-      .json<{ lineAccessToken?: string }>()
-      .catch((): { lineAccessToken?: string } => ({}));
+    const body = await c.req.json<{ lineAccessToken?: string }>().catch((): { lineAccessToken?: string } => ({}));
     const token = body.lineAccessToken;
     if (!token) {
       return c.json({ success: false, error: 'lineAccessToken is required' }, 400);
@@ -351,10 +342,7 @@ affiliateSelfRoutes.post('/api/liff/affiliate/links', async (c) => {
 
     const count = await countAffiliateLinks(db, affiliate.id);
     if (count >= MAX_SELF_LINKS) {
-      return c.json(
-        { success: false, error: `Link limit reached (max ${MAX_SELF_LINKS})` },
-        400,
-      );
+      return c.json({ success: false, error: `Link limit reached (max ${MAX_SELF_LINKS})` }, 400);
     }
 
     // offerId is optional. When present, gate issuance on an active offer the
@@ -461,9 +449,7 @@ affiliateSelfRoutes.get('/api/liff/affiliate/offers', async (c) => {
  */
 affiliateSelfRoutes.post('/api/liff/affiliate/offers/:id/enroll', async (c) => {
   try {
-    const body = await c.req
-      .json<{ lineAccessToken?: string }>()
-      .catch((): { lineAccessToken?: string } => ({}));
+    const body = await c.req.json<{ lineAccessToken?: string }>().catch((): { lineAccessToken?: string } => ({}));
     const token = body.lineAccessToken;
     if (!token) {
       return c.json({ success: false, error: 'lineAccessToken is required' }, 400);

@@ -30,7 +30,10 @@ export async function sendAdConversions(
 
   const platforms = await getActiveAdPlatforms(db);
   const clickIds: Record<string, string | null | undefined> = {
-    meta: ref.fbclid, x: ref.twclid, google: ref.gclid, tiktok: ref.ttclid,
+    meta: ref.fbclid,
+    x: ref.twclid,
+    google: ref.gclid,
+    tiktok: ref.ttclid,
   };
 
   for (const platform of platforms) {
@@ -41,8 +44,12 @@ export async function sendAdConversions(
           if (ref.fbclid) {
             await sendMetaConversion(config, ref, eventName, eventValue);
             await logAdConversion(db, {
-              platformId: platform.id, friendId, eventName,
-              clickId: ref.fbclid, clickIdType: 'fbclid', status: 'sent',
+              platformId: platform.id,
+              friendId,
+              eventName,
+              clickId: ref.fbclid,
+              clickIdType: 'fbclid',
+              status: 'sent',
             });
           }
           break;
@@ -50,8 +57,12 @@ export async function sendAdConversions(
           if (ref.twclid) {
             await sendXConversion(config, ref, eventName, eventValue);
             await logAdConversion(db, {
-              platformId: platform.id, friendId, eventName,
-              clickId: ref.twclid, clickIdType: 'twclid', status: 'sent',
+              platformId: platform.id,
+              friendId,
+              eventName,
+              clickId: ref.twclid,
+              clickIdType: 'twclid',
+              status: 'sent',
             });
           }
           break;
@@ -59,8 +70,12 @@ export async function sendAdConversions(
           if (ref.gclid) {
             await sendGoogleConversion(config, ref, eventName, eventValue);
             await logAdConversion(db, {
-              platformId: platform.id, friendId, eventName,
-              clickId: ref.gclid, clickIdType: 'gclid', status: 'sent',
+              platformId: platform.id,
+              friendId,
+              eventName,
+              clickId: ref.gclid,
+              clickIdType: 'gclid',
+              status: 'sent',
             });
           }
           break;
@@ -68,8 +83,12 @@ export async function sendAdConversions(
           if (ref.ttclid) {
             await sendTikTokConversion(config, ref, eventName, eventValue);
             await logAdConversion(db, {
-              platformId: platform.id, friendId, eventName,
-              clickId: ref.ttclid, clickIdType: 'ttclid', status: 'sent',
+              platformId: platform.id,
+              friendId,
+              eventName,
+              clickId: ref.ttclid,
+              clickIdType: 'ttclid',
+              status: 'sent',
             });
           }
           break;
@@ -82,9 +101,7 @@ export async function sendAdConversions(
         clickId: clickIds[platform.name] ?? '',
         clickIdType: platform.name,
         status: 'failed',
-        errorMessage: error instanceof AdConversionHttpError
-          ? error.message
-          : 'Ad conversion failed',
+        errorMessage: error instanceof AdConversionHttpError ? error.message : 'Ad conversion failed',
       });
     }
   }
@@ -140,14 +157,16 @@ async function sendXConversion(
   const url = 'https://ads-api.x.com/12/measurement/conversions';
 
   const body = {
-    conversions: [{
-      conversion_time: new Date().toISOString(),
-      event_id: crypto.randomUUID(),
-      identifiers: [{ twclid: ref.twclid }],
-      conversion_id: config.pixel_id,
-      event_name: eventName,
-      ...(eventValue && { value: { currency: 'JPY', amount: String(eventValue) } }),
-    }],
+    conversions: [
+      {
+        conversion_time: new Date().toISOString(),
+        event_id: crypto.randomUUID(),
+        identifiers: [{ twclid: ref.twclid }],
+        conversion_id: config.pixel_id,
+        event_name: eventName,
+        ...(eventValue && { value: { currency: 'JPY', amount: String(eventValue) } }),
+      },
+    ],
   };
 
   const response = await fetch(url, {
@@ -171,12 +190,14 @@ async function sendGoogleConversion(
   const url = `https://googleads.googleapis.com/v17/customers/${config.customer_id}:uploadClickConversions`;
 
   const body = {
-    conversions: [{
-      gclid: ref.gclid,
-      conversion_action: `customers/${config.customer_id}/conversionActions/${config.conversion_action_id}`,
-      conversion_date_time: new Date().toISOString().replace('Z', '+09:00'),
-      ...(eventValue && { conversion_value: eventValue, currency_code: 'JPY' }),
-    }],
+    conversions: [
+      {
+        gclid: ref.gclid,
+        conversion_action: `customers/${config.customer_id}/conversionActions/${config.conversion_action_id}`,
+        conversion_date_time: new Date().toISOString().replace('Z', '+09:00'),
+        ...(eventValue && { conversion_value: eventValue, currency_code: 'JPY' }),
+      },
+    ],
     partial_failure: true,
   };
 
@@ -184,7 +205,7 @@ async function sendGoogleConversion(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.oauth_token}`,
+      Authorization: `Bearer ${config.oauth_token}`,
       'developer-token': config.developer_token || '',
     },
     body: JSON.stringify(body),

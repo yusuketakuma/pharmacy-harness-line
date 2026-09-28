@@ -1,0 +1,14 @@
+{
+  "P": "3be2dbf1bed931fbf98cca4e40f934fce2058ba4",
+  "W": "3be2dbf1bed931fbf98cca4e40f934fce2058ba4",
+  "paths": {
+    "packages/shared/src/index.ts": "16e04bf933d73b4e6218e99423423074c0c3165226f6f83d034ac85adc957e0a",
+    "packages/shared/src/sticker.ts": "a819feb5fb16f7b2cca905d9d9e856f95c3035ca727024f7f6546a0cc7ca4c52",
+    "packages/shared/src/types.ts": "f5dd9ac6f39c92c1c7869b423fb3610b7cc0bc6625241e718a524127de8f98c0",
+    "packages/shared/package.json": "fdeb82237ac77e677ab6976fd9cc066af453db7a7f9861cecd0786dceea87f69",
+    "packages/shared/tsconfig.json": "9222ec437c1c4b8378784ebceca444214102b64598ff2d611cb4f362d576990d",
+    "packages/shared/tsconfig.build.json": "731647f9829417ebb831aebe790365f85323bcbd7ea2b0c788b74cc42129c26b",
+    "apps/worker/src/services/sticker-message.test.ts": "57e9206eb15d9d7d6730c3708efc95b2815922e2851490c44386db3a2ab32598"
+  },
+  "mutations": false
+}

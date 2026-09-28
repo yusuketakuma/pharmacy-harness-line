@@ -1,8 +1,8 @@
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vitest/config';
 
-const configDir = dirname(fileURLToPath(import.meta.url))
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   resolve: { alias: { '@': resolve(configDir, 'src') } },
@@ -15,4 +15,4 @@ export default defineConfig({
     env: { NEXT_PUBLIC_API_URL: 'http://localhost' },
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
-})
+});
