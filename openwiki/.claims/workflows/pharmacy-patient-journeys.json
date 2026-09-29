@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:464d612629d33e3accc1a03798cd3767b4f0865dcdcdaaf31a3112f4caaed2ba",
+  "claims": [
+    {
+      "id": "claim_66a3a3bc60b2466e9c247567c82b6b8c",
+      "statement": "処方箋の状態は draft→received→accepted→ready→closed を主経路とする遷移表で管理され、再送信依頼と各状態からの取消が表に定義され、表に無い遷移は例外になる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/prescriptions/state.ts#L1-L44",
+          "version": "repo-lines-v1:sha256:0c62d2e6a19c5b8cf13e39ebf7d53bb081ed4364f75c3a436b13b86331aed419:eyJzZWxlY3RlZExpbmVDb3VudCI6NDQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVlNTQyOTI1MWU3MmYxYmVmMTNlNTcxNjFlMTk2Y2QyYTQwODk3ZWM0ZTJlZmZjYWQyMzhlOTM1MjMzZjgzMzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_53bb67d5c67c41e4968ee8cbcf1e773d",
+      "statement": "薄局の患者面 API は LINE の ID トークンと liffId から患者を解決し、スタッフ面はアカウント割当を検査して楽観ロックを要求する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/prescriptions/routes.ts#L489-L520",
+          "version": "repo-lines-v1:sha256:eb2614696eb2a0b2f45afc67851417f398fcaf80295ebd66369901478b87e985:eyJzZWxlY3RlZExpbmVDb3VudCI6MzIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3YjA3MjljNGExMTFiMjY4ZDAzZjUwMmZlM2I3YTA5YWE0NDc0MmE1MzI1YjNiMTMwMzNiYTRmYTBhODg3ODAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiYjc1M2Q1NGQ5NzQ0ZTIxMzk3ZTBkYjZmMTI4OGQ4NzczMDIxMDZlODZiYjcyMDkxZTM3NWZkYzE2ODgzZDciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI3ZDlkZGYyY2E0OTU1NGE0YjNkMzRiMWQ2OWU3YjMzNGIwOGExMjE3YmEzNWQ4OTNmNzJmY2ZiNTA1MTcyMDAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjcyMWJhNmI4YmQzYjY5ZWVmYjNmMTJhZmRiYWVhMjEyZGQ1MTY0ZjhiZWIwNTc0MTM2ZmEzZDBkZGIxZjEzMmMifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/prescriptions/routes.ts#L74-L100",
+          "version": "repo-lines-v1:sha256:4853a90cdcbc443fd1e91e057b69076148dbc11157282d378bb1c8fbea78d2da:eyJzZWxlY3RlZExpbmVDb3VudCI6MjcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUxNmExZjg0MzRhZjY0M2I5ZmVmNGIzZDBiMWJiZjk3ZGM1YjM1MzI3ZWIwMWUyMjM1ODFmYzljMzc2NGY4MjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE3Mjk4Mzc3OTE1NjRhY2JlNzA3YTc2MWQ2ODEyODM0YzVlYTNlYmU5MmIyY2VlZjhmZWRmNWExM2VhYWJhZWQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdmMGYyMGU1MzQ1MmE1M2JhMzkxZGQ3MjA4YTMwMjM5ZWZkZDkxODliNDZlMzg0YWE0ZWZiZjU5NGMzZDY3MTQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_3f82bb93fff24599a26f86af4fb44aca",
+      "statement": "履行見積りは版(revision)付きで記録され、判定・要件・受け渡し方法を持ち、コード文字列を制限して臨床メモを入れない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/fulfillment/repository.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:81eff7858afa1ea84e209214385b285ab41457b5db84747b53608a75ee2f731c:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVmMjgxNjQ0ZjkwZDYyYmY0MGMwMTFkNDE4MTkxOWVjZTRjNWUxYTI2NGRmNzI5NmI4ZjhiM2YwNWY0YzQyN2YiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4NGRiM2UzMzJiMWY0MmUxNDYxOWRhMzJiM2Q2Zjg1MDEzOGNiMjc1YzY5YWU3MTc5MjA1OTdhYTczZGIyYTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU2MWU5ZDhlMDU1ZjIzNTkzZjkyNzM3NDQzZDM1ZmM1NmIwODNiYzk1ODU1NDNlMjBhODA0Njc0ZGVkZjc4MjQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c6a775a3e7934297a46a45ff2009ab3c",
+      "statement": "電子処方箋の引継ぎは患者の申告とスタッフの確認結果から 9 種の状態へ写像し、起動は期限内の CREATED/LAUNCH_REQUESTED に限る。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/myna/state.ts#L1-L100",
+          "version": "repo-lines-v1:sha256:ac8c9e2da32e6d71ffbfd7762b045f3601f94781152620accded1d0e8561d21d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI2Y2IzNzgwMDQyZDAwMDYxZjczMTMwOGNkNTRmOWNlY2U4MmZkODI4NGExZWYyNjkyOTg0MTg1OTUxNTc3ZmVmIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0MTJjYTM0NWNjZjc1YmY5YzA4MDZiY2U2OTViZThkZTgwOGI3OTk4NDI1MWE3YTU0ZDIwMmNmNjEwMWRkNDUxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_589839e2d93448a29d9b7a4b85cf76cf",
+      "statement": "myna の起動 URL は短命トークンを検証し、Referrer を出さない厳しいヘッダ付きの 302 で設定済みの外部 URL へリダイレクトする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/myna/routes.ts#L281-L302",
+          "version": "repo-lines-v1:sha256:dca3e61cb09841d53374bf44ee05719f80340aac8c2152b122fdbaa6770951a3:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmM2RmNmRhMzNhMjQ3ZTBiN2FkODQ3MjM5Nzc4OWI4MjFhY2M0ZTk0Yjg1NzIxZGQwZGVkMjFhYzgwZmI3YTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY3Y2E5N2MzNDUwZjg0N2Q3MjM0ODhiNjI0MjI2ZjlkYzMwMmMxNmE5NWY3YWZiYzI4OThjOTJhYTdhNjdkODMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY4YjFkZTVkYWVmNWE0MzQxMGNmNzcwMTRiNzdmOGY2NDE1OTRkMjg2MTZlNGNlNjAyNDcwMjJhMmIxNjZkOTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_69e0bd17502042e6b9a3d1c152b45f3d",
+      "statement": "服薬フォローの遷移は TRANSITIONS 表で定義され、不正な遷移や expectedVersion 不一致は例外になり、担当割当は有効な人間スタッフを要求する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/medication-followup/repository.ts#L146-L167",
+          "version": "repo-lines-v1:sha256:6b1269132874ba3a0ab0c26a1642cad4f1479f7305129d6cf65e7d305f61c9f1:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY4MTYyYmJkNmQ3MzdmY2QxNjRlMDMwNTdlMGIzMWIwZTk0MTNmMmIwYTA2ZTJkZTZmODZjZDgxZjdlNjhiMDAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBjYzNmZjgyMTRmNmE1M2VhMDc2ZGZhY2U1NDEzMjdmMmU5YjViOTllOTkyYTA5NWQ0NDM0ZDRmMGYwNWY2YzAifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/medication-followup/repository.ts#L575-L600",
+          "version": "repo-lines-v1:sha256:6a8603bb042e4aee152ec74a76f46f2e08656e1c51a5364f4ffd404ec5e851fb:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YThmNzgyZWZiMTQyMTAyMmUxMDU5M2QzYjEyZTU1Y2NlYmRhMzkyM2U1MGM4NTdkOGQxYmUxMzM2ZDg5ZDciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM1M2ZhN2M1YTRmN2YwZmM5YTI5ZDdhNzNmNjNiMWNiMjkwZjAyNDA2M2NiMzUwMzhhZWUyODNjZDQ0NWJhZTIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjYzMmYzZWRjNTkzZGZkZGIzMTRiNjI4Y2QwOTI5YmFiOWY1ZDgyZDBhYTJjZTIyZWNhNjUyYjgxMmNhNzljYjAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjUyMDMxMTc4MDA5NzIzOWEyZmZkODNhNjlmYzQ1N2Q1ZWY4NDcwZjA2N2U4ZjgxN2YzMTAzNDQ1MTM4MjliN2EifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_33e3955ae0ae4f4f89c4307934413865",
+      "statement": "継続の目安の提示は完了済み(closed)の処方篋を前提に、冪等キー付きで offered を作り、患者の応答・一時停止とスタッフの終了を持つ。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/continuity/next-intake.ts#L1-L14",
+          "version": "repo-lines-v1:sha256:e4c6d68fb9dea0b8e54ecb613595a9e89fb72bfca6202025e85a096c293d99c2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBiZGQ2NGVjMzVmMjY3ZjA2NDdlMGI3ZmMxNThmNjU5ZjE2NGRlODJmNWQyYWMwODk4NmI4OTI5ODkyZGRmY2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2MzhhZjQ0NTQ2ZjAxMDgwM2FjNmMxZThjYTE3Yzk3MTVhODU3MTI1OTBkNDkyZWIxNmRlNzE3NjIxMzMzNjMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI3MGY5ZGFkNzQ0MTk3NTM5NjQxYjJmZWNlMTljMTgwNTExNDdkMWUzYWY4YWIxZDRlMzQ1MjM1YjIwN2RkNmYifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/continuity/next-intake.ts#L268-L300",
+          "version": "repo-lines-v1:sha256:1a51d23e9158f93a21d879e76af148168eba31eb8c6b7800cb8cb98457100420:eyJzZWxlY3RlZExpbmVDb3VudCI6MzMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNhMDcxZTk2OTk1MGUxMGM3MmJiZWVmMDE3NmY2NzU5NTZmOWYyZDUyOTFiMWQ3YzMzOWYzZjkyNTNiNGExODciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMyNzI0ZGVhN2M0MjI2NTQ2ZjdhMzVkZTViNWMzYTY4ZDc5MzliMmE1YjlhZTU2Mjc4MjAyYzVkZjc4NDA3MzkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRmZDk0OTJiOWJiNTljZDlkYmRiMTRiOTM4MWNmMmJiMmVlNjNjOTcwOGZmMDlkYWYzNzRlYWQyOTc1YTc5YWQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg4NmQ3NTM0OWViYjdjMjk1NTZlOWQ4M2ZlOGJmZGMwZGZhYjM5YTAzZTQxN2Q5ZDA3MDYxMjE0MzFhMTZkOTAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0bbff0744a7a425daf3c2a09f0f3179e",
+      "statement": "緊急避妊の事前情報は 72 時間の期限と来局・対面服用の合意から仮受付の可否とブロック理由を返す下書きで、詳細フラグは暗号化 payload の中だけに保存する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/emergency-contraception/policy.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:07fa679266b008d2a72a5f43f22e6d2116b2325c2226446b5fe9a46c0bb6be78:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4MTkzZTQwMDJkMmE1MGU1NDE2NTZiMGM0ZTJlZmVkMGNiNTJkN2Y4MjYzMWYzNmExY2FiMjliNjI4OWQ1MzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3MTY1MDU3ZDRlN2ZhZDkyYjMxOGZjMGNjMjVlZjhjZDBkNDVkMDEzMzM0MWQ3MTJkOTIzOTcwMThmZGU2YjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjRmZWFhZTJkMGQxOWU2NjIyNmI0ZjY4N2IyZTAyYjNhMjYyZmRjZDQ5ZDAyNmQ0ZGJmMDI4ZmI3NDUxNDg4MGUifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/emergency-contraception/policy.ts#L100-L182",
+          "version": "repo-lines-v1:sha256:cec3bc685bae5bf8af9960184d8c24d985f4eb7481794ed01fd8143dfa25695c:eyJzZWxlY3RlZExpbmVDb3VudCI6ODMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjU4YmUzNjNkMjlhYWQ5YTA4Y2M0Y2RhNzA2MDVjODM1NmNjOGQzMDJjOGE4MjgzNmU1NWZkYjJlZmFhYTk0MDAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/EC_PREVISIT_FORM.md#L1-L12",
+          "version": "repo-lines-v1:sha256:c5365b20806c505638554cf8bd3b615d65e810f49ec2bbe97ebfe10b5525a6a6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJjZTRkN2YxZTMyMmNhZWJjNDgxYjUxYTgwODBkMjk0ZjYwMjY5OTQ5MjhkYjc1ZmRlMzNmZDBjOWViZWU1MGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhkNzI1M2VlNTNhN2E5ZmQ2YWVhMDc2OWIwN2M0MTI3OTkxNGIwYTIxMTc3NGZmMjU5ZGYwYjI2MWMwNTM0ZTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE0NGY3MjhmNjFlOTU2ODRiZTM5MTI0NGY3OWJkNzU4NjVlODQwYjY4ZDY1MzgxZGQyMTM1ZDcwY2VhMjNmMmMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ae0d7c67d5fc463db2aa5a43c808be14",
+      "statement": "緊急避妊の事前情報の状態は provisional/reviewed/completed/cancelled/expired で、有効な受付は provisional または reviewed で期限内のものだけである。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/emergency-contraception/repository.ts#L12-L12",
+          "version": "repo-lines-v1:sha256:75c14d5548f5dbb55167d0fe17000f32e695b64d7c27f1981270c5d88f0bf947:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjMTRkNTU0OGY1ZGJiNTUxNjdkMGZlMTcwMDBmMzJlNjk1YjY0ZDdjMjdmMTk4MTI3MGM1ZDg4ZjBiZjk0NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVjMTRkNTU0OGY1ZGJiNTUxNjdkMGZlMTcwMDBmMzJlNjk1YjY0ZDdjMjdmMTk4MTI3MGM1ZDg4ZjBiZjk0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDhmNDVjMjhiNWNiNzIwM2IyZTkyZDQ1NmI1Mzc1MzMwNGE0YzUyOWM4MDliZWZhNTdlYWVjMDQ0MDNjODFlZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjliYWU0NTNlYmQwMjlmMTZlNTM3NWMzMGUyZmM5MWJkNTA4YTA3YjM3MWU0M2RmYWY5YTc2YWM1YmYyMTBjNCJ9"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/emergency-contraception/repository.ts#L770-L780",
+          "version": "repo-lines-v1:sha256:a03ff37d5bc21544f42de299cee47bc3333207d1c326df49efbb504d1330c19b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkYzIzMjFmMzFhN2RhNzRjNzFiZDI4NTBmZTM4M2YwZTljZjQyMTlmYzU5ODVlODYwOWQzNzFkNTYwZjAxNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI1MDExYTEyMGE3NDhkNDFkMTdhNzZhYzJlOGUzMDY3OTY2MTg4NjNmN2I1MmU4ZTA5MzdlOGQ3ZjY3ZDFmZDMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY0MmIxNDFhNmYzMGMzZDdjNTM2YmFjZTEwN2RkYmVmMWVlZjJmZDNiNTY2MjFmOGNmZjBlZWFjMWFiYTEzNGYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI1YTMwZTQ0NjNmNzNmMmJhZDQzODhiOWZlN2I5NDg3OTVjYzEwNjk1ZjZkMGFlMmJlZWJiYWI1MjYxZjQ0YTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_44e16e32d58e4565ab220b5161a14b22",
+      "statement": "患者タイムラインは各ドメインの元の状態を患者向けの 6 状態と次の行動に表で写像し、未知の状態は unknown に倒して、内容ではなく詳細パスだけを返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/patient-timeline/repository.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:8795d376f4bdfec17e1b73c94de67225dd948ede979fc2e6886a0b6837057751:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFhOGRmMjFlOWYyYTE2YThkMmI4YjJmN2IzNWRiYzU1MWQzOWNkOWNlZTA0OWI1MWQ4ZmJiNDM3MjRmNThkYjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY3NjZmMzUwYWY1MTNkNGJiYjZjYTE0OTAwYTAxZmE0NDgwNTc0ZjU4NmU0MmQ3ZjUyYzlkMTdlNzYyYmNkYmYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM3Zjk4OTViMmU3MWQ0NWE1MjYyMThmOTNmNmI4NTU3OWYzNGZlZDdjZTBlZjIyMDRlNDRjY2NkYzMwM2VhNTIifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

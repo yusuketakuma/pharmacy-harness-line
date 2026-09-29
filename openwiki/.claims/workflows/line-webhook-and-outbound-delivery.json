@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:027a609630307cd64d4a4389399c9e931d65570e32ccbff73b2bb78b5e04dd94",
+  "claims": [
+    {
+      "id": "claim_4e2a3f54c2e2439f80f6b905876fc392",
+      "statement": "webhook は本文を 1 MiB に制限し、署名長を事前判定し、未検証の destination を選択子としてアカウントを一件引いてからそのアカウントの channel secret で署名を検証する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L379-L490",
+          "version": "repo-lines-v1:sha256:c5adcad23bbd156755b7b9f79918891693b0e630f54e94b577a24ec6d1702d1b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEyLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJhMWIyMDAwZWRhNWQyNTQwMTllMzRkZDY2ZjNhODg3YzBhZDUwMDRiZWM0YmRhNDU5NjhkZDQ1ZDE3YmZlMTI0IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiIwNjU5NWY0ZWU1ZmY2M2Q1MDk1MDQxOWRjMzQ0MTQ1MTM4NTFkYzk3MzZmZDE3YTRmN2JmYTkzMGIyNjFiNmYyIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI4OGI0NmY1MTNlYmUwY2FkYjNiNmM1NjI1YmI1NTVhMTMxMzAxNTBjOThmNjlhY2E2MGUxMmJjN2FiN2JiNzVlIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiI0MjNhZjk5ZTM3OTQ5ZDk0MWY3MDhjZDhjMjgzMDE1ZjYyNzg4MWJhYjFjYjI0YjM4ZTQyY2JmYTcyZDdjNGQzIn0"
+        }
+      ]
+    },
+    {
+      "id": "claim_6b3e1bc0e7254eeb910980c29f08763b",
+      "statement": "各 webhook イベントは LINE に成功を返す前に pharmacy_webhook_event_receipts へ INSERT OR IGNORE で保存され、保存失敗は 5xx、重複 ID は再配信として二重処理しない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L492-L530",
+          "version": "repo-lines-v1:sha256:d9bb505a02425173fab21de1a5b9971492c30b04df100d30b3db7607f88331e7:eyJzZWxlY3RlZExpbmVDb3VudCI6MzksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJmYjZmZDk5Zjg2NTA3NjE0MjNkZmM0NWRlZjQ3NmFkNzkyNWQ2YzhiZmM2MjdjMWU1ZTQzNGQ2MzE0ODA4MTAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU3YmI3NzM1M2E0Yjk0ZjNjNzgxZjg0ODBlMjc1NzA1ZmZiZjJmNmM3YmY4NjZjZjRhYzkwZjExNjE3MDQ3MGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU1NDFlNTNiMGEyNjYzNzM0NWRmNWJlYWQ0MGQxNDJiNTAyODlmZjgxMWU1NTg4ZGQ1NWY5YmI2OTNlZDUwOGQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZmZmQ3ZGFkNTNjOTgyNTlmOTNjOGRiZTdkMjI2MTBjMDMzOTU0NjNmNDJjZTMzOWYzZjU1YzRmZmM0N2M1MmYifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L98-L112",
+          "version": "repo-lines-v1:sha256:097545390568c88c1b422334f1a997e7105ee58ac6fe66e7db578055467fba4f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyNjA1MGU0NWY3NTlhOWY0MWUyOTZmZDYwMjcwMTU4MWNjNjJkMTNiYTc4NmU5ZTA2OWIyMmE5Y2Y1YjIzYjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmJmMTY2YWIzZTVjYTE3MTM4YjAxYjQ5NTU5MDkxMzgxYTg3NmYwNTc2NzYzMzY5YzdjMTIwN2IwYmZhNTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFmZTJiMTdjZGFiNzllYTBlN2RjNGQ2M2Y4OTJkNTI5YzJhZTQ2NjI3NmFmZTFhZDk3ODBlMjcxYjQ2NzlhY2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI3NGQxNzRkMTFkNTFiY2MyMTcxMGQ0ZWM5OGYyNjg0MzQxYWFiYWM2MzliNDFjNDI1ZTE3MDNhOGMzOTA5MDYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7706a9a3e3e14960ae69a0bdb116a345",
+      "statement": "runWebhookInboxEvent は 5 分のリースと claim_token で行を確保し、1 分ごとにリースを延長し、自分の claim_token の行だけを completed または failed に更新する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L123-L232",
+          "version": "repo-lines-v1:sha256:410392b0e25690c7bd110bf7fa2cca7ac52848921460532bed702c96c8f7f956:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIwYjliMjI3YWY3ODY1ZmFjMDE1OTZkMDM0OTU5YTBlMWQ5ZjY0ZWQ5Y2M2NGM0ZDI2NGE3ZDdjMThjOGMxM2MyIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI3NzZiNjQwYWMwNDMzNjNjN2ZiYzhmNzZjNjMzYWY4NGRjNmM3ODk5NDI1Nzg5MGJiYmMzYTBlZGVmMTBiNDU3IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlZTA0OTVkNTc1OWZmMzAyZWU0ZjU1ZDc1ZmM5YWJkOTI0ODQ5ZWYxMjMxZjQxNDk4MGVhYzAyODcwNDU5Yjk0IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJiMThlMGY5M2IwOTg0NzExNmFhYzc5Njc4ZDdiMzQ3NDJlYTkyYWJlMGYzYjk0NmZhNmUxMGI5ODYwNzdhY2U1In0"
+        },
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L44-L60",
+          "version": "repo-lines-v1:sha256:43dd9ce2186b93bd2ae87640933faeb7c704e80a147c02b9ebdd795e9a1a44f8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJlOGUyNGE0MGI3YTZjMzE2MmM5YTYxOTY5ZjI0NDA3N2YxZWRhMjUwZWFjZTUxNzNlZjhhNzRhOTJhMGFiNTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY1Yzk4YWQ5YmQxODZhNTYwODlkYTE4ZmJhMTg1NjYwN2JkMzA3MWI5NDZhYWM2NTNjMGM3MTg2MzFmNjQ2MDgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQxYzg2NzRiNDJjMDdmZWU3ZDk0ZmRjODgyNjA0NWI2OTZlMDc1YzMxNGVhYjdlMzUzZTgwYjBhNjA4ZDNmMWIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJmODNmNTkwMTQ0MDU1MjFiNTI0ZGUxZGMxMWU3M2E5MGVhYWFiNThjNTIxYjI3YTYxMTY3Y2QyZTkwMDRhZTcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6f2baec2e2ff4f9ebeef8b3a1d7f779e",
+      "statement": "sweepWebhookInbox は retry_count が 10 に達した行と 24 時間以上未着手の行を dead-letter に退役させ、期限切れリースの未完了行を最大 50 件、古い順に再実行する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L234-L320",
+          "version": "repo-lines-v1:sha256:59679e258d007e23f5f03afec4ae2d13576870b6ce22dad8203c196945d60803:eyJzZWxlY3RlZExpbmVDb3VudCI6ODcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRhMmY3MDI5YzFiMTI0MDA4YzI5M2M4Y2VhNmYxZTE1ZGU2YjZiMjc2YjkyOTNmMWY2M2M0NTlkOWFiMjYxYjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhmMjhmZTcwM2Y5NzQ1YTI5OGQyNDQ0MzViYWI0YjY1NmU0ODA1YmIwMTBiNTM2NTk5NjcyOGZmMDdmZTU5ZTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM5YWU1OWUyMDJjNjYxODMxNzJjODdkOGRlMjQ3MWE0ODc5Mzc2YmRiODlmMjEyMDRjNWM1MGUxNDQyNjQxNDgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk4NWNkMTFlYWM5ODJmYWFjYjYxMWViY2I0N2I1ZjFmMTQyZmNmYmZjMjk0NzFlMjQxMjczNWEwZWFkZGViYzgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d83c7c2124b34dd0aed7c83a36b19e00",
+      "statement": "purgeWebhookEventReceipts は 30 日を過ぎた完了済みまたは dead-letter 済みの受信記録だけを削除する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L322-L338",
+          "version": "repo-lines-v1:sha256:d7e688138121c470b328947d85ad1cf0ee277197ba6d6bf007ae01adcd06352d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MDQwN2JkYjE4OTY1YzdmNDgxMDg0NmVmNmJkNjUwOTAzNDQ2NWMzNzIzMWQ3Y2YyMzBhNjg0MjJlNTU4OWMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRiMDAxNGQwYTgyZDQ2NDk0MmIxNWU4ZWI0ZjZlNmUyOGNkNTMzZWRjMTc3NWMxYzY0ZTZiZDI0OTI4NGY3NGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY2ZGZiYjkxNjdiYjQwZDExMDU1NGQzZmJjYmQ1M2Y4Zjc1NjEyOTE4OTYyYmI4YTBhODJkYWFjOWU1YWRlZDIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_bdc1680986924854be1f1f149c31a468",
+      "statement": "薬局モードのアカウントでは、text 受信はログと未対応チャット更新だけで終わり、postback は服薬フォロー回答だけを処理し、follow 後の generic 自動処理を行わない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L590-L596",
+          "version": "repo-lines-v1:sha256:d570de8f7d33c8c2a9439b658c47f2d360a299f8e361ad399690ac933e276169:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzE3YWYxMTAxYzk3YjdjMmY1MjU0MDc4MmU2MzRjYzQ0NDBmMGU5NzAzNDFlNTJmOTc1MjMxMWQ3OGI3ZDdkMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzE3ZmFiZTEyNTE0MGFlOGVjOTBiZTQzM2EwYjZkMWVjMzc4MjM5NTk4ZWRjYWY3YWI1MjZiZjRkOTVkOTg2MiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzI3MTNhOGNkMzQ4YzFjNWM5NTQ0MDU4MTI0YzI1MDNkZjg5YTQ2MDEzODYzN2ZhZDg0MTQ5YWZkMDIzNTUwMSJ9"
+        },
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L795-L820",
+          "version": "repo-lines-v1:sha256:d60ed6d12f9c55c1855994665f049c2c345b2e3304ae3dd92f10c4f3fe928f33:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJhY2Y3MGU0ZjFlNzU2ZWE1MjE0YjI0Mjk0NjQ3NTRhYTRmYzhjYTYzODcxYmM1Y2RiZDJlZTg3NGJkOTgyNzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk5NzNmYTc1ODE0ODE5MTJhMTNkMmIyNmI2Y2NiMzdhOGJmYjg5YjNlODlkNTI2NTkzMzFjZGFiNGJjNDZjMGMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhlMWVmMmM2YjJmYzBhYjZjZDFkOWI0NTVlMDBlMzY0YWU2ODdjYzFhODNlY2JhYTIzNTA3MWE4OTkyOGYyYjciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijc0ZDEwMWMzMzE3MzRlZDRlNjZiNGVhZjEyNjMxZGM0NWNmY2I5NTRhZjQ1YWQ0NmQwNGEzOGY1OGEyMzFhOTMifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/webhook.ts#L956-L982",
+          "version": "repo-lines-v1:sha256:a0d02f6e6a90deefeee9379b464282c13425e46008bdc3e09940e284ca401650:eyJzZWxlY3RlZExpbmVDb3VudCI6MjcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFmYjk3OWI2NDQ1NjVhNTIzODg4OTkzYmRhYmM0MDg4MWNkMmFkNWI0ZmQxM2RjMGRlZmQ1YWI5MzkzZGJkNzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFiYTAzYzA5Yjc5M2JhZDFkOTg3ZmQ0MjkyNWU5Y2ExNmQ2YTdjNzM4N2RhOTRlM2UyNzI0ZGQxYmZmMTdiNjAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM2ZTUxZTBkMDA4ZjE2YzdhMmI3MDAyZThiYzQ2NTQ4N2FlMmY1YTMzYjA4ZjczZjUzNWQwMGJmMjhiODdmZTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjAzNTYzNGMyOWEwNTc5OTM3ZTFlMGExNDQ0NDc0ZjA2MTE2OGVkYWI5NTg4ZTJmMTY5MTYyNzIyYTNlMTQyYjMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b54d65b20c9143f2aa414c29f7472c03",
+      "statement": "X-Line-Harness-Source は manual のみを受け付け、push 以外のパスでは 400 を返し、未指定は external として記録する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/line-proxy.ts#L558-L578",
+          "version": "repo-lines-v1:sha256:10060692a36cdaa4f193736c24f829b6cda086b6e7aabf4b841a526a5b3ad2c3:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU2YjgxMGRkZTllOTk3NWIyODQ0MTBlODA1NmM2MmQwZjUxNmEyMDI5NDBkMmUwZjE0NWJhNzg1YzZjMmYxMDkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFmMDg4MTlmNTZiZmU4YWZkZTU5N2ZlMTUyYTIyOWI5YjkzYTRiODQ1YzNjZGQ5NDZhMWY3ODE4ODM2ODVlNGEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImIxYjUzYTUyMTVkZWVjZTBhNjVkMjg5ZTkwY2Y0OTc2Y2I0ZDhiNTUwNzhkMTAzNzg2NDdjOTg4NWM3MzhlZDQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_61dab01ded59426aa5f9f022d1a47bd1",
+      "statement": "薬局モードの自動送信は push のみ許可し、attempted 状態の通知イベント・宛先一致・承認済みテンプレートを満たす場合だけ通し、リトライキーをイベントの冪等キーと一致させる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/integrations/line-proxy.ts#L260-L320",
+          "version": "repo-lines-v1:sha256:0ec0ae4012f3819794b9a7272e628a10d6cd416d4733bca653f2d74d396416e8:eyJzZWxlY3RlZExpbmVDb3VudCI6NjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU1MWQzZjQ4NTBlMmFjMjc3ZDY0MTM2MzFkYWQyMjgyMzc4MTE1NTk3YTczMzhkODRhMjBjY2JiNmI0NzNiYWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQ5NTRlMmMxZTYzMzE3YWNjYzQxNTUwYjU2OWRlNzFhYzM4NTc5MTJjNTQ4MTQ2ODM0M2NiNGM5ZjQ5NmEyODEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI0ZThhN2QyYzVhNzMyOTM0NjZlMmRkY2Q1NzUzMGM1N2VhMGY2Y2NkZDczNTQ0MWUzYjdiMDExN2NiNTM4MGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_af820a2fb447410281f241f51a49c9c6",
+      "statement": "pushViaHarnessProxy は必ずリトライキーを付け、10 秒タイムアウトと 5xx を結果不明として区別し、4xx を確定失敗とする。409 と受理済み ID は成功として扱う。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/services/line-proxy-send.ts#L1-L75",
+          "version": "repo-lines-v1:sha256:355688d795687bc6bca156427d5424da1dbc77a7cf8e70c37bb2c5a172284214:eyJzZWxlY3RlZExpbmVDb3VudCI6NzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI0NmIzYzdmNWU5ZWZkMjJkZTY3YmRhOGIwNWMyOTkxOTUwNDE0YWY1ODNjMTg3NzE2MmU0NDgwOTBhYWMxYzMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjgzZTI5MDJhZDBlMzAxOTQ1ZmM1YzBlZTJmMDE1NWNkYzJmYmVjYjhiNjk5YzUyYjZhNDZkOTY2NGM4Njc0YmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a7a94a7135aa4533a55064eefea179c2",
+      "statement": "deliverTrackedLinePush は outbound_line_deliveries の行を open→accepted/retired で追跡し、accepted は重複送信せず、送信前に期限内の条件付き UPDATE で試行回数を進める。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/services/outbound-line-delivery.ts#L451-L507",
+          "version": "repo-lines-v1:sha256:9ca4b655e8549004c597285750186436009c51b5076ad3963637befbddc1ecfc:eyJzZWxlY3RlZExpbmVDb3VudCI6NTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEwYTJkZTUxZjNkNDQ3MzQxZTg3MGJmNDU1OGYzMzBlMmEwNzAyOTgzNGYxYWFhMjZhOTVlYjZmYTE5NzdiYjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjJkZTBmOTQyNTQzNDYxMTY5YWFjY2NhMDQyODcxMmRhOWViYjFlYzJlM2VjZDNhNGI5NjA3ZGJkMDFkMGRhMTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJhMzM3NmJkZTc3Y2M4NWQwNmVjNDJhYzAxOWNhZjA5ZGI5ZDRhMTQ1ZTRhNzg1MTg1MDY0MGM1ZTg0ZGRlNWUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e83db04d30f4b0fbe97147463f80cae",
+      "statement": "送信の再試行は 24 時間から安全マージンを引いた範囲で、reply は約 65 秒、照合は 1 回 100 件までである。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/services/outbound-line-delivery.ts#L1-L15",
+          "version": "repo-lines-v1:sha256:55ecec4b7be9a0b26f162c097b7e47be54d9a2742e5134a25a33c4535cd8e3db:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQyZDI0MTViZWNjMWIyODhjZWIyNjUwMjQ2M2VlYTliOTk0NmFjM2MxNzc0NzFiZjRiZWUxMDFiZGE1MWQ2NjMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxOWMyYmYxNDdjNzE0MTA0NmViY2Q3OWE5M2I2Zjc4OTc3ZDMwMzk2NDYyZGMyYzFiMjZhODA2ZmE4YzExNDYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk3ZjM1ZDRmNjM0MDEyNDZlY2U5NWFiOGQxYjQzYmFjZTM0MTQ0YWNiMWI3ZmQ2YTFmZjQxNmUxZjdhZmJiNWUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

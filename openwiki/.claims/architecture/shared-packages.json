@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:57f7d89d4f4e1e40696686e35ca659aec5884e1136a1ce595352e849cc2c4dd2",
+  "claims": [
+    {
+      "id": "claim_2f504134a0ba451b80c916220a841c9c",
+      "statement": "Worker は @line-crm/db・@line-crm/line-sdk・@line-crm/shared に依存し、管理画面は @line-crm/shared のみに依存する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/web/package.json#L16-L16",
+          "version": "repo-lines-v1:sha256:133ca9d4906046baf57c2337e5ec7c70625c033915e3c1d85468ebb903c743e0:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTMzY2E5ZDQ5MDYwNDZiYWY1N2MyMzM3ZTVlYzdjNzA2MjVjMDMzOTE1ZTNjMWQ4NTQ2OGViYjkwM2M3NDNlMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTMzY2E5ZDQ5MDYwNDZiYWY1N2MyMzM3ZTVlYzdjNzA2MjVjMDMzOTE1ZTNjMWQ4NTQ2OGViYjkwM2M3NDNlMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDY1MzJkY2IzOWI4YTU2OWRmMDQ3ODM0NTAxMGZjMjJkYjAwZDQ1N2UyZDhlMmEzMjgyNTQ2YTAyYjNkYTNjMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTQ4MjZhZjkyZGVkZDQ4YzIyNjhkYzIwZDI0MDYzZDlhYzVhZTdkZjgwN2E2Mjk1ZmUwNDlkMzk4Y2RkZjA1YyJ9"
+        },
+        {
+          "resource": "repo://apps/worker/package.json#L19-L21",
+          "version": "repo-lines-v1:sha256:01723f8651684116592d14f0299d73d048554913198c7ce1f7d4511f2a871a0f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTVjODQ4MTIzYzFjMGJhN2M0ZDE4ZDk4NjBiMWM2NzE4Y2E5MWNiZTk5MDJjMjBiMmQ4MWY0M2ZkZTM1NDc0ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTMzY2E5ZDQ5MDYwNDZiYWY1N2MyMzM3ZTVlYzdjNzA2MjVjMDMzOTE1ZTNjMWQ4NTQ2OGViYjkwM2M3NDNlMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTZkYWNiZWNhOTMyZWQ3ZjY3MmFkZTg1NDgyOGM4OTliZTU1Mzk1Zjk1ZTE3YmM5NTI1ODk4YjkwZGU2ZjJjNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMWRmN2YyNDZiMjExZTE1MTY2ZDgyNTFiN2NkNjgxNTgyYjEyYmRjMDg0NDNiM2FmM2ZiMjBmNjRhOWUzZTBkNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_54c3b4e24b16447c8c7322d02f3bd66c",
+      "statement": "LineClient は X-Line-Retry-Key 付きリクエストが 409 を返した場合を受理済みの成功(retryAccepted)として扱い、それ以外の非 2xx は例外にする。",
+      "evidence": [
+        {
+          "resource": "repo://packages/line-sdk/src/client.ts#L27-L78",
+          "version": "repo-lines-v1:sha256:8280aa8f4b86f2280201fd3f29da260c2b2eb9d1317a21c679e67f974b3d36f8:eyJzZWxlY3RlZExpbmVDb3VudCI6NTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1MWY2YzFmZWU1ZDhlMTA5NjA1NDhjY2M4YTFjOTZiODk3NjEzZjI5ZTlkOTQyZjIzYjI2M2EwNTdkMTNhYjciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVmMjFkNGMyZGJhYmUxNWE1MjhkMGM0Y2Q0ZDBhYjYzODE4Mjk4OTMwODVlZmJjN2FlNzhjNzJmOGU5OTU1NDAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImY2YTM0MTQyMjZkZDhkOGQyNzU3YWU2NWRkYjI3NzMyMmQ2OWE1Njk1MWY2NzI1NmE5ODdhNjQzMGE5MjMwN2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVmODEzZmQ2MDk2NmQzY2Y3ZWYzZmE3MmUzZGYyYTZkZGQ2ODM4YjYzNWNhODQ3NzRlMjk1MzQ5NmNiNjllMjUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_9b015ef1f9e1452b970857f8fef7e788",
+      "statement": "update-engine の runUpdate は preflight→apply→verify を順に実行し、失敗時は rollback を実行する。apply 以降の失敗は rollback 必須とされる。",
+      "evidence": [
+        {
+          "resource": "repo://packages/update-engine/src/index.ts#L80-L120",
+          "version": "repo-lines-v1:sha256:6ee8f343d3bd60969766dce5e6ec007c5e4cde79b01b2dcdcf45674def8de21c:eyJzZWxlY3RlZExpbmVDb3VudCI6NDEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIxZDdiOGIwNTBmMThkYjIyNjNmYjAxMGI0NTg1NmY5YjBhMmQxMmI5NzFhZmJkYzg0ODM4ZmE2ZTc3MGExMmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI4YTJmMzBmMTVjMTljODUwNDU5ZmVjMWRhNjE2YzhlZjA2YjlkNThhODBmM2Q4OTg2Yjg0OWE5YmI0MWY3MDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM3OTI5ZTkxZTBmOTljM2U4MjVkZTY5YjQzNWZiNjQ4NGQxYjBhMWRmMmY0NjU2MWFiZjFhMjlmMDQxODhiODgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI2OGE0NGRhZTRkNGM5NTFjZDA2Nzg2ZmE0OGE4ZDc3MzY5ZGMwZWIxMmM4ZDFmOTJiZjQ3ZDBmM2QxYTc3YmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_83761c610c784ee1bf28274570ae9f9e",
+      "statement": "mcp-server はサーバー名 line-harness の McpServer にツールとリソースを登録して stdio で待ち受ける。",
+      "evidence": [
+        {
+          "resource": "repo://packages/mcp-server/src/index.ts#L19-L30",
+          "version": "repo-lines-v1:sha256:55606467b211fde698e676216d2bc8fa1303e33848ca4a093219b68dc7e33664:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzY2Q4OWU0YTBjMmNiMmY5MDQ0MDUxZWE4MWRlYjBjM2UxYThlNzExNjZkNTFiMzIyM2VjYzVjNWQ5NWJiMzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM4Mzg5MTA1N2MzYTQzYjk0NDU3MzBlYWVlNzU0YmU1MTljMjYwYWEyZDBlNmY1YjdhYjRhMTNjMjIzNzY2YjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNiNWVmNzk2NWY1MmY1YjkwMTU5NGQzMWY3ZjQxNjUyZjViOWMxYjQ2NGY0ZWU5MWYzMzQ0NWFiMDEzYTU3YTkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0685adee0648412f8935ace08e701d79",
+      "statement": "packages/AGENTS.md は db へ line_account_id/tenant_id でスコープしないクエリを追加しないこと、line-sdk のエラーに上流本文を含めないことを定める。",
+      "evidence": [
+        {
+          "resource": "repo://packages/AGENTS.md#L1-L16",
+          "version": "repo-lines-v1:sha256:c23335d710d90e1449d3b59b026d53be7017d052258fa6724e820e53dcb78258:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI0YjllY2EyZTk2NTcxMzVkNGYxNWM0YTdhMmRmZjFkYzkzMTEyMWUxMTA2NGNkZTg5YzI4NDU0YTRhMGY2OTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc3Y2MzNzE1ZjM5MzhmMjVmMmFkMDNhNjQ4MDNmZDI4OGY1YTBkNTUyY2ZmMmI4ZGNjMzMwMThlN2NhYmE2MDUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFkYjVjYjZhZGU4MGQyMDNhNjdjOGMxYzFiOTJiOWY4ZDk2NTdmN2QwZjRhNzM2YjA5NjhlMGFlOTA5MzkwYzMifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

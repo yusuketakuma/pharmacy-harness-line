@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f683c4eecfca183325b4e5efdcf30aa4b5f9d9aea08ba15c77b3da3bcf6fe994",
+  "claims": [
+    {
+      "id": "claim_6a2a1fb438e14d4e880583936ac0d6f7",
+      "statement": "LIFF の薬局 API 呼出しは常に liffId クエリと ID トークンの Bearer を付け、HTTP ステータスを患者向け日本語メッセージに変換する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/src/custom/pharmacy/request.ts#L30-L74",
+          "version": "repo-lines-v1:sha256:369abae047b83a4e8344300a2d018bfae822d67ede99c3810211eaf708a9b7d0:eyJzZWxlY3RlZExpbmVDb3VudCI6NDUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY1ZjJlYTliN2FhYzliMjliMzE0MTg3YzYyZjQyMWE2ZWRiNDdiMDRlZjBiYmQ4YjQ4NDk4NDgxMjE3MTYyMDYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFiNmI1NDc5ZTVlMzM0MWFmMTE3MmZmNjZkNmM4ODYxZjVkMTM4NTY5YjM5ZmZkOTU0OWJlNGFiMTk4ODk5ODEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6bbec891a82c421c803dc46f756713a0",
+      "statement": "旧 Worker の 401 Unauthorized または 404 route_not_found を未対応機能として扱い、Worker とフロントの同時配備を不要にしている。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/src/custom/pharmacy/request.ts#L11-L28",
+          "version": "repo-lines-v1:sha256:a28bc1d0557ce98ee8ded8c9939feb2de96efe42745cf3042e9603f5c7b4b2e5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY5YzE4YjQ0MTUzNjMyZTMwNWI3ZDk0NGIwZWZhY2E2NWZhZDRiNjE4ZGFhMjdjMWYyYzQ3YWRkMWY1MjFlNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgyYjNjMmM1ZTgzNTBmODgyZGQ5NWZiMmYzMjVmNDJlZGExYjFlNTQxZmRlMDBmNTQ4ZWNkYTdlZmUzOWIxMWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA1OWZkZTkyODM4M2NjYzc0OWVjMzA5MWFhMmJkZjEwZDE5YWJiZDVhMThjYjBjMDgzMWViN2E5MDQyOWEwNGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg1ZTA0ZjFkNDdiNjkwNzE5MTljYTdhZGM4NGY3ZjdhYzE5NjU4MTEyYjg5ZjllZWZhNDU3OWI2MmJjZGJiN2UifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_77810327b11a43f1a3a82e498ccf2057",
+      "statement": "LIFF の機能ゲートは enabledFeatures、または allowExisting かつ existingFeatures に含まれる場合のみ機能を許可する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/src/custom/pharmacy/menu/PharmacyFeatureGate.tsx#L1-L25",
+          "version": "repo-lines-v1:sha256:7e3e2070d39641646de532945d05fd94ff89ce7fc048212204b45b1309618cd6:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY1ZDE3NTlhNmExYmNmNDY3ODlkNzZmZmM1Y2Y2MmFkY2UyZDVmNzBkMzFjOWU4ZDQxMDA2MzcyNjA1NjI3NGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIwYjI2YTZkYTBkNmFjMmM4YmMzMDJmZWM2YzA3MzIzYjdkZjE4YmJhMjBkN2NhZmM2YmMyZjg5NjNhYWMxMTMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ce5cb81e0fd34d9fb1bbda492d21bfb7",
+      "statement": "PharmacyAccessProvider は認証なしの /api/liff/config と認証付きの feature-access を段階的に読み、後者の失敗時は縮退表示する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/src/custom/pharmacy/PharmacyShell.tsx#L44-L80",
+          "version": "repo-lines-v1:sha256:bf0aaac2b45aaa965b605fc943331b75fa14b9096eb11980079599ab717a9bc6:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVjYjhhNDJlYzcwZjk4NDUwN2NkMWQ2NTUxN2YxNjhhNDFjNWYxZmZkN2I4YjUwMmIxYzEyMzU0MzZiNTFmMDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjJmMjcxNjMyNzVjODBjY2MyY2RmMTBmNzk5MGQ5OWUxN2MzZTNiZmUzMTMzYWEzYTg2ZjMxYzgwNzIzNzVjNTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIxNjhlNTBhNWUyNzhhNjNlNzRhZjVlZjkyZTg4ZDU5ZDEyMjQ2Yzc1YTc1ZWFkZTZiYWRmZTgxYWJjNjhhNzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_5ec3597f95f04b8ca2dc810a4c95ea2a",
+      "statement": "管理画面の fetchApi は Cookie と CSRF ヘッダで API を呼び、401 でローカル保存のスタッフ情報を消してログインへ遷移する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/web/src/lib/api.ts#L277-L305",
+          "version": "repo-lines-v1:sha256:98e7ec29b66ba79f75fa9b548d57ebee671ce1312fe480ec4e47c93e861552fd:eyJzZWxlY3RlZExpbmVDb3VudCI6MjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEyOWM2ZWE5NzJlNTA5NWM0ZWYxNGQxZGQxZjQwMDQ0NTk0NGQ5ZGEzNGVhMmNmZjgwZDMyMTI3Yzg4ZmIyYmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI0ZTE2OTI3ZjYyYjdkNTZkYjQwZTViNDNhMmMyMTNkNWY2ZjQ0ZTRlMTQwYjkxYTFkYWM2ZDg5MDIzZjEwNzkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFmMTZjNTE2OWZjZTExYjY4N2IzYTE2Nzk5OGMxNjU2YmRmOTA3NzY2YTMwOGNmMTViN2QyZjRkNDlmOTc1Y2EifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b47ab72633364c7d9b8bc29ab9a5c0be",
+      "statement": "Worker は全レスポンスに X-Frame-Options 等の基本セキュリティヘッダを未設定の場合のみ付け、Pages アプリは同等の内容を _headers で配る。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/public/_headers#L1-L5",
+          "version": "repo-lines-v1:sha256:1eb406b7cd753b84b544a70f7603036e06c8e3ece52ce4297bbf24f4e2c4e8bb:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODczMjc3NWVlZTc3MDAxOGRiN2Q3OWQwMzVhMDE2MzAxNWEwMTZkZTE3ZWJiZjg4ODQ5MDJlYzZkMWQ5ZmNmMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGQ5MmJjZTlkZWQ2MTU2YjQzZDg3NTdhNzA1ZTliOGMwMTdhYjljODc3YzlhY2RiNjg4MTA1MWIzYzYyODc4YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://apps/web/public/_headers#L1-L5",
+          "version": "repo-lines-v1:sha256:1eb406b7cd753b84b544a70f7603036e06c8e3ece52ce4297bbf24f4e2c4e8bb:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODczMjc3NWVlZTc3MDAxOGRiN2Q3OWQwMzVhMDE2MzAxNWEwMTZkZTE3ZWJiZjg4ODQ5MDJlYzZkMWQ5ZmNmMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZGQ5MmJjZTlkZWQ2MTU2YjQzZDg3NTdhNzA1ZTliOGMwMTdhYjljODc3YzlhY2RiNjg4MTA1MWIzYzYyODc4YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://apps/worker/src/middleware/security-headers.ts#L1-L20",
+          "version": "repo-lines-v1:sha256:cde858e233fcb3f777430a4e87bd30c3e63f9a96b2ce8fc0b04b7bce7f00e821:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk4YmRiODFiY2IxYzQ2MDRlYzRlYmJlZTJmYmM5Y2Q1NjY0Y2IxOGZkYjZkMWMyMjliOGQyY2YwZWYzNzdmZGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

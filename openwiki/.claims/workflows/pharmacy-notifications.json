@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:ac4d8e62123c7810fc4aa20b4240166dde29f60adc51b91253926133c55963ac",
+  "claims": [
+    {
+      "id": "claim_5cd574cc32ae4257ba06566123c1992c",
+      "statement": "自動通知は承認済みの固定テンプレート ID と検証済み変数から本文を組み立て、未知の ID や範囲外の変数は例外にする。文面は中立で、EC を語として出さない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/policy.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:3f77b6ed7c903d915aa714e43ef595a1618762406cb132f3dc3af31254a26498:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNkZWZjMTVlNGU2ZmI3ZWVjYzZhZjU1MGE0ZjViYjU3YTFiZDZlZDUzYjljMjI3OGM3NWUxYzI5ZDBlYjU2ZTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIyNGI2OTMwN2UzNTY3MTUwYmIzMzE5OTU2ZDc5NmFjNmYxYmE4ZjVmNDkyZmQ4OTk2M2E2YTRhNzM5ZjE0OWUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU3YjRmYzNlOWI1MDRiMzhiYzJiMjg4MzBmNWFhNGFjYzI5ZTczMGZjOWZkNWMyNzkzMWVkNTQ5YjYzNGZlYzUifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/policy.ts#L100-L135",
+          "version": "repo-lines-v1:sha256:3eb311d2261019f319053fae4d1d26e0545958b0449b34671c989975fb2a205e:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4NTk1NjVkMGU4NmQyMWNkNzA2NWFiNmZmYThmMDA1NTJiMWRlMjE0MDAyNjU3MzY3N2YzNzg4NTUxNDVmMmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjliNjJmNjBkODU5MGE1NzljZjQ2ZjhkNjczNzhjNGM1NzJiOTYyY2VjY2RiOTBjN2E1ZjdiNDJiOTYwNzgyYTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI2NWJkYTAyZTlmNzk3NWE4ZmI2NjhiOGVkYzgzMWNmMTZkMjdmZWY4MTY2MjI1ZDVkMjRlNTRiNjAwZjkxMjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f21dcea151fd4a07acc49acb3062f62d",
+      "statement": "sendPharmacyAutomatedPush はテナントの送信停止を冪等キー予約より前に確認し、停止中の試行が再試行キーや月間上限を消費しないようにしている。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L459-L535",
+          "version": "repo-lines-v1:sha256:43de72053cfd38562795a6505c7c5aae1abee2620c9e4f96426ce11346ec1e2c:eyJzZWxlY3RlZExpbmVDb3VudCI6NzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYWNiMDY1MjdhNDc4YmQ2MGNhZDZhMzhmODE5YWU1ZDg0ZGMwNjY3ZjFiMGIwYWIzNWM1MmQ5ZDY0YWIyOWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI2ZGY4OGIxYzg3YzZjNDFhZGY5ZjBhYWQxYjE1M2E3YjM4YTc1OTVkYzhmMjlmMGE3N2U2YWY4YzE0MjgzYzgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMzODg0OWE4ZWExZWI1ZGM2MjM3ODg0Zjg3YTNiYTE3OGI5ZDBlODc3YTZmNzY2MGUzYTFjYTQ5YTc0ZjUyMmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFkOTBhYTRmOWQ1Zjc4YTYzYmI3ZDY3MzM0OWY0ZjM3YzMwZGIyY2ZjZDZkMDYyNDY0YTE5ODEzODA5MTgwODEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_532841a7d2d64a32887568b8d335ba64",
+      "statement": "冪等キーの予約は pharmacy_notification_events への INSERT OR IGNORE で行い、proactive_noncare のみ月間上限を条件に含め、既存行は状態ごとに再送・保留・人の確認を判定する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L536-L640",
+          "version": "repo-lines-v1:sha256:c43ef12b24c88f1a84b8f62f5a693fe84eedc5dba2a3449179494c78b0b7930d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA1LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIzNTBkZTQzYjAzMTQ1NWU1NThjYjE0YTJhOWQ2NzdkZDBjZjE3OWJkOWFlYWNjMWMyNzNhMzk0N2Y5YTg4ZTA1IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI3MmRlMmI2NTE0YTAxZjg3NzU3M2M2NzA4ZmM4NjkzNDJhN2NlOTJiZTk4ZWNjYjUwMTNkNzdmZDZhMDU3NDAxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiJhYmRiMDBiNzM2NTVhM2VmMDFlMzQ3YzAzMjdiMzg5ZGUzZTc1ZjVlYTRiNTlkNWQxYmMxMTk1NzA4ZWY1ZWU4IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJjNjUwNGMyYTRkZDFkNGQ5YzU1YjZlYjI5MzE4ZDdjOTkxZmJhNTkwNTA5NTBkMjE0ZjQzNjNmMjk2M2NlOTg0In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_6caf08c8f7a842dfa3080f56704449f4",
+      "statement": "送信直前に患者の状態を複数回と最終の一括 SQL で再確認し、未送信の試行だけを failed/blocked にして以前の結果不明の試行を消しない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L118-L160",
+          "version": "repo-lines-v1:sha256:370e9899f16a23be5c0bd48afc16c48acd86f81e3b12153bd05eb0266e2600b0:eyJzZWxlY3RlZExpbmVDb3VudCI6NDMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1ZWYwMWJjMDhkYmMzYjYzZTRlNzVlYTNkMjZhNWI5NDE4OTE4NzdlMjdhZDg5MTMyOWM4NDExZDdkOGRjNGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNjN2QwMDcyOGExMzhjY2JjZjA1MDA4OTZiNDEyNzFlNjZkYjZjMDljODY5YzA2ZDY1Yjg1MDY5Njc3Y2JjODciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjIzZWEyOTdlNzU2ZjQ0Y2VjZTNkMDIxYTlkZWZlMWI5NjkwNjMxNzk2ZThiMzBiNjRkYWFhZDcwMDI4YzBhOTciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjNjODBjMjNkZWQ0NDhkYTBhMzBmZTk4YmI3NjM5NDQwYzUzNjdjNjYzMTcxYzZkMWJiYTNmZWFlYmRhMTEyNTIifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L640-L714",
+          "version": "repo-lines-v1:sha256:6d9808b3e6b31b5adf312bee69cce51b3351035cde54248d35581ba64cae3449:eyJzZWxlY3RlZExpbmVDb3VudCI6NzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjcyZGUyYjY1MTRhMDFmODc3NTczYzY3MDhmYzg2OTM0MmE3Y2U5MmJlOThlY2NiNTAxM2Q3N2ZkNmEwNTc0MDEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRiODRjZGM5MDk1ZDc4YWY0OWIxYzRiNmU5ODk3YzdhYWYzN2UxN2NhZTU1NzkyZWY4ZmYwYjk1YTBlYzAzNDMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6ea40cba95bc419092c58010dc152467",
+      "statement": "Proxy への push は安定したリトライキーと通知イベント ID を付け、結果不明は例外として attempted のまま残し、確定失敗は failed、成功は sent に更新する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L690-L714",
+          "version": "repo-lines-v1:sha256:6eab06d29bfaed8481edd7f7152ae4d2a86c2638dd03534d9afefbca4a0a5098:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjlkMzA4NWMxMTA5MDE3OTA3YTEyMjk5NDM4ODQzZTNiMmFkZjdkZWYxOGEwMDU3YmVlNjQyNDdjMmU4YjA3ZmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b7ad23fbc66142f1bcab12368ec97946",
+      "statement": "服薬フォローの通知は scheduled→due に進めて送信し、送信が確認できた場合にだけ delivered へ遷移させる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/medication-followup/notifications.ts#L1-L110",
+          "version": "repo-lines-v1:sha256:8962f63852974ecc3c84ffda2c3368671776e90d0d2e9b3950b6d7d0d5ab99b2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI2MTk1YWI0MWYyNTA3ODFhZjUwMWRhNjMzYWYzMmY3ZTA5YmExMGY2YTZlYzM3MDcyMjg1ODgwZWI1YWM1MTA0IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0MTJjYTM0NWNjZjc1YmY5YzA4MDZiY2U2OTViZThkZTgwOGI3OTk4NDI1MWE3YTU0ZDIwMmNmNjEwMWRkNDUxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_8d5b77bcc8d8447382106cfcc73d24c4",
+      "statement": "継続リマインダーは next-intake:<id> を冪等キーとして送り、送信が確認できた場合にだけ案内済みに更新する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/continuity/notifications.ts#L18-L63",
+          "version": "repo-lines-v1:sha256:cf5049a3ccd54126edffa1aaa916875313a14a37360a768dcee78789a193fff9:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVjNWYxMDIyNzYzMjA3ODdlMzFhMjkwMDRiODViNjY1ZTJhN2E4MDc5NGQxMmFlMDJiOTdmZDFiYzQ5MGE0MjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMxNmM1ZTY3YmFkM2Q4OTNhZTkzMDVjNDQxYzFlN2IyZWQ5MTgwYTgwYzA0OTZjNTgxNTZiNDhmNjI1MTVmMzciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c8a18b95f27547a1b4e4dd230943f6dd",
+      "statement": "処方箋の使用期限リマインダーは 1 回最大 100 件を処理し、期限を過ぎた確認済み項目は通知ではなく期限確認が必要に遷移させる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/validity.ts#L17-L75",
+          "version": "repo-lines-v1:sha256:25d0511c59768c85aa32d3d7065423329f10fd840e226a18a6c0136b87c10e21:eyJzZWxlY3RlZExpbmVDb3VudCI6NTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMyZjg0YTk5NGMyNTA3OGFlYzk2YzJhNDI4YWU2MjIzYmIxNDNiZTIwOGI3N2I4YjY0YjQxNTlhNTQ2ODc1MzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1ZmM2MzFjNGNlNzE0NTJhZDg5ZmQ5Yzg4ODU5ZDAwOTY1Y2Q4M2I0MjM2YmIxMDJkY2Q0NDBiMjIwYTU1NGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIzZjM1ZjQ3YTY0Mzc2NmQ4NmM4NTc5ZTdhYWY1MjkzNDAzMmVkNzgzNTBiYjMwYjNkMjZmODg3MGVhM2Y5NDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjViMGE3ZTgwNmZiZGZmN2QxMzA3YmM0MzEyOTc1YzFjNGFlYmFmZWI4YWMxOTU3ZjUyOWQ2YmRjMjMyMzU1ZGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_eb7bc4a07af0422cadbc6a86efebff8a",
+      "statement": "処方箋の状態通知は受付の同意を前提に、notification_sent イベントで重複を防ぎ、状態変更イベントごとに 1 回送る。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/prescriptions/notifications.ts#L108-L170",
+          "version": "repo-lines-v1:sha256:f82980ca847e7c9d04157bb4c647b0343efc21e88514dfd897c292869d2365b1:eyJzZWxlY3RlZExpbmVDb3VudCI6NjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYyMzM4NTcxOGYyOGNhZWE5YTE4MzFkODhkMWQ3Yzc0ZGI5MzU5NWQxZGFkNmViZjRmMTcwNmRmYTFlNTk0NGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNlMjJlNGIxYTk1MGY5ZjQ1ZTg5ZGY4YTQ4ODQyZDgzMmZmNzhmMWU0OWU4YWUzNmFmNTAwODM2OGRhOWQ2ZjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImEyNzMyNjQ3YTY3YWVmOTkyNDg4NDVhMjM1MTA3MWE3OTQxZjg4ZTc2NGUxNTI0ZGE0NmMzNTdiZTNkZjgyYTkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_09a27c7edcc14e6d9b5ae3ad5e3aff44",
+      "statement": "スタッフ向け activity 通知は 4 種のイベントを SHA-256 ハッシュの冪等キーでアカウントごとに 1 項目にまとめ、未確認と確認済みの 2 状態だけを持ち、ハッシュや患者識別子を応答に含めない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/activity-notifications/repository.ts#L1-L107",
+          "version": "repo-lines-v1:sha256:0b6ca85f8a8c24d2ff3991865f9bac266d3457e214f1927777a939f3d9d12c03:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA3LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI5ZDI0YzJmYjQzZDNiNmZmNDQzYjk3YjFhOGM2NmU2ZmRhYmVmNGJkZGUwNmY3ZGJiY2I1OTRmMGFkMWY2MTQ5IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0MTJjYTM0NWNjZjc1YmY5YzA4MDZiY2U2OTViZThkZTgwOGI3OTk4NDI1MWE3YTU0ZDIwMmNmNjEwMWRkNDUxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        },
+        {
+          "resource": "repo://docs/pharmacy/PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md#L14-L20",
+          "version": "repo-lines-v1:sha256:cb82cdea79a674f53f1d8c697c2567b110225b2cd01cb21730549c9180747ba6:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDc0MzJmZWJiOGFiZDlmZmFiZmJmOWM0YWJhMTY2NDRkNWQzNDQxNzE5YzI5YTMyM2UxMDk3MTA4NjU1NjU2MSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjFhNWE1YzdhODFjODVmMTM2M2MyNGRhYjBlNTZkNjBkNTU4MDY0NmFhZmQ4ZmFhYWZmZjczOGE0YTMzNmVjYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMGRiNTdlZjEwNDI2YmFmMTNlMTA1YjhlODk1OWY5NTNiMzIwODMzZjg1YzIzZWI2OTlkOGIyMzMzM2FjOTkzNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8439092690b744a1951d7e38c9d77b14",
+      "statement": "activity 通知の API は毎回スタッフ認証・運用アカウントへのアクセス・pharmacy_dashboard capability をサーバーで確認する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/activity-notifications/routes.ts#L1-L43",
+          "version": "repo-lines-v1:sha256:8e6d537922c441bc2daef9e813ae03c57b89af7801c742c2833f8f32839f8ca6:eyJzZWxlY3RlZExpbmVDb3VudCI6NDMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYxZTNmZmY0NDdkMmZmZWNiNmJmOTE1OTM0NjMzNjk4Y2VmN2I5Njk5MjA1OTdkMDgzYzRhNTRiOTAxZjEwMGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/openwiki/architecture/frontends-liff-and-admin.md": {
+      "pageVersion": "sha256:f683c4eecfca183325b4e5efdcf30aa4b5f9d9aea08ba15c77b3da3bcf6fe994",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/architecture/shared-packages.md": {
+      "pageVersion": "sha256:57f7d89d4f4e1e40696686e35ca659aec5884e1136a1ce595352e849cc2c4dd2",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/architecture/system-overview.md": {
+      "pageVersion": "sha256:eac40a37ec0ed39511174b2f4c4caea2dc61f2549c33982df78fc14436fd93b9",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/architecture/worker-request-and-cron.md": {
+      "pageVersion": "sha256:d4cb8725ef3457867f9ed38360db43427e906326bce55e1006f41bd1905284f3",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/concepts/database-and-migrations.md": {
+      "pageVersion": "sha256:d379862a3308e5de27cfcd1740193961fd9795313452ba9c661c507b2b6ad98b",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/concepts/pharmacy-custom-boundary.md": {
+      "pageVersion": "sha256:86ef61b55e66fcf613d701f826c95ac45d253302936c1b9077cf26f489b7a2e7",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/concepts/privacy-and-retention.md": {
+      "pageVersion": "sha256:2a9604777b515f12fab0d580a4490e4d5b48cd4fa150362e7c8edfc61ac4292e",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/concepts/tenant-scope-and-auth.md": {
+      "pageVersion": "sha256:0b0e666abd1dbe685fbc32d39ad43151d5c16be772569bf91582dc1b21fbd76c",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/operations/release-and-deploy.md": {
+      "pageVersion": "sha256:73b530f42aed8ea25d841b35ab7ac0ac71524e7a95d47d57405c27876d172fc9",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/operations/tenant-provisioning.md": {
+      "pageVersion": "sha256:6c5f9411da849cc0d087f962cf5afd0e7557670616f6c2877e3f3cba095bede8",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/operations/testing-and-verification.md": {
+      "pageVersion": "sha256:a8b6ace811b506bd182c4c55a05f5ae47887c28f76430213139dfc7e8e67e813",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/quickstart.md": {
+      "pageVersion": "sha256:38aa37c559c39fb03574b5cfc4b70fd37d95fe8aee37cc1eec0d6ffebb64f486",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/workflows/growth-loop-and-rich-menu.md": {
+      "pageVersion": "sha256:d24d5a17aad736a220700c68455e72a6f42c1fc669553f1a804fac403f766025",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/workflows/line-webhook-and-outbound-delivery.md": {
+      "pageVersion": "sha256:027a609630307cd64d4a4389399c9e931d65570e32ccbff73b2bb78b5e04dd94",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/workflows/pharmacy-notifications.md": {
+      "pageVersion": "sha256:ac4d8e62123c7810fc4aa20b4240166dde29f60adc51b91253926133c55963ac",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    },
+    "/openwiki/workflows/pharmacy-patient-journeys.md": {
+      "pageVersion": "sha256:464d612629d33e3accc1a03798cd3767b4f0865dcdcdaaf31a3112f4caaed2ba",
+      "completedBy": "claude-code",
+      "completedRunId": "36542d49-69cd-413d-94b3-d0c7202133be",
+      "gitHead": "6fa678b5df61ec78176e040cfeb8b8ca54ed9055",
+      "sourceFingerprint": "sha256:3896f153040ba664ab66311a98f9599b5a456f4d3748d60939655731b970f695"
+    }
+  }
+}
