@@ -42,6 +42,7 @@ import {
   tenantScenarioResourceGuard,
 } from './middleware/tenant-boundary.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { securityHeadersMiddleware } from './middleware/security-headers.js';
 import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/integrations/webhook.js';
 import { friends } from './routes/crm/friends.js';
 import { tags } from './routes/crm/tags.js';
@@ -246,6 +247,8 @@ app.use(
     maxAge: 600,
   }),
 );
+
+app.use('*', securityHeadersMiddleware);
 
 // Rate limiting — runs before auth to block abuse early
 app.use('*', rateLimitMiddleware);
