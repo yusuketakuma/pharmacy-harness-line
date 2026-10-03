@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:a8b6ace811b506bd182c4c55a05f5ae47887c28f76430213139dfc7e8e67e813",
+  "claims": [
+    {
+      "id": "claim_ba8758bc8d3e4c7784bebd858cececa4",
+      "statement": "pnpm verify:ci は format:check、共有パッケージのビルド、型検査、全テスト、test:scripts、check-migrations を順に実行する。",
+      "evidence": [
+        {
+          "resource": "repo://package.json#L14-L22",
+          "version": "repo-lines-v1:sha256:48c6ee479fe64f37852f35dec7febc6e8f44254561e5b8e9e472850babe38734:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZmI5ODczOWQ1NWVmNGU0M2ZhMzk2YTFiN2ZhNmUwMWZlNWRlNDg2MmFjODEyMmM2YTliZmRjYzZjMWE1NzVlZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzdmMGJiZDZmZjUzZmU2NmYyM2I5NjFiOGJhZmY3YzY1ZTY5NDRiMTExNThkYTY2NDU5MTEzYjZmMjUyMDY1NSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzhhZTY0ZWFiZWNkNWJjOTY2ZDVkNTY5NGY0NjUzZWU3N2Q5M2YzZDAxNDZhOGI2ZGJhYmFmOGNkZWMwY2RhOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNzgyNDAxOGZjNTg0MTcwOGUyMmQ1MGRiMmRkZTZlYTZjMWY0MjRmNmRiYWYwY2QyOGE3ZDgxOTUxMmYzN2YwZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_f856f5cb2fa84fc2b7e80aa4f1429f4c",
+      "statement": "ルートの vitest 設定は scripts/**/*.test.ts だけを対象にし、Worker の vitest は line-sdk を TypeScript ソースに alias してビルドなしで動かす。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/vitest.config.ts#L1-L21",
+          "version": "repo-lines-v1:sha256:247cf908fdcfb55bc033336fa8c4c7df3e02c34ef63d8699094a1adf9bd278d9:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY0YTE5MjExYzNhMDNiOTg3OTQ3ZjI0YjY5YmRjYzQ2OWY0Nzk0ODI5YTVmNWE0YTE4OGVhMmUxODE2NTRiOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://vitest.config.mts#L1-L13",
+          "version": "repo-lines-v1:sha256:e77e73cea5b1712f2253e961b15ccbc2eebea569d68fa7105e337d7d7104e640:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY0YTE5MjExYzNhMDNiOTg3OTQ3ZjI0YjY5YmRjYzQ2OWY0Nzk0ODI5YTVmNWE0YTE4OGVhMmUxODE2NTRiOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRkNWNkMmZiNGYzZGY4ODQ1MTUyNTViMzk1MjNmMmY4YjU0NzJiZWVhOWY1NjZmZmNhMjA0ZGI4MDI1NjEwNDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoxLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6079ce564fc343f1a70f68020afbb319",
+      "statement": "check-migrations は DROP TABLE/COLUMN、型変更、改名、DEFAULT なしの NOT NULL 追加、ADD UNIQUE を静的に禁止し、方針適用前の古い migration は対象外にする。",
+      "evidence": [
+        {
+          "resource": "repo://scripts/check-migrations.ts#L1-L37",
+          "version": "repo-lines-v1:sha256:18b7e9a23ea4ecfab3932cd19933163579604b50e1be231ad3b18a5faaeb9a69:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA0NTdjMWIzZmMxOTg5NWI4ODI5NjY3ZmQ0NzEyM2VlN2E4MDkzMDQ3NDdiNzI0MGFkZWY1Njg2NTcwNmRkMWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYyNzdkNTU3ZDZlODYwOTgzYzJmY2Q0MjE3MGM5MDM5NDU2NGQ3MmQ2ZjE2N2E3NzU3NGM0MmY3MzhjMzQzMGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA1ZmU1YzFkZTE0YzRiYTczYTE5MjQ3YTk3NmU0NzQxN2QwOTNkN2RmNDcxYzE3MzJkZWY2MzY1MGNhNDg5MzUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b81f36c8ac4d4316b63dc627c5686f44",
+      "statement": "LIFF の v036-ui-rules テストは薬局 seam 配下の全 .tsx を走査し、本文を text-base 以上、コントロールを 44px のタップ領域に保つことを検査する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/liff/src/custom/pharmacy/v036-ui-rules.test.ts#L1-L40",
+          "version": "repo-lines-v1:sha256:7041c192e89fde09bd89fb4f698ae2b3e6d254fef583cf4a7b44854ddfcce4d5:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMyMDViMWE0ODI1ZWRjNWEyYmZiMWI5NzQ4ZmY2ZTk0Mjk4ZTU5Mjk1M2JlZDM0NmIxZTNiMzgyZDY1N2Y3ODUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAyMmIyOGYwNWMzZjMwYjM0NmVhYWFjYzBlMWViYTA2ZWRiMGZhODU3MzhhZWYwMTVmZDRjMjQ1MDJhOGNhNTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM2ZTg0NDNkYTc2OTEwMzBhZDBlNTljYzBmZDU5NmNmM2Q0MzMyMTk1MTBlZGExODU4MTk1YTAxYzNlYjNmYjUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0a437a7b1da841139089d70d6f7918c0",
+      "statement": "管理画面の ui-safety テストはヘルスチェック失敗を正常と表示しないことやフィルタとラベルの関連付けをソースで確認する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/web/src/app/ui-safety.test.ts#L1-L20",
+          "version": "repo-lines-v1:sha256:866b5ba69a5c87d2f99e02f1022b74256a6b6f4ea28d64700efbc64906b86930:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0YWRjNmU5Y2ExNjhjYTVkMmFhMGVjM2IwMjdiNTk3ZGY1NGI1ZDEzN2Y5Zjc4ODU0MzkwMGI4NTZiNmUyODYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjYyNjRkNzc0NjQzZDkyODQ2NWY2NGU3MjI5NDlmODc5MjYxNzQ1NmNlNDM4M2E2ZGRlYmMwM2FhNDAwNzExODkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c2633fc6b234412495438ca0858a56da",
+      "statement": "テスト用 SQLite アダプタは better-sqlite3 を packages/db のパスから一か所で解決し、インメモリ DB を D1Database 互換に包む。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/test-sqlite.ts#L1-L40",
+          "version": "repo-lines-v1:sha256:153e975b472d05a2f69ae26df5c8cb4b47e8c816ff2ccb67c75b508b1d86fa7a:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZkNzZhZTNjMWY2ZDM2N2MzZjc1ZGRiNjYzNTQ0MmMwNjgxNWQyZWU3ZGJjNmI1MzI0NmRlNGNhYmIxYzYyNzIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE2NjkwODM5ODhjOTZmZDMyZGQ1ZGY0YjlkZDUxNjRmMTJmYTcwMWJkZmI0ZTE2ZWYxMmJmYzY5NjZhMWUwNjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdmYTViNDlmNjc3OWFmOWIxY2ViNmIwYjMyZWM0YjIyMGU3Njc1MGYyMjU2MjlmY2ZjOGY1OTNhNzE0OTBiNjIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b4a5bc4e9fa24065afcc1692b7ca30ff",
+      "statement": "Biome は行幅 120、スペース2、LF で整形し、docs や生成物を対象外にする。",
+      "evidence": [
+        {
+          "resource": "repo://biome.json#L1-L30",
+          "version": "repo-lines-v1:sha256:5478b6907f93534b0da07f271d2327dbfe25a6eacfb1babf847a986fb991d536:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE2ZmIwOGZkYTFhY2I5NTdiNjExNmJkMzc4MTFhMWZlNDFhMDE2MTFjMDYzMWVkYmY3ODZkNjg4OWEyN2E1NWMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRkNWNkMmZiNGYzZGY4ODQ1MTUyNTViMzk1MjNmMmY4YjU0NzJiZWVhOWY1NjZmZmNhMjA0ZGI4MDI1NjEwNDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjliMWRhNzQ1NzVhOTE1YTEzYzYzOTk4ZTI3MzUzMmU2NDA3NzhhM2NlMzMyNGFjZWVkZTMxNzE0ZjcwOTVhNTkifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

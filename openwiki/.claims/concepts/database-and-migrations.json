@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:d379862a3308e5de27cfcd1740193961fd9795313452ba9c661c507b2b6ad98b",
+  "claims": [
+    {
+      "id": "claim_bcb7fc0626464f1da1340dd8a5e11d87",
+      "statement": "post-baseline migration のファイル名は通し番号と任意の custom_NNN を持つ形式に限定され、形式違反は bootstrap 生成を失敗させる。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/scripts/generate-bootstrap.mjs#L16-L28",
+          "version": "repo-lines-v1:sha256:859d41d5ef796da83b024b02da23a4586829e84de8e209bf27b3f9d891a862e2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRlOWEyZjQ0MmQ0MjM1NWQ5YTMxNTBhZTVlMGQzYTZhZTI2ZjljNGU2YmE2OWJiOGRkNjYwMTUzNzFiYmQ1ZmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYzYjE4OTU5YjdjYjU5NDA4ZTZkMTRjMmI5Y2M4NmEyODlmMDE3Yzg0ZGRjYWVlMGUyMmUzYmRkOTYzYzVjOGQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjIwZTM5NzcwODZkYjY4NWY5M2JmOTY1ZDBmZTA0MGQ2MmQ5YmY1ZWEzZjcyYjRlZTRhOWFkNzk2MTU1OTk2NTQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImYzNzdiYjA3ZTdkYWVmM2MzMDBiZTM5NTg4NDdjMGJkNWYyMTQyNGY0OGM2MzExOTI3NDZkODAzM2I1ZjY2MTcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_674f0ccc1f884accae377ed6f37c1e75",
+      "statement": "bootstrap 生成器は baseline と後続 migration を順に SQLite へ適用し、duplicate column name / already exists のような良性エラーだけを許容して他は失敗にする。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/scripts/generate-bootstrap.mjs#L14-L46",
+          "version": "repo-lines-v1:sha256:e4b878e218536d776ecd88d6e4f979633761ce9abacfe6da92505c5364aac7c2:eyJzZWxlY3RlZExpbmVDb3VudCI6MzMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE1OGMxOGZlMDQ5ZmM5NDlkY2Y5YmZlMWQzMzVhZmZmNjcwZmQ1Y2MyNGIxZjgxNzc5NDQyNWRjNmY1OTBlMTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY5OTdiYTJlYzIxZDRjZmFmNDBhN2Q4ODYyYzJmYzMwMmMxNDA2ZGNlMjExYTRiOGUyYjc5NTAxMTEwZTFiY2IiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ef3b25e766f54289b0045a51553c1f0d",
+      "statement": "bootstrap-meta.json は baseline を 001_v033_baseline.sql、状態を mutable-prerelease、モードを pharmacy-multitenant として 29 本の migration を記録する。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/bootstrap-meta.json#L1-L8",
+          "version": "repo-lines-v1:sha256:511108f3716c916e971d4e0574ce77f59cff864c97705a77f7709523203e8ec6:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTZmYjA4ZmRhMWFjYjk1N2I2MTE2YmQzNzgxMWExZmU0MWEwMTYxMWMwNjMxZWRiZjc4NmQ2ODg5YTI3YTU1YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzEwYjZkMWI0YjlhOGU1ODczNmJjMmE0MDE1Yzk4N2NjZGUzYTU4ZDZjZmJhZDZmZjY3M2JiZTY3ODg4ODAzYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWE4YmY5OTc2MGRhYWU0YzUxZTVhZWFjOGNmYTE2ZjU1M2NiMTY2MTc1NGUwMDk1ZTk0ZDdiMzg2NDBkYTRmMSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c75b64e3821f49678dee49fd2beae118",
+      "statement": "bootstrap-generator のテストは生成結果が commit 済みの bootstrap.sql と一致することを検証する。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/test/bootstrap-generator.test.ts#L17-L24",
+          "version": "repo-lines-v1:sha256:be145b99c61ac8cc08b980198bebd6e97a7a2f2bb93de68598655152834e3874:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjA5MDEyODdkNTBlMDVlZGNlYzdjYjRkMmFiYmUxZGUwY2NlN2IyODI4ODBiZjcyZWYwNThmMGZiOTRlMzkxZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzZmOGQxZGFjMjZkOGRlN2VmNGY1YjRhMDYzZjkxNTIwMGYzODU3MDgzMjQxN2ExNTlhZWI5ZjczYjcwNzljYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2FjYmRjMGU1YTMxZTJlNWIwYzkyOGIwM2MxYjk0NjU2ZTY0NzU1MzA3MmFlNDZhYjBkZDhjNmI0MzA0NThkYSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_e40f80f1e49f48ae926827768967126b",
+      "statement": "friend_tags などのリンクテーブルにはトリガーで account/tenant 不一致を拒否し、未スコープ(NULL)の行は従来挙動を保つ。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/migrations/025_friend_link_scope_triggers.sql#L1-L12",
+          "version": "repo-lines-v1:sha256:b4d6a77316ef9c54aa2e6cfdbb17e6d2b0975fb5d9b9cff04c25d477b3c82c31:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNjMmRlNDZmZjBmMGY4NDNjYzQyZGRkZWU1ZTM3YWIzZmYyNWI1NDFkOTYzOWFkZWJhM2EzODhhYzc5YzA0NzYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMyYzhhNDNkODYwYTY1YTY2MWVmYmEzMWUyMzg2MTJjZmIyY2UyYjNmYWVjMWNmODk2MzE0YTUyOTY3MjYwYTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA3NzIwNWQ4NDYwOGU3NTY5OTAwYjc2Mjc0Y2IxN2U3MWNlOWY2NDg1MWQ4MDQ0ZDk5NjE3ZDJjYWQ2M2NlZDEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d1a65186e6764f709f484a1aa834adb0",
+      "statement": "テスト用 d1FromSqlite の batch は実トランザクションで実行し、失敗すると全体をロールバックして D1 の原子的 batch を再現する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/test-sqlite.ts#L36-L70",
+          "version": "repo-lines-v1:sha256:a8bc4b1648b3fd84f4d55f986f8136033731dffb90bbfc257011328126c567c6:eyJzZWxlY3RlZExpbmVDb3VudCI6MzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzOGU0NjUxMTEyMmVhYTU4YjhhODU2MjU4OWFlNTUxNmMxNjZlMWJkZTU0Mzg4MWQ4ODdkZTdhYzU4YzY2ODkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImM2ZTdkM2FkOWEyOTIyNmViNDgzYzhiYTcxM2IzZWVlNjUwM2FlMWJjNDIzMzM2MTQzNmVhNzVmYThmOTczOWIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU3YjRhNTdhYjNlNTRlMDk0NTFjNzQwMzY2ODgwY2ViNGU2NTIwODhhNjlmYWE2NjQ3ZjY2MTBjZTMwN2IzOWQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6ef2b1565c8c4feab7b3b23d88d864d5",
+      "statement": "029 の migration は処方箋有効期限の通知キュー用に列と部分インデックスを追加するだけである。",
+      "evidence": [
+        {
+          "resource": "repo://packages/db/migrations/029_custom_081_pharmacy_validity_notification_queue.sql#L1-L6",
+          "version": "repo-lines-v1:sha256:ceee938cdabb14a50a83ac5dda86d6f6d396b1f1ace9c09a526b79002fb0e57e:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWZkNWJhYzNhNmZkYTllOGQzOTFkNjk5NGVmZTdjYjYwOGExZTRmNjNlM2ZhZWIzMjliNWVjNzVjZWQ0ZjM1NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzFkYmUxOTQ0MDQwZjM1MWViZTMyZjVhM2NiNmEzYzI5MzY4YzgzYmQwYmMyOTIwMTk3NzhjYmY3ZTNlOGQ4MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjEsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNjcyYzg0MmFmMzA0NWEzYTIwOWFhYjBkZmE5ZGJjM2Y4NGFiMWJjZmM1ZWI5MzA3NjFlMzY4YzM2YWFhNjhkMyJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

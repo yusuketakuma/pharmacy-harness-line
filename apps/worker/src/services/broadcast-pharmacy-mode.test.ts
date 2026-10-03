@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getBroadcastById: vi.fn(),
-  getBroadcasts: vi.fn(),
   getQueuedBroadcasts: vi.fn(),
+  getScheduledStatusBroadcasts: vi.fn(),
+  getSendingProviderWideBroadcasts: vi.fn(),
   updateBroadcastStatus: vi.fn(),
   pharmacyMode: vi.fn(),
   processMultiAccountDedupBroadcast: vi.fn(),
@@ -13,8 +14,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@line-crm/db', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('@line-crm/db')),
   getBroadcastById: mocks.getBroadcastById,
-  getBroadcasts: mocks.getBroadcasts,
   getQueuedBroadcasts: mocks.getQueuedBroadcasts,
+  getScheduledStatusBroadcasts: mocks.getScheduledStatusBroadcasts,
+  getSendingProviderWideBroadcasts: mocks.getSendingProviderWideBroadcasts,
   updateBroadcastStatus: mocks.updateBroadcastStatus,
 }));
 
@@ -65,7 +67,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.pharmacyMode.mockResolvedValue(true);
   mocks.getBroadcastById.mockResolvedValue(broadcast);
-  mocks.getBroadcasts.mockResolvedValue([broadcast]);
+  mocks.getScheduledStatusBroadcasts.mockResolvedValue([broadcast]);
+  mocks.getSendingProviderWideBroadcasts.mockResolvedValue([]);
   mocks.getQueuedBroadcasts.mockResolvedValue([{ ...broadcast, status: 'sending' }]);
   mocks.processMultiAccountDedupBroadcast.mockResolvedValue({
     totalCount: 1,

@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dbMocks = vi.hoisted(() => ({
-  getBroadcasts: vi.fn(),
   getQueuedBroadcasts: vi.fn(),
+  getScheduledStatusBroadcasts: vi.fn(),
+  getSendingProviderWideBroadcasts: vi.fn(),
   getFriendsByTag: vi.fn(),
   getLineAccountById: vi.fn(),
   updateBroadcastLineRequestId: vi.fn(),
@@ -157,7 +158,8 @@ function statefulDatabase(state: {
 describe('queued personalized broadcast delivery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    dbMocks.getBroadcasts.mockResolvedValue([]);
+    dbMocks.getSendingProviderWideBroadcasts.mockResolvedValue([]);
+    dbMocks.getScheduledStatusBroadcasts.mockResolvedValue([]);
     dbMocks.getQueuedBroadcasts.mockResolvedValue([broadcast]);
     dbMocks.getFriendsByTag.mockResolvedValue([
       {
@@ -384,7 +386,7 @@ describe('queued personalized broadcast delivery', () => {
 
   it('preserves the provider audience for a queued non-personalized all broadcast', async () => {
     dbMocks.getQueuedBroadcasts.mockResolvedValue([]);
-    dbMocks.getBroadcasts.mockResolvedValue([
+    dbMocks.getSendingProviderWideBroadcasts.mockResolvedValue([
       {
         ...broadcast,
         message_content: 'same message',

@@ -1767,3 +1767,23 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化は、この�
 
 - [x] 2026-08-19: マルチテナント化差分(`v0.26.0/feature/logical-multitenancy`)の初回セキュリティレビュー実施、Artifact/Markdownで報告(High 6 / Medium 10 / Low 10)
 - [x] 2026-08-19: 外部レビュー(REQUEST_CHANGES)を受領。技術指摘を実コードで検証し本計画に反映。`GET /images/:key` 無認証PHI漏洩の指摘は実コード確認(`apps/worker/src/routes/images.ts:103-119`)により却下、その他の妥当な指摘(D1 batch()挙動・isolate非共有・薬剤師法条番号・APPI文言)は反映済み
+
+### P9 ― 全域メンテナンス監査 (/loop、2026-09-28、ブランチ chore/remove-devflow-block)
+
+**範囲**: 全 workspace (`apps/worker` / `apps/web` / `apps/liff` / `packages/*` / `scripts` / `.github` / `docs` / ルート設定)。B = 開始時 clean HEAD `6fa678b`、ベースライン `pnpm verify:ci` EXIT:0 (db 489 + worker 3064 + scripts 263 tests、migration 28本)。
+
+- [x] **確定修復 3件 (独立レビュー REQUEST_CHANGES 後に2件拡張・確定)**
+  - [x] **Pages/Worker `_headers`・security headers 未配備 (hardening, medium)**: `apps/web`(管理画面, SameSite=None cookie構成で clickjacking に露出し得る)と `apps/liff`(患者LIFF)に `X-Frame-Options: DENY` / `CSP: frame-ancestors 'none'` / `X-Content-Type-Options: nosniff` / `Referrer-Policy: strict-origin-when-cross-origin` を `public/_headers` で追加。`dist/`・`out/` への収録をローカル build で実証し、deploy-cloudflare.yml に `test -f` ゲートを追加。さらに独立レビュー指摘により、同クラスが残っていた **Worker 配信面**(患者向け汎用 LIFF クライアント・公開 HTML)も `src/middleware/security-headers.ts` で全応答へ付与。`Referrer-Policy: no-referrer` / `CSP: default-src 'none'` 等のより厳しい per-route 値は `has()` チェックで保全。回帰テスト `security-headers.test.ts` 追加。
+  - [x] **form.ts 非JSONエラー生本文の患者露出 (low)**: `apps/worker/src/client/form.ts` の submit 失敗時、非JSONレスポンス本文(edge HTML等)を raw 表示していた fallback を**通常 submit(:1107) と webhook submit(:1074) の両経路**から除去し固定日本語メッセージに統一。textContent 経由のため XSS ではなかったが内部情報露出を遮断。独立レビューが初回修正の不完全(webhook経路残存)を検出し二経路へ拡張。
+  - [x] **独立レビュー**: fresh-context reviewer が差分・未変更境界・監査網羅性を反証 → REQUEST_CHANGES (form.ts webhook経路残存・Worker配信面の同クラス漏れを検出)。両件を修復し回帰テストを追加。deploy yml の `test -f` 位置、`_headers` 形式、`_redirects`、汎用 client の他経路(meet-consultations scope・draftStorage 設計)はレビューで裏付け済み。
+- [x] **検証済み・変更不要 (懸念→反証/既知境界)**
+  - [x] `.env.example` に PLATFORM_ADMIN_KEY 等が無い → 本番 secrets は `docs/pharmacy/CUSTOMER_DELIVERY.md:37-40` に文書化済み、`.env.example` は dev 変数のみの方針で一貫。
+  - [x] `affiliates` テーブル tenant 列なし → schema 由来の汎用設計限界。薬局モードでは middleware fail-closed で到達不能 (既知境界)。
+  - [x] `Math.random` 2箇所 → LIFF UUID fallback(段階的、最終のみ)と update-engine 非秘匿 snapshot ID。暗号用途なし。
+  - [x] 汎用 client の `innerHTML` 補間 → `escapeHtml` 一貫使用、`formatDateJa`/`formatTime` は数値のみ出力、`playlistUrl` はプロパティ代入。
+  - [x] `.skip`/`xit`/TODO テスト → 実在ゼロ (`exit(` の部分一致は false positive)。
+- [x] **精読で確認済みの中核経路**: auth middleware 連鎖(safeDecode/CSRF/mustChangePassword)、tenant-boundary(fail-closed)、rate-limit(token hash+IP ceiling)、pharmacyAccountGuard(membership 権威)、LIFF allowlist(method-aware)、liff-auth(LINE verify 権威、aud は selector のみ)、prescriptions patient scope(LINE user+LIFF ID+channel+tenant+account 同時照合)、EC repository(CAS/監査event/idempotency/PHI projection 分離)、scheduled cron(汎用/薬局 fail-closed 分離、job 毎例外封じ、過去事故由来の順序)、provisioning/platform-admin(session+audit)、update-engine SQL splitter(引用/コメント認識、破壊的変更拒否)、apply-migrations(checksum ledger)、deploy workflow(本番 SHA 明示承認、env 分離、customer config snapshot/verify、健康/version 検査、release evidence)、web api.ts(401 消去+redirect、CSRF、境界付き detail)、auth-guard/safe-next-path(open redirect 遮断)、LIFF request.ts(固定日本語エラー)、line-sdk errors(上流本文を含めない)、mcp-server(認可をサーバー委譲)、scripts dry-run/confirmation token。
+- [ ] **残項目**
+  - 探索サブエージェントは free-model レート制限で2回全滅(8 agent)。重大経路は主担当の精読+機械スキャン+独立レビューの横断確認で代替カバーしたが、非中核領域(汎用 routes/services の全行精読、web/liff 173+49非テストファイルの全行精読)はサンプル+機械検査止まり。
+  - Myna 低優先度2件 (tenant_alias 衝突、`/r/myna/:tenantAlias` 未認証URL開示) は既存記録通り次回起票のまま。
+  - コード外 Human Gate (R2 lifecycle 実設定、厚労省一覧掲載、実在庫、当日勤務、メーカー紙運用、deployment、production 動作) は従来通り未確認。

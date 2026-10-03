@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:d4cb8725ef3457867f9ed38360db43427e906326bce55e1006f41bd1905284f3",
+  "claims": [
+    {
+      "id": "claim_549dc544b8e4425fb27b68a0c3667145",
+      "statement": "index.ts の middleware は CORS→security headers→rate limit→auth→platform-admin 認証→テナント系ガード→薬局 account guard の順で登録され、platform-admin は authMiddleware を素通りして専用 middleware が唯一の関門になる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/index.ts#L240-L285",
+          "version": "repo-lines-v1:sha256:479b9c3b1774d6f456bba76218860637f308dc708ea24720d3709c209b3aeef9:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjcyMTk1ZmI2NjNjZjJlZDgyYmYxODk2MzhkMTU3ZTQ4YjMxM2VkMDY2NWM2NTgxZDU5MmMwNDEyNmE4M2E4ZWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjBjNTZmYzRhY2M3NjQ2Yjk0NmI4YmI4YTVmNzI0YjdjZDE0OTkyNmFiNjAzYzVmZWFiZTg4ZjcyODdhZTk3ZjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM5YWFmYWJjYjAwNTZkZjI2M2M0YjhkN2E2OWNiNmY5ZmZjOTFkODU5ZGYzNTRjNTU1NTMyYzRjYTIyYzc4MDIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c89eb47d7403453da2bbdb59f7a056dc",
+      "statement": "静的アセット配信は ASSETS 不在時に 404 JSON を返し、HTML を要求する GET でアセットが 404 のときは index.html へ SPA フォールバックする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1000-L1030",
+          "version": "repo-lines-v1:sha256:860e6ff9e535eb0172cf226d0027c587d852976b4add7bd5da4db6e671a4b681:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZmYjAzNmViYTQ4MTc1NGU0ZDBhMDQ3YTc3NWMyY2RjM2M4OTJiZDA1ZWE0NTFiODA3MDUxYjhjMTQyODQ0ZmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA0ODMyNDRhMzFjMDlmZTJlYjczM2RkOTA1NmM3ODgzZWJkZDE4OTQxNTQyZTgzZjYwNDUyZGFlYjViODVhODIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjcyMzVmMjNlNDdmZjA4Mjc1M2UwMTk2NWNjZGNhN2JjMTI0NWQwNzJiOThjNTE1Zjk2NzdlYjJjMTg5NzFmODQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_609a72b2515c4c37b44d373c34b91728",
+      "statement": "appErrorHandler は未捕捉例外をルート・メソッド・ステータスの固定キーだけでログし、本文は固定の 500 を返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/lib/app-error-handler.ts#L1-L11",
+          "version": "repo-lines-v1:sha256:3a92c449b831ee2bdb940864b83af1e6dadf4a4fea31560c558f9fa685f73830:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVjYWY0ZWM3MDk2YmZlYjc1ZWQzMmU1NjZiMDkwZThkZjBlZmY3YTI4MDllNzUwZWM5MjZlZjBhNzQ5Njk3YzEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhMWQxYTYzMzkwMjI5Yzc5ODM0N2U4M2EwNDA1NDQxYzk0MDAwMzUyODRhZDE2OGMxYmY2Y2RmMWQ3MGEzNzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0505b331798a4bb8ac3facfe87bb3cf5",
+      "statement": "shouldRunGenericCron はアクティブアカウントが 0 件または一つでも薬局モードなら false を返し、generic cron を止める。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/cron-access.ts#L3-L9",
+          "version": "repo-lines-v1:sha256:fa79159579885bb9532dd7a203ed8604fdbd34bd52dac7e0d20aacc110efcb3a:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDk2NTFjZTU4ZmEzYzU4ODZjYjI3ZmRjMzA4N2U4OWU5YTZjOTE3NWYzMjllMTk5ZmU3NWQyNDBkYzViZTU3YSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEyY2EzNDVjY2Y3NWJmOWMwODA2YmNlNjk1YmU4ZGU4MDhiNzk5ODQyNTFhN2E1NGQyMDJjZjYxMDFkZDQ1MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjIsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWY5YmRiMzNmNzdhNzVmZjMyZjMwZTcxZTUyNzU5MjQyOWIwNTNmMGQyOTJmMzQ1ZGJiYjZmNjVkYmFhMWEwNCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1032-L1040",
+          "version": "repo-lines-v1:sha256:f19f0146dc7aac616abd29d3e8de6bd309add065506f4d2a9d34ac7c555e4159:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmE3Y2YxMWY3NDJhZDE1OGUwYTRmY2Y5ZGE2ZmZiNTA4YjJhN2I3NTFjZDk5ODQ0NjMyNzYzNWIwODYzMzU3NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOTVlZjAxYmMwOGRiYzNiNjNlNGU3NWVhM2QyNmE1Yjk0MTg5MTg3N2UyN2FkODkxMzI5Yzg0MTFkN2Q4ZGM0ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2U2YWMwZDZjMGJmODA2YWM0NmQwZTllZWE4Zjc3ZTQ4ZmEyOGM3MzJkNjc1OWI0Y2EzZjMyNTU5NTE5NTFkMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTQ2MzZkMjAxYjhiZmM0MWZjZThlNmIwZTMwZjAxOWY1ZGY3ZmQ0N2U1NDZmZWE3NTNkMGYwYjcyZmM0ZmE2ZSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_62976467d397452f92ce165bcce6bf3f",
+      "statement": "5 分 cron では全テナント対象に webhook durable inbox の sweep を実行し、ジョブは Promise.allSettled で並列実行して一つの失敗が他を止めない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1236-L1262",
+          "version": "repo-lines-v1:sha256:3b646b108bf937e87edca2b5c1aeff1c9b49a1297d524f543516d9ab805f3677:eyJzZWxlY3RlZExpbmVDb3VudCI6MjcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg0ZTQyMDhjZDZmZmI4YzRhMzU0N2IyZjU0YWRhMTk5NzhjM2YzNjVlNzhmOTUwMmVmNTE0NWNkZDJhYTg1NDMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVlOWE5OGFhNjFlYmYxMjM5YmIzMDE5ZGJmNTFiZWM2MzAwOTRiYWNiZDc0MmY2YjE5YTQ2MDUwNzNkMDFjZWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY1MjNhNzRjMTQyNGE2YmI4NzgwMTZkNzEwODRiOGQ5NDJmM2YxYWZjNGEwODRkZWJiOGJkOTIyMGIyODUxZjcifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1340-L1366",
+          "version": "repo-lines-v1:sha256:11fb9fafb3d7c746cc67711ee600f796fd255a3eb5f20e5169c77721e1114581:eyJzZWxlY3RlZExpbmVDb3VudCI6MjcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjNlN2Y2Yjc3N2ZlMDFkOGJjMTA5ZWEzOTFkZmJhZGY3MzJlZjYxZWE2NTZhMTJkMTIyODUyYTY5MWM0ZWRkMjgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY5MzBmZmRhMGIzMmJkNmM2MmI0ZDA3ZDgwMTQ2NjQ0MzU1YjBmZjViZjA3MzQ2ZjQzNDYxOTY3MmFhZWRjNTYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d4a463c2a851439782288cb80fe3b374",
+      "statement": "6 時間 cron では薬局側として webhook inbox purge、処方箋画像の期限切れ清掃、EC 保持期限 purge、処方箋通知、継続リマインダー、有効期限リマインダーを実行する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1367-L1472",
+          "version": "repo-lines-v1:sha256:7e20a9216086db83a7059e9c92f215d68a9a8b5313d1f06bd3df7980f9254ce4:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA2LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI2MWIwZTRmNDI0ODA3M2JhOTNmYTBmZWM4ZTFlZjMxY2U5MTllMjkwNWFhMTdhNjU1NzQ0OWVkMjQ5NTc1OGU5IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiIwMWJhNDcxOWM4MGI2ZmU5MTFiMDkxYTdjMDUxMjRiNjRlZWVjZTk2NGUwOWMwNThlZjhmOTgwNWRhY2E1NDZiIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiIyODg4MGRhMjg2NjFhMzA5OGY0NGIzMmZiNWM2ZTVkNTE3ODU3ZGM1MjFiODM5YjFhYzUyNGNiZDhlZmJmMDJhIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJiMThjOTMwNThkYjU5ZDQyZDIzZjFlYWU1ZjVhNjg3MDllM2E1YjU1YjhlZTM4YjQ1YTEwNzgyNzE2ODdhMGQ0In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_38f59917044b4c718dcdf9383cca4f4b",
+      "statement": "LINE アクセストークンの更新はリマインダー送信の前に、薬局モードに関係なく実行される。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/index.ts#L1064-L1080",
+          "version": "repo-lines-v1:sha256:bde9ea3e0ff85273b8730ede7162865300c625dbd36f75afb411decda01e3f1f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU1ZDU5NWNlYjQ4YTg3NmNkMzhmNzQ0YThlMjlmZmUxNjc0NWRiODEzODYyMzc1NzQxODI0M2YzZDRmMmYzODEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMyMTFlZjc4MTFkODc2ZjBjOGRmMGZhMzE1OTMyMjFlNDI2M2Y2OWFjMTNmYTg0Y2NmYThkY2VkODRmZDkwY2UifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

@@ -27,3 +27,7 @@
 - ログに PHI・秘密情報・request body・上流レスポンス本文を出さない(`log()` + `logging-privacy.test.ts`)。
 - スキーマ変更は `packages/db/migrations/custom_0NN_*.sql` の追記のみ。
 - テスト: `pnpm --filter worker test`(vitest、209 files)、型: `pnpm --filter worker typecheck`、デプロイ前: `wrangler deploy --dry-run`。
+
+## コード探索
+
+探索・Jevgrep への送信承認と除外条件はルート `AGENTS.md` を継承する。PHI/PII・認証情報・secret・本番/実データは送らない。

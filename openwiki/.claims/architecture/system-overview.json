@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:eac40a37ec0ed39511174b2f4c4caea2dc61f2549c33982df78fc14436fd93b9",
+  "claims": [
+    {
+      "id": "claim_aa7d4f2d8ffb4381a742333eaec0f1fe",
+      "statement": "Worker の wrangler 設定は DB(D1)・IMAGES(R2)・ASSETS(run_worker_first)を束縛し、5 分と 6 時間の 2 つの cron を定義する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/wrangler.toml",
+          "version": "repo-file-v1:sha256:9a0f90a56d6f4f7c177ca82be7dcbf3ce6c5b656de4f168b073a06ae647f29f9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c640e93baf514a28a5b240e7c09e56b8",
+      "statement": "薬局アカウントでは高リスクな generic CRM API(broadcasts, scenarios, automations, forms, booking など)の各プレフィックスに pharmacyGenericFeatureGuard を掛けて fail-closed にする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/generic-feature-guard.ts#L31-L49",
+          "version": "repo-lines-v1:sha256:15a061e05a27b7f4f413ff22c5690cf4340072c24c84381e2885c39b6e4330c7:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjExODM0YjA3ODhlMTViNDdhNjdhODM0MDEwNDQ1NGIzZmY4N2RlZDg3NTZjYTYxOTBmZjExYzAwZGNkNDNmN2UiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNjZmU2YWI2MzhmZTRhNWQ4ODY2MjRhYTVhNTI4MzAyMWM1NDk5ZjE3MjExYjA2ZGIxNTJiNzFjY2UyYWU3N2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkyYWMyZjhmNzgyOWQwNGY1NWMzMjYxMGJkZGFkNDIxNGRlZTkxMzg0MjgxMjNmNGY2NzY5NjA2YzcwMGI3MWMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFlMWI4OGQyMTRhM2MwZDNlMTYxZTg3NTcyZTc1MWFiYjU3OGFmMjMzOGEzYzAxNDEyMDU4YTk5ODhkZDYxNzgifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/index.ts#L280-L285",
+          "version": "repo-lines-v1:sha256:4aeb156c5ed0dde1f70b2f6883c137f1c23aae08e53ba216669e5c1301738292:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWFjZTMyMTA3YzQ2M2FkMTdjNTFkNmRhYmE4YTc3NDZhNmFjNjNlODUzOWVhN2U2NzQxNzJmOWQwNjYwMWY3MCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTYxOGRlNzAyNDc0YjE2MTlhYzhhMmY3Zjk0YWRlNTFiNzhjNTA2NTY0OGYyNTdmYzg1OGM4MzI2NjYwMDBmZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzlhYWZhYmNiMDA1NmRmMjYzYzRiOGQ3YTY5Y2I2ZjlmZmM5MWQ4NTlkZjM1NGM1NTU1MzJjNGNhMjJjNzgwMiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_65789ba17bfb4a8f8e1df41ade384d6d",
+      "statement": "薬局固有機能は custom/pharmacy に置き、generic ルートは routes/ のドメイン別ディレクトリに保つという分離規則が routes/README.md にある。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/README.md",
+          "version": "repo-file-v1:sha256:c37ba80fe29c77a68799f8da501e1e629fb109e6103ec03cfefda5d9f5fba957"
+        }
+      ]
+    },
+    {
+      "id": "claim_068538f3c66343ddb85bf2eeac812174",
+      "statement": "pnpm ワークスペースは apps/* と packages/* を対象にする。",
+      "evidence": [
+        {
+          "resource": "repo://pnpm-workspace.yaml#L1-L3",
+          "version": "repo-lines-v1:sha256:08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRiMDc2ZWI4MGFkZTE5ZmVhM2UwYTQzMTk4NmI2NTVmNWZhNTllZDYyNjdlMTA3ZDY4OGI2MWMzZjQyMTc5NiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODlkNjdjMzRmZGJlMGVkMzRlN2Y5ODcxYjA4OTU5ZjgzZTJmMmYwOTM3ZDAxZWU5Mzg0YWU4YWRlYjFkMjU2NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmYwYzgxZWRjNTJhNDQzZWJiNWFlZGJkZjQ4NjZmNTg4MDdjYzBlN2NkMzVkZmQyNmM1MDNiNzY4MGFjZTMzYiJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

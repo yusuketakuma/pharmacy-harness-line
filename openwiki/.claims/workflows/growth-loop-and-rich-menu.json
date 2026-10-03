@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:d24d5a17aad736a220700c68455e72a6f42c1fc669553f1a804fac403f766025",
+  "claims": [
+    {
+      "id": "claim_6f64f63467954ebb86a065431575d9fc",
+      "statement": "患者の機能利用は LINE 本人性・患者代理権限・同意状態・capability・ベータ membership の 5 つの別々の権限をすべてサーバーで評価し、互いに代替しない。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/BETA_PARTICIPATION.md#L1-L25",
+          "version": "repo-lines-v1:sha256:85867d9a8b9d32cfdad4e821fa7086fed3374a03888ee307502fb39b31fc32a5:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI0ZmU5MDZmNzUyN2EyZGE0NDMwOTUxZGJiZWY1ZDIxY2FjNGI2MmEyMDVlNDJkNGYxOGYxMjJjYzlmOGE1MmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmNTNlNDk5YWE3ZWU1NTEyOTZlZGJkYjJiMWI1YWZmOTNkNjEyYzFiZWU5ZTJlOTQ3OWEzZjdkY2E4NWEyNTAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdmYzE5ODNjNTMwMTU3NTZlNmNkYTliMWVkMWZiY2JmMmQ5ZGZjOWU3MzRlMTczMGY1NDg3N2VlNjM4NzdmOTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e40ba4c18253496983ba532e41f9c137",
+      "statement": "対応キューは各ドメインの期限区分付き項目を最大 50 件返し、患者識別子を含めず、一部失敗を partial、上限超過を truncated として明示する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/action-queue.ts#L1-L52",
+          "version": "repo-lines-v1:sha256:63d11e155098fd6517fe46df65fe56baa5ce32cd7b80c442591cf3187d7f3766:eyJzZWxlY3RlZExpbmVDb3VudCI6NTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ5YzUyMTAxOTkyOWZhODIxNzljMTgwY2NiNGNmNDFiNWE0MGZkM2VkNjBhZDRkZTkzMzcxM2FmODYxOTZkNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyMGVkZTUyNDcwZGM2NDEyMzJmNzJkZTViOWRiNWFjYjk2ODk4ODFhZTI4OWQ2ODZiYTc5ZTJlZjliNzIyMjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ5ODlmY2Q1ZjM0ZWIxNTAyOTBmODViZmY2NzM1NDVlNWYwOTlhYzMzODdhN2U4NDhmZTMyZTFhOTZlY2NiMWYifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/action-queue.ts#L220-L239",
+          "version": "repo-lines-v1:sha256:cb3ad2d4db6690d5139fe334b2761e8b7c0d1f62c0c66cb370fb98c75daac3f0:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUwMWJhZDg2YzgyZjcyYjFjZWI2YTIyNDA0NzdmNjRjYmI3YWQzNmYzMmYxNDlkMzYyOGFmYTdmZTAzNTMwMTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZlZjliYjMwYjU2YzRmOGYzNDQ1MGIwNzNiNmFkYzc3MzQyNTM5ZTM4NGQ1YWVjMDY1NTNlMTRiZDllNjA4NzkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ae6db9839ebc461a80ba6bbbc6913aec",
+      "statement": "運用サマリーは各ドメインの状態別件数と最終更新を line_account_id で集計する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/operations-summary.ts#L1-L50",
+          "version": "repo-lines-v1:sha256:fc081990c893b3ce692023ead74cc24574f84695fa5c36abbc017ea314c72c60:eyJzZWxlY3RlZExpbmVDb3VudCI6NTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjllYTg5MzdjOWVkMzA5ZjczNjUxNTIxOWNkMDFjZmZmYWRlNGFlNmEyYmJlMzIxNDM1MGU1OTdkMWMwYWRkM2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc0OWQ2MmJjZGJhYTUxZWYzNzhmMTA0MjVlN2VjZmFkMDBjZWMzYWZkYzFjZjM3MjBlMmE1MzI0YjUxOTAwN2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjlkZTcxNDgzYzVlNGI1NmViNmU5M2NiMjBkN2NlMGRiZjM2ZDFhNmJkNWMwYWMzYTZkNjk3YjI1MTI4YWRmM2IifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f94d2148fc2247368cdcce2c6fae5f67",
+      "statement": "既存機能一覧は各ドメインの表に EXISTS を引くだけで、記録の内容を返さない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/patient-feature-access.ts#L1-L52",
+          "version": "repo-lines-v1:sha256:3747e5ad88f109524dab8a2b3567d9884b3f695a290cb4a51147e089cd7c0eef:eyJzZWxlY3RlZExpbmVDb3VudCI6NTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFhOGRmMjFlOWYyYTE2YThkMmI4YjJmN2IzNWRiYzU1MWQzOWNkOWNlZTA0OWI1MWQ4ZmJiNDM3MjRmNThkYjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_32750f764e9c4d6eb33d33d5101b271f",
+      "statement": "KPI の指標は JST の月境界で、未成熟コホートを率の分母から除いて患者識別子なしで集計する。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/GROWTH_KPI_DEFINITIONS.md#L1-L30",
+          "version": "repo-lines-v1:sha256:5046a123bb0b4afcc8b886a0be9f48e8c6304efc49e60074dee4e575a2264e53:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg3ZGYxNTE4MzYyMDZhZGU0YmQzNTNhNzFmM2RlNzBmMGU3YWM1ZWQzYjg5NzdhOGU3MGQ0MDQ1Y2MxNmU2NmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmYzJhN2YxNjE1N2UxYWVmZGVkN2I0NzBiOWRhOTJiMzM3NGJhYTZhMDA0OGIwZmU2OWEyNjg1OGMxNDExYWIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMzMDRlMWQ5YWY1ODgwMDFhNjM5NDVkOTcxNzQ0ZjUyMWI0N2NjN2I0YWE3MDkwMDVkYWU2YTEzYjgwMWZmYWQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8856868808584185914812ccc6f3d5e4",
+      "statement": "自動通知は承認済みの固定テンプレート ID だけで構築し、変数を列挙値・日付・ID に限って検証し、本文 500 文字以内、未知 ID は例外にする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/policy.ts#L1-L25",
+          "version": "repo-lines-v1:sha256:d7931e22bc18122170297d0bcf4931b97e0ef486b777f9bb5d7d6f791eed878c:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNkZWZjMTVlNGU2ZmI3ZWVjYzZhZjU1MGE0ZjViYjU3YTFiZDZlZDUzYjljMjI3OGM3NWUxYzI5ZDBlYjU2ZTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkxODVlNTM1Y2IwOWQ5YTg2ZWZlOWVkZjhlODc4Y2Y2MGRjMWE2ZmQ3M2JkM2FkZmVmMDc2NWQ0MzE3MTgzZWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdmNWY0OWNmY2VkOGQzY2I5MWFiZTQ0YWQ1MzdkOTQ4YWUzZWRjNTc0NjEwODM0NTIwNWNmNWQxYzc0MmY0YTgifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/policy.ts#L180-L230",
+          "version": "repo-lines-v1:sha256:305b0025dac249ad9afbaef470cd0293b978d3d6a87afc8417095252d0259161:eyJzZWxlY3RlZExpbmVDb3VudCI6NTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhiYjk3NGI2YmI1MzY2YjNhZWZkYjg0YzlhZmZmYmQyNmY2NDA0MGQwMzA2NzIzMmQxMTVmMTllM2QwMmI3NWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNiYzFkZDE3MTVjNmE0ZGJjMDczZGQ5ZDMyY2VmNmQzZWYxM2NhNTkwODk5YTNlZDE1ZjlhZmM4OTkxZTAwNTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjU0MDk1YzYzMTQ5NWY0NTY0OGQzOTAxYmNlYmY5NGI1NWI2NGQ5NjM4ZTQ2NzhkZDZlYjRmNGZlMTZkYjRjNWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY0ZWE3YTM3YTJmZmNlZjhjZTc4M2U5YmYwZDg0ZTM0NWVkNTNjZDE3NGI2MzgwODI5OTQ5NGNiZDAwNWQ1NmUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_221109dfed264ea086796969bf6ad72e",
+      "statement": "リッチメニューの画像カタログは版 v4-5 でちょうど 228 の variant を含むことを検証し、各画像は 2500 幅の JPEG で SHA-256 を持つ。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/rich-menu/catalog.ts#L9-L70",
+          "version": "repo-lines-v1:sha256:b51b19ecfca4b48cbc9f712cef1f7d92abc1ce7d0377a915c00dd36a75d41ba0:eyJzZWxlY3RlZExpbmVDb3VudCI6NjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIwYzdmZmFkMDVjZDhkNTRjYThjZmVkM2M1N2M1Y2Q0MDQyNTczNzVkMzk1NzNiNTI5MTE5M2JlYmMxYTQ5ODkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVlNTJjMGVmMDYwZTA2ZDg1MDk3ODk2NjEyNjRlODlmNDg1YWYzNmY4NmMwZjBmNWI3ZTBjM2MyZmExMDUwNDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFlNTI0ZTkzYWE3NmNhOWQzYTU3MzA1Nzg5NmFkYmY5YmIyMmE4ZjQ1ZjhjMDllNzYzZTIzNGE1YTk3ZjY1YzIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d58628133cc94c798d3570d9d5134fca",
+      "statement": "リッチメニュー公開前には版の紐付け・レイアウトと capability の revision・LIFF 設定ハッシュ・カタログ版が下書き作成時と一致することを確認し、一つでも古ければ BLOCKED と理由コードを返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/rich-menu/publish-readiness.ts#L1-L56",
+          "version": "repo-lines-v1:sha256:c948c55475842e4717d68a4751e8b2c2ceb8bf061e4d257727580fce0fc82731:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZmNDc3Y2MyNzYxOWUzN2E4YzhjMzRiODBmNzA2ZGY5YmVhZjEwZmZlYzcwNDkzYjlmM2FlZTI4MTMzNDExNGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlN2JlNDg5YWJhZDQwODY0NDc4NDBhMWQwZTU1YzUzMzhmN2ZhY2YxZjZjYTBkODE3YWYyYzc2ODViNmY2YmYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImVlZmNkN2ZkOGJmMTYzNDQ3MzJjODVkMTMwMWFlZmY1ZDJkM2ZkODBlZTY2MzI2MTBjN2FlYTU2ZmI4NDRkMTEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_60f7e946d12f4067a123fc2d026d55d2",
+      "statement": "リッチメニューの公開確認は証跡ダイジェストに紐づく有効 5 分の HMAC 署名で、テナント・アカウント・版に束縛され、中断した公開は段階から再開できる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/rich-menu/publish-confirmation.ts#L1-L40",
+          "version": "repo-lines-v1:sha256:ba85be9d5b9ab8fd11a87219884506a9ed59361e181a253050c8d0ad37a9d0b9:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRhMDQ1ZDVmZjljMTVmNTQ5NDRmZTc3ZDQyYjk1MzVlYTkzNzdjZjM0OTg1MjBiMGZjNmE0MDljNmFmOGI2NGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkyYmMyMzA3MzQwYjZjMDQzMzFhMjQ5MTFiZTFlYzJlZDU1NjIyODIwZDEzNWYxZDg3YjFiOWY5ZjM4NGYzNjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImE4MDY2YzgwNGU5NjA5N2I0YjA3NjYzN2U3YjNmNGM3MmMwZjhmNDY0ZjRkNWQ4NzU1YjdkYTc4ZDQ2YWFjZDUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f3485e4e42264d979ca6dbc71e6f0888",
+      "statement": "薬局リッチメニュー管理 API は platform admin を拒否しテナントのスタッフだけが使える。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/rich-menu/routes.ts#L148-L170",
+          "version": "repo-lines-v1:sha256:dc19fa1e19b6a9bd4a219f6d818bee8dff5b5701c99ffdc7dafb6f19b4eaddcf:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYwNjMyODk5OGZmMGU5YTMzNWEzYjZjYTA4ODVmOTA1ZTQyMzllYzMyMjE1ZTA0ZmQwZDhlYmU2OWFmNGJjZmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA0Yjc3Yjc4NzIxYzMxNzQ2YzdhNzQyMzIzNDlmZDY1ZWRhMjlhOTdkZWQ0ZWE4MzEzNzM4MDBlMzFmNzNhM2QiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkyMDQwZTA5NWE5NGUyYWRhNzRlNDIxZjM3MTg3NTFhOTFhODEwYmZkNjZmNDhmNGU5MzljN2I3NDgwZWI2NzAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjZhNjQxMjIxNjJlZmI3Yjg2ZDlmM2NmYTQ2NTU1ZTA4MjE4YmIwZGE5ZjlmZGRmMjRiYTg5YzU5ZDhjYTM3NjAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_67ca4de7154d48388e4aadec92694474",
+      "statement": "canUsePharmacyBetaParticipant は beta_enabled を読めなければ拒否、無効なら許可、有効なら active な membership がある場合だけ許可する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/beta-membership/repository.ts#L213-L227",
+          "version": "repo-lines-v1:sha256:7ac1ded4f93628c764abdd233d35f532fd479357961e82ddcdbb5a3b963dc4d7:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA0YjNkZmY2N2E4NzQxZGY5ZjBiNGM1OWI1MmMzYmM3NWRhODRjNWRiOWFlYTNkNDVkOTFkNDhkN2U2MDMyZGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZmOGZhZDVmYzg4M2Y2MDIxOTZiMDcxMjE0YWViZmIxODQ3OGI4M2I1ZjcyYmVhZjNiYTMzYjQzM2NmYWExYWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYTEzOTMyYjQzZjg1MDQzODUxYjVjNGU1OGNhNjllYzQ4YmM0MGU3YjRmOGNlYWU4M2UyYzQxZGRkOWRkOTQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f1391d07199b49a296a0f61facc49ee6",
+      "statement": "ベータ参加の拒否は 403 でハンドラを実行せず、機能発見は空一覧のソフト拒否、撤回・停止系操作は参加を要求しない。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/BETA_PARTICIPATION.md#L27-L60",
+          "version": "repo-lines-v1:sha256:41174a50afca4ecbdc459f22a0872f1dd508cfcfd21f2a74890f8361e4fccddf:eyJzZWxlY3RlZExpbmVDb3VudCI6MzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ0YzRjMTNmM2Q0NjNiNGFmZTYyOTRjODdhMjRlOGNjYmQwMTg1MDk3ZTczZDFkNGIxNjI0NzAxNDY3ZmIyYzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY4NzRhZjYxNjkyZTcyYjgyMWZkMDRjYjRmZDVkMjY1NmI4NDNjYTc0M2IyOTMzOTg1YmEzY2FjNjVmZTE3OTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZmNmYyNGY1MmQ1YWUwMDY0OGViNjQ1ZDhhMjVmZDRlYTA5YzU3YzMzMGIwZTExNTU2MDYyMjRmYWIxZTYzYTkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM1YjFhYmQyOGJhYWU5ODM0OTM1NjZhNjY1ZTg2MzNkZWVhOTE5ZWFhNDZlYmIwZDc3ZjI2OWU4ZGYyMDBmYmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_dbace8ba0d4c4098abd1ff191d8d948a",
+      "statement": "通知キューは送信直前に membership の世代を再確認し、suspended は再試行可能な保留、確認できない場合は fail-closed とする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/sender.ts#L100-L160",
+          "version": "repo-lines-v1:sha256:7c9fcb28804dc9987b308d297035721787e9f73026e0e3da4363f046aef0ac7e:eyJzZWxlY3RlZExpbmVDb3VudCI6NjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc1Y2M5ODYzZDU0ODAyMDAwMGYyMTVmMjMzNThlOWQzNTMwMjY3Yzc2NDVkMDljMDcxMjcyNTgzYjg4NDI2NzEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNjN2QwMDcyOGExMzhjY2JjZjA1MDA4OTZiNDEyNzFlNjZkYjZjMDljODY5YzA2ZDY1Yjg1MDY5Njc3Y2JjODciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjJlYjc1Nzg0YjVkYWRkN2E2ODU0ODMxZTQ3YzFiODJlNzM0NGExNGVhNjgyZDA2MmFlMTBkMWZjZmYyMGRjNDMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjNjODBjMjNkZWQ0NDhkYTBhMzBmZTk4YmI3NjM5NDQwYzUzNjdjNjYzMTcxYzZkMWJiYTNmZWFlYmRhMTEyNTIifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/BETA_PARTICIPATION.md#L56-L60",
+          "version": "repo-lines-v1:sha256:b0a62246df017110638cf653c1ebab8adedbc31d88df5a443241b12ca9d091f9:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjg3NGFmNjE2OTJlNzJiODIxZmQwNGNiNGZkNWQyNjU2Yjg0M2NhNzQzYjI5MzM5ODViYTNjYWM2NWZlMTc5MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODliYjAzNzU1ODBlNzdhNTllMmU5YjViNjIwNWI3MWNhYmVmNWQxZGM2Yjk0NzJkYmFlNzExODI0YzI2ODZmNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzViMWFiZDI4YmFhZTk4MzQ5MzU2NmE2NjVlODYzM2RlZWE5MTllYWE0NmViYjBkNzdmMjY5ZThkZjIwMGZiZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_c68df9504bc942579d3cc50816c0b3c6",
+      "statement": "追加スキーマの部分適用や読取り不能を legacy とは扱わないことで、ベータ認可を弱めない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/beta-membership/repository.ts#L44-L60",
+          "version": "repo-lines-v1:sha256:463d3d980e8b7b0b4f7eac6fd1ac3d7c3891e4f22908e4bff7e75cce2f2e54bd:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE5M2IwNjQ5ZTQ1NDZkNmVmNmIyYzhkMDQxZjVkMWM0MmRlZjVhNDhhZTZmNjgwNjVmNmEwMTg1ZmE1NjE3NGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY0MDg0YTY4Njc1NTZiNThiZTcyOGFmZTljMzA1MDY0OWM5MzJjMjk1NmIxYmQ2NzEwZjk2NTk2OTQwMDJlNjUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBhZjk0NTRiNmM3YTE0ZjEwOTQ1Mzc3NTI5OTBmYTBiMTI3YTIyMDBhMDQ3MTEwNmZlOGY2MTQ2Yzk0NGU5YWUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

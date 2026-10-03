@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:0b0e666abd1dbe685fbc32d39ad43151d5c16be772569bf91582dc1b21fbd76c",
+  "claims": [
+    {
+      "id": "claim_fcaa4949b8b1495090cc5bb630896874",
+      "statement": "管理画面のログインは薬局コードとパスワードのみを受け付け、loginId や apiKey を含む本文は 400 で拒否する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/routes/admin/admin-auth.ts#L120-L135",
+          "version": "repo-lines-v1:sha256:7b3110f1e92b5e545cf091588627599c952f1a65739e10419107fd5539e7eae6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ3YWY2NjAyNzA3MDNiYjBjYjQ4ZjZjNDE0ZGU0Y2I5ODE2MTc0ZjY3MTM2OTJlYzhhYmMxYTNlYjQwZjEwODciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFjYThhMWVhY2ZlYWYyZWNiM2UwYTJmNmQ4MmZlYTRmNmM3MjRjNTkzNzQ2NTBlZWQxZmIwZjhiZjc1ODE0MmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjU4OGQzZDE0ODU4ZjNjYmM4ZDRiMzg3MmUxYzU0ZGJhM2NkNTU1MTZkYzRiNDViZDQ1NGE0MTcyZGRlOGVjOTgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI0NjA0MzM4YThiZGM4ZDBlYzJiMDgwYjE1OGM5YmVlNTdhMzFkNWMzYzcwNDk2MjI3MjFjYTM3MTlmZTAxODQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f225c9b7ed434d64b57f52fbb1366804",
+      "statement": "ログイン成功時に lh_admin_session・lh_tenant・lh_csrf の 3 つの Cookie を発行し、変更系メソッドは X-CSRF-Token と lh_csrf の一致(ダブルサブミット)を要求する。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/ADMIN-AUTH.md#L1-L35",
+          "version": "repo-lines-v1:sha256:2379746a8c53f7c0e133f744a703044553e6f078d4f5d39a110c6e8961cd1dd0:eyJzZWxlY3RlZExpbmVDb3VudCI6MzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjExZmZlODZjNzZkZDdlNDllNGZlZjE5NTI5N2Q0MjFmMmY1MWE5MmQ1Zjk3NzQwN2JhZTQ3MDRjMTQzZmUyNWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjIwZjRlZGEyMjg4OTEzNTY3NzYwMjgyYzdmOTZkNGRhMmUyZDU2YWEyMjk3YTUyMDNjZDY0MjQ3MTU1MTMzMGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImVhNDQ5YWNmZTE4OTIxNGEzYmQ5ZDQ5Njc1ZjI2Zjc2MTViZGVlMGNmNWExY2EzNDY3MmRjMThmYWMyYjc4NjgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_de8dfa353b604d2696ba12c999128533",
+      "statement": "セッションの寿命は bootstrap が絶対 30 分・アイドル 10 分、standard が絶対 8 時間・アイドル 15 分である。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/auth-policy.ts#L1-L10",
+          "version": "repo-lines-v1:sha256:8f4f750cbc3525444cbfd4ff737bbb6021e39da51b7cb4b3dcbc8414e8232933:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0ZGM3NTRjZjA2MDdkNzZiNGNhYTVkMzZhODBiNmQ4NWEyMDkwZTI1NjI3ZDM4ZDU5NWIxZjQ2MzUyOGE0ZjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjlkZjA2NDI1OTAxYzI4NWQ3MjI5NWM4NjI4Mzk4M2JkNDA4MjNlNDgxZmExMTNjYjEyYzViODNiZTkyNDJkMGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRhNjUwZDUzOTNhMDgwNTU1MjQ0OTA1MGJhNzM0MjYzOTM1MmQzYTFhY2E1ODc1ZmRhOTcyNjY4MTUxZjYzMjkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a5a4b7465f2e4f369f90544c67d3d102",
+      "statement": "ログイン throttle は realm・authorityId・正規化した loginId ごとに失敗を数え、15 分の窓で待機を段階的に延ばして上限で 15 分ロックする。判定と更新は一つの upsert SQL で原子的に行う。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/auth-throttle.ts#L1-L100",
+          "version": "repo-lines-v1:sha256:4103e4d3db51010e4115854497ab5826b49f0791758c405a4f0e4eebf78d3fd8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJkZTdiMmNlNjQ0NGVlMmU0YzUwNGU2N2M4MzQyMzVlNTI3ODBlNDU1MDk4OWNiZmU0MDY1MTlmOTc0NDg2MjRiIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0MTJjYTM0NWNjZjc1YmY5YzA4MDZiY2U2OTViZThkZTgwOGI3OTk4NDI1MWE3YTU0ZDIwMmNmNjEwMWRkNDUxIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_779d6841ab0a4c318363ccf6e162800f",
+      "statement": "env-owner は Bearer API_KEY で認証されるが、薬局アカウントの認可(resolveAccessiblePharmacyTenant)では常に拒否される。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L127-L133",
+          "version": "repo-lines-v1:sha256:c3e028c2304d388d6d788918b218b5a48999700ca1eae4bc7cb376cb57a83f86:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmY2NWQ1MTM0ZDZlNjMzODc2YzEyYmM4OTY5ODc4MGQ5Njc2MWQwY2RlOTg1OThmMGZlMDE3YTVkZTUxZjg0ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzg2ZTVjMzliODUzODI4NDMwZjE4ZTI0OGYwMTY1ZmJjOWQzOTA5OWExYTYzMDMxZTRjNWMxYzQ4OTJjYWQwZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZmI1ODBlOTY0ZjgzYTQ3M2Y0M2Q0NDM4NDYyOTQ5ZDY4YjU2MDBmZGE3ODdmMTYzNzQ1ZDAwZGU4OWNiZjM2YSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGI2MTgxYTlkMmI2NjIyMjdiYTRkZGVhNzNhMGQ5MmFlZWMyYjRjMGQ0NGI0NjQ4ZTBhNjAyNTA2ZjU4YThjYiJ9"
+        },
+        {
+          "resource": "repo://apps/worker/src/middleware/auth.ts#L340-L360",
+          "version": "repo-lines-v1:sha256:3cc1c73f05d63a5e29f3c3f7408e6159dff2f6bfb97f87f1cfdf94bbcacc4f77:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4NzBiMzBjOWIwMTk1YmJkN2JiNTNjZWFmNjcwMDM5NGE0MWI4NmQwMzkwYzM2ZTUwNWQ3YjE0N2I0YzM5YzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVjZTQ0M2U0NDhhODg5MGRjYmViY2Y1MGYwNGEyNWM5MGVkZmJmZTY5YTY4NjU4OTA5ZTNlYjYwZmE2ODcyMjQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjNiZDg3MWJjMTFkNmEyZGIyMzhiM2MzNTY4NTZlYmM3ZTgxNzE3Njk0MTFiMmE0MTYzMGM5OGMzYjkzY2VhZmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_db740f97d3434bce97ffb289b99ffbea",
+      "statement": "ADMIN-AUTH は、管理画面と API がクロスサイトで SameSite が None でない場合にログインを対処できる 500 で拒否し、同一サイトのカスタムドメインを推奨する。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/ADMIN-AUTH.md#L66-L105",
+          "version": "repo-lines-v1:sha256:189ae36be57841abb4d5acfb177598d6940cb86998ad09912a5dc8523c49e070:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjUxMTdkMDEwNzQ5NDFjZTQwYjMwZWJkNTdjNDY2MWM1MDBkZWE2YzQ1ZjIwMDJhNjNjYzZjNDRlODRjY2IzMmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdiYzMyODc4Mzg4MjI4MTdiNTI5ZGI3OTU1NmNjZDJjM2YxMDAxY2YzY2QwZGM2MDJiYjY3ZmMyMGMwNzA0YmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_2fc606df28c5487eb132d0afd1203ee2",
+      "statement": "platform admin はテナント管理者とは別の Cookie・CSRF ヘッダ・テーブルを使い、テナントセッションや連携 Bearer を権限にしない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/platform-admin/auth.ts#L1-L20",
+          "version": "repo-lines-v1:sha256:29a0e16fd10913d5e832e75e92301ad650dc944c02a0a0216e3a1d65267afcb5:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkNzQ4M2M5YjdiZjMwNGQ0MWI3NzJkMDE2YjAyODU0OGYwZGMyZGQzMjJlNTZjMjM3MjNhY2VjMjI1NGJlNzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY2N2IwNTczNTBmODM2NGU5ODY3MmM0OTRhZDAxYzZmYjY4NjVlOGZlOGU2Zjc0MjUzYWFiMTI2ZTBmNTVlMzMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjExZTkzY2E3Y2E5ZjQwMGNiN2FhYTZlNGE5NWZjNGZiZTVjODU5NDJmMGQxZWJhYWVhYzMyMzZjYzE5ZDFjNTIifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/ADMIN-AUTH.md#L105-L126",
+          "version": "repo-lines-v1:sha256:a79a20518d12d4e785a6ea9dbc4cde4924f7bc8cacb8d5e393f96d2badf50c8d:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFjMGU3ZmZjZGQyNzg4Y2VhNDkxN2EyMTcyMGJiOWYyOWI3YzIzYzczZDY0Y2I4MTZlZmJiNjY2M2IxYTE5YjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImE5Yjk4Y2U3YWUxMzE5MmM0NWNlZjA2YzNiOTZiMDY4ODZjYWRkOTExMDJkODAyNDJiOTc3NTJlNmRiMWE3MzciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1d2fb0d13a824147b819aa9cae8f10d2",
+      "statement": "患者の PHI を含む画面は目的付きの support-mode 権限を、当該セッションに紐づけて開始した場合に限って見られる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/platform-admin/access-grant.ts#L195-L240",
+          "version": "repo-lines-v1:sha256:0f0b3026ee350d44dd822ff1be58555eaef3e377caecad325d0a5aea820a74b3:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxOWMxZmU4NTFhMDAzNmU1ZjhiMzk4MjUxM2ZjNTQ5MDQ3YjAzMWYyMmVlZmI1ZmU1NTc1MGE4MDBjYTUzZGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNiMDUwY2I5ZGQzOTY0NzBiOTRiNTMwN2U3ZGY3MTUyNTdlMjlkNmQwNTEyOWI2NzI1NGUyNzZhMGY4NWZlOWUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZlNGYwOWMxNzFmMjkzYjUxMDcxMDYyYTViZmNkMGZkOTViM2FlMzc1ZDQ0MGJhZGNmNmRmZmJmYTk1NjY5M2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJlM2Y3ZmMwMzM2MzM5ZGZhMTgyMDJjNmJjMTUyMzJmMGMyM2UwZDFhNjdhOTdmYTkxM2UxOTQ2ZGM2YmUzNGYifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/platform-admin/access-grant.ts#L25-L60",
+          "version": "repo-lines-v1:sha256:61484dc390ed14b886eaa086a542edbe6ed69a00c08d04ea56ab2807d5e8028d:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUyMzBkYWY3OWZjNjkyYzlkMjJhNWYzMzZhMjAwMTQ1ZDlmN2EwZmQ3YTIyOGNlNjUxM2Q0MTQ2MDNjMTE5YWMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYjRiY2E1MGFhMWYyZGQ2Y2YyMGNmYzYzNmU0MTc5ZGRiZjU4Yjk5ZWM2OGU3ZWQ4OTM1OGRiZTMwODNiYmQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjljNjVjMDk4MGYxMzBmYzIxZDE3MzU0NGRlMjAxNDAyZTlkM2MzMTdhZDI0NDI3MzI4MTBkNjgwMDE4Y2NlY2EifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff2b941de89d4e6e96dceb7a12b7ad26",
+      "statement": "LIFF 認証は未検証 JWT の aud を検索の手掛かりとしてのみ使い、有効なアカウントがちょうど 1 件の場合に LINE の verify エンドポイントで検証し、aud 一致を確認してから lineUserId/lineAccountId/tenantId を返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/services/liff-auth.ts#L1-L81",
+          "version": "repo-lines-v1:sha256:ae36d46b62f26c781c2c2f4ef486fed422683a2958ba7b169b487c57dad7683a:eyJzZWxlY3RlZExpbmVDb3VudCI6ODEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU1NjE2MDY3NTM1NmI1MGQyNzQ0ZGFiNDJhZDk2NmM2YzAyOTljZWJiZTc4Yzc0N2E0NzY5YmM3MDhhZjQ2MTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

@@ -844,55 +844,64 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
     .all<AcceptedScenarioReplyRow>();
 
   let reconciled = 0;
+  const stepsByScenario = new Map<string, Awaited<ReturnType<typeof getScenarioSteps>>>();
   for (const row of rows.results) {
-    const steps = await getScenarioSteps(db, row.scenario_id);
-    const currentIndex = steps.findIndex((step) => step.id === row.scenario_step_id);
-    if (currentIndex < 0) continue;
-    const nextStep = steps[currentIndex + 1] ?? null;
-    const now = jstNow();
-    let result: D1Result;
-    if (nextStep) {
-      const enrolledAt = new Date(new Date(row.started_at).getTime() + 9 * 60 * 60_000);
-      const acceptedAt = new Date(new Date(row.accepted_at).getTime() + 9 * 60 * 60_000);
-      if (!Number.isFinite(enrolledAt.getTime()) || !Number.isFinite(acceptedAt.getTime())) continue;
-      const nextDelivery =
-        computeNextDeliveryAt({ delivery_mode: row.delivery_mode }, nextStep, {
-          enrolledAt,
-          previousDeliveredAt: acceptedAt,
-          now: acceptedAt,
-        })
-          .toISOString()
-          .slice(0, -1) + '+09:00';
-      result = await db
-        .prepare(
-          `UPDATE friend_scenarios
+    try {
+      let steps = stepsByScenario.get(row.scenario_id);
+      if (!steps) {
+        steps = await getScenarioSteps(db, row.scenario_id);
+        stepsByScenario.set(row.scenario_id, steps);
+      }
+      const currentIndex = steps.findIndex((step) => step.id === row.scenario_step_id);
+      if (currentIndex < 0) continue;
+      const nextStep = steps[currentIndex + 1] ?? null;
+      const now = jstNow();
+      let result: D1Result;
+      if (nextStep) {
+        const enrolledAt = new Date(new Date(row.started_at).getTime() + 9 * 60 * 60_000);
+        const acceptedAt = new Date(new Date(row.accepted_at).getTime() + 9 * 60 * 60_000);
+        if (!Number.isFinite(enrolledAt.getTime()) || !Number.isFinite(acceptedAt.getTime())) continue;
+        const nextDelivery =
+          computeNextDeliveryAt({ delivery_mode: row.delivery_mode }, nextStep, {
+            enrolledAt,
+            previousDeliveredAt: acceptedAt,
+            now: acceptedAt,
+          })
+            .toISOString()
+            .slice(0, -1) + '+09:00';
+        result = await db
+          .prepare(
+            `UPDATE friend_scenarios
             SET current_step_order = ?, next_delivery_at = ?, status = 'active',
                 delivery_first_attempted_at = NULL, delivery_claim_token = NULL,
                 updated_at = ?
           WHERE id = ? AND status = 'paused' AND current_step_order = ?
             AND delivery_claim_token = ?`,
-        )
-        .bind(row.step_order, nextDelivery, now, row.enrollment_id, row.current_step_order, row.claim_token)
-        .run();
-    } else {
-      result = await db
-        .prepare(
-          `UPDATE friend_scenarios
+          )
+          .bind(row.step_order, nextDelivery, now, row.enrollment_id, row.current_step_order, row.claim_token)
+          .run();
+      } else {
+        result = await db
+          .prepare(
+            `UPDATE friend_scenarios
             SET status = 'completed', next_delivery_at = NULL,
                 delivery_first_attempted_at = NULL, delivery_claim_token = NULL,
                 updated_at = ?
           WHERE id = ? AND status = 'paused' AND current_step_order = ?
             AND delivery_claim_token = ?`,
-        )
-        .bind(now, row.enrollment_id, row.current_step_order, row.claim_token)
-        .run();
-    }
-    if ((result.meta?.changes ?? 0) !== 1) continue;
-    reconciled++;
-    if (row.on_reach_tag_id) {
-      await addTagToFriend(db, row.friend_id, row.on_reach_tag_id).catch((error) => {
-        console.error(`[outbound-line] scenario tag reconciliation failed step=${row.scenario_step_id}:`, error);
-      });
+          )
+          .bind(now, row.enrollment_id, row.current_step_order, row.claim_token)
+          .run();
+      }
+      if ((result.meta?.changes ?? 0) !== 1) continue;
+      reconciled++;
+      if (row.on_reach_tag_id) {
+        await addTagToFriend(db, row.friend_id, row.on_reach_tag_id).catch((error) => {
+          console.error(`[outbound-line] scenario tag reconciliation failed step=${row.scenario_step_id}:`, error);
+        });
+      }
+    } catch (error) {
+      console.error(`[outbound-line] scenario reply reconciliation failed enrollment=${row.enrollment_id}:`, error);
     }
   }
   return reconciled;

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:6c5f9411da849cc0d087f962cf5afd0e7557670616f6c2877e3f3cba095bede8",
+  "claims": [
+    {
+      "id": "claim_0bb645d2fd7d4fd99989c176b6b65dd0",
+      "statement": "provisionTenant は Idempotency-Key を必須とし、同じキー・同じ内容の再送は記録済み結果を replayed で返し、同じキーで内容が違えば 409 を返す。LINE アクセストークンは /v2/bot/info で検証する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/routes.ts#L336-L381",
+          "version": "repo-lines-v1:sha256:c52ec0b16027aaaa1a060cff321a536fababbd96dab69da5b96434a0b2ee6f93:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MjMwNjc0ODE4OGRhZjBjNjg5ODY4ZTY5ZTI5YmMyNmI0ZDcyMDBiMjdkNjY5OTIzNmExMmQ1Mjc4MDQzY2UiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZTU3ODhkNWQ5ZDczZDI0YTgxZGJjMGE1YTc0YmZhODJjOWMzYjNhZjk5ZTUyYWY3OTZlOTBiNDY4YThhM2QiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU5ZjFiZmNiZGUyMzdhMTIxNDEyMDUyNDRhOWNhNDAzM2I4OGVkYzAwNTlmNmQ1YzAzM2U0MTcxMmRhYTEyMWIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhiOWYxODRmNjhlZmYyOWMyM2ViYzU4NjQ4NGI2NzY3OWRjMzdhZDhkODg4NjEwNDQ4MWYzMTEyNzA1MDAwZTIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_61f0d6bbd85049a7b8ac1682a19700ac",
+      "statement": "個別テナント管理者資格情報や CLI セッションを作る旧経路は 410 で廃止され、tenant:admin-bootstrap も廃止として終了コード 1 を返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/routes.ts#L623-L633",
+          "version": "repo-lines-v1:sha256:99305202b715b048b21740c8c615d80d0f00dbd975c8553bf30b417a85b2f898:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4OTY2ZTViMDI1YTY0OGFkN2FjYmE1OTA3MTNlMGVmNDkwNzExZTA1NDcyYjg0Yzg4ZWRjYzdmMDJmNzg4MzIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAzMjc5ZTFiNjRlNTU3Y2U4YmYyMTMzM2MxM2Y2N2U2OTYzOWQzYmNjZmY5NDRhMDZiYzMyNzFiYTQ4NzFmNzMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhlNWFhYTEyNWZkZDgzYTM1MDdmNWQ1ZTA1ZDNlNzZlMzk5NWIyYWYxNTVhZTkyZjIxZDFlMDQ3MDg4ZDkxOTMifQ"
+        },
+        {
+          "resource": "repo://scripts/custom/pharmacy/bootstrap-tenant-admin.ts#L1-L28",
+          "version": "repo-lines-v1:sha256:dab811d2c655295487bf56f4bddaf39ee77fd163e660a106be4dce5f590d0b8f:eyJzZWxlY3RlZExpbmVDb3VudCI6MjgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjczZGExNDAwOWI0Y2QwMDMzOTc4OTlkOWYwNGRkZDBiMTZlY2I3Y2RlZjRmNjFjMGJlNDE4ODVmYzg0Zjc3NTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_9b0141bc0f7c43a7a218c46fd9cbc88b",
+      "statement": "tenant:setup は platform admin キーと LINE の資格情報を環境変数で受け取り、/api/platform/pharmacy/tenants を Idempotency-Key 付きで呼ぶ。",
+      "evidence": [
+        {
+          "resource": "repo://scripts/custom/pharmacy/setup-tenant.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:cc4a1285bb1c488682a693d4458fe49b15c8f91039c54739acec6c690d37f4db:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjczZGExNDAwOWI0Y2QwMDMzOTc4OTlkOWYwNGRkZDBiMTZlY2I3Y2RlZjRmNjFjMGJlNDE4ODVmYzg0Zjc3NTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk4NzdiZjkwYjcyNzkxNDJjYjJlZDAwMmJhNDk4ZTNlMmZjZGExMTViYTg1YjhjNzIxY2RkOGU1ZDJkZjRhMDAifQ"
+        },
+        {
+          "resource": "repo://scripts/custom/pharmacy/setup-tenant.ts#L100-L145",
+          "version": "repo-lines-v1:sha256:b9edce88b1daa174a6107a1afab709ea34803cd474a70327b3352708247ade5f:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2MmUyMTIyODg4NzQzNWYzODFlNTQzN2U0NWRlNDI5YTM1ZmM3NjhjMzZmMzUwNjNiMTljM2EwOWMzZTIzZWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY5YTdlNjUwNDc0YWVmNGU5Zjg1MDI0MGY5MzgzMzkwNzNiMWRjOTQxNTg2OTI0NmM5YWM5NmQ3ODdkZDY0ZDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjllN2E5ZDliODAzZDExMzhmMDZiZTFhMzYwMTJmNDZiZTdkNDcwMzQ1NTFmNDEzNjcxYzIxMjdjYjA1NDQ5ZmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMzNzc1YWE5ZTk5MTQ4NmViZWY0NWE3MGMwNzc1NTJjZGVlMjVhNDU2Y2MwNmI0ZjVhOGNiMThlMDEwZWI4NWUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_555303245b504450901a12a3510a6509",
+      "statement": "tenant:settings の変更系は既定で dry-runで、auth/integrations/liff/platform/public で始まるパスを拒否し、管理 API カバレッジ表にある経路だけを扱う。",
+      "evidence": [
+        {
+          "resource": "repo://scripts/custom/pharmacy/manage-tenant-settings.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:b0adb40ff36ea37f3d8a53470298f7e8f7cda9cf4f94d873fa1b3317abca3b69:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg3MTFjMjFmYWZjNDI1ZWRjOWVhNzZjYTJkZDBmY2Q4OWVmMTgzZDI1ZThhZjY5ZDQzMjhhNDc5NTYxNjhmYjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViODJlMDZmYjg2NDliZjlmOGNmMmZiZjdmMzY0Yjg0YTU0NGNkYzI0YTZiNzVkYTk0MDZmZjgwNDZmNDc0YTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImMzMmQ5NWIxNWU4ZjAwZDNjY2ExNjdlZDU3YzM1YjU4NTNkYzZkNjc2MTEyYjQ2OGIxZjg3ZTcxOTFmMTM1OTcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_55073cba92bf4b6e92097c474423405d",
+      "statement": "LINE の資格情報 3 種は LINE_CREDENTIAL_KEY_V1 から導出した鍵で AES-GCM 暸号化され、AAD に tenantId・lineAccountId・種別・鍵版を含む。アクセストークンには検索用の HMAC ダイジェストがある。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/line-credentials.ts#L100-L135",
+          "version": "repo-lines-v1:sha256:deeb13f4d872d29f3db18cfe51e7e34a7934452a9ce547299b0e34e4a02fb851:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU2MjY3OTM1ZmM2MzM0NjVkODQ4YjQwYTRlZDY5NjdlN2I3YTMyM2Y4MWNkNTNjMTEwYWUyMTAyOTY4N2FhMTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViNzhjNDZmN2FiMzk4NDY0N2ZmMDkyMWNhOTQ4ODhjM2QyNDEwZTFiN2QwZmExYThmNmU4YWMyYTJmYTIzODUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFhMWRkMDU4NjJlMGE3ODJmNmFlMDU5MzNiNjBlOGIzZWRlZTA4ODliOTBhYjA0NmM4ZWMzMWU1ZWEwYWY5ZTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjUwZmMyZWNkZjA1ZTI4ZjliMmMxNjlmYzU5YmRlZjJhNGRlNmYwMjhkOTJiODQ3NWJmZDQyMTEzYmZhZmVjNTAifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/line-credentials.ts#L11-L16",
+          "version": "repo-lines-v1:sha256:ee1b9783558bf508dde8d0c619e9fb2f9d81302d78814de9ff24973bf9aeaab9:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZThkMmQzNGRhMDcyYWQ5NjBiNjg5OGQ3ODZhODJjZTkxZDY3NmFjMzQ3YTFhYWE5MmRlOWM3NmJmNjkyODI1NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOWYxZjcxMzNlOGJhZDVkMjFiMGFiZjE5YWJhZTBhNTA2Y2U3ZDM5MzU0N2VhM2E0NjI5OGZjNDkyYjU0YjUzOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZmZhNTdlNWNiMjgzOWYxNWMzM2QzZDY5YWUxNDI5MTI2Y2U5MDczMzNhMTk5Nzc5NThmYzJmMjUzZWFmMThiZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_8bc699b158c74fdcb47458c2c14abe78",
+      "statement": "LINE 資格情報の移行は backfill→scrub(--confirm-scrub)→restore(--confirm-restore)の 3 段階で、旧列を sentinel encrypted:v1 に置換する。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/provisioning/line-credential-backfill.ts#L1-L35",
+          "version": "repo-lines-v1:sha256:ee51e9b630d7b834f81baac9b19754448925ec30194b4d2dd30aa51e49e2be19:eyJzZWxlY3RlZExpbmVDb3VudCI6MzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU4MjAwOTY0YTk3ODYzNTUyMmIyYWIwOTBjNjUwNjVkOGVmOGU4NWM0NzMwYmIyZWIwNDYwZDM0YzY3N2RkYmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkNjYyYzYwM2Y5NjNmYmY5NmE0NTE2Y2Q2YjgyNzY1M2VlZDdmYTZlN2ZhMDY3MzQ2ZDZmMjZlMThmYzZhYzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIxNzU4MWZjZDVjZTM0MjYyYjQwZmJjOWY0ZmY0ZDEyOTlkZjY4OThmMzcxY2YxNmJmNGQ5ZTFiYWJlN2RiMTEifQ"
+        },
+        {
+          "resource": "repo://scripts/custom/pharmacy/migrate-line-credentials.ts#L1-L25",
+          "version": "repo-lines-v1:sha256:b34b8e2a2a1f323e572a1ce9fbcb70944bf3160795c2c7ca6898d69180faebc6:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjczZGExNDAwOWI0Y2QwMDMzOTc4OTlkOWYwNGRkZDBiMTZlY2I3Y2RlZjRmNjFjMGJlNDE4ODVmYzg0Zjc3NTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg0ZmNlMTEzZGM2NmFkMWIyNzQ3ZjkwMzMzZjBiNTQwZjg4YzczMzFiMWU0MTQ3ZDA5N2Y0YmRlMmJjYmE4ZTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJhNWM3YmU3ZmMzNDllOTBkZDgzMjM4ZDY1ZDgyM2JjMWVlMzEwZTZmMzU2NGFlZmFmMTVlYmI4YjM5YjY0NzIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1bd589d0a88c424dad1537d76b52d58e",
+      "statement": "readiness は電子処方箋・緊急避妊・リッチメニューの 3 機能を READY/BLOCKED/UNVERIFIED と理由コードで返し、configuration doctor はテナント・スタッフ割当・LIFF・資格情報を含めて診断して readiness の理由コードも取り込む。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/configuration-doctor.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:548c2e37a465c3698b013e212a800be8dab3c79b6bca6c9a5cb0864312cddf8e:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3YTEzMGVlNTk5OWYwMmU4MGY5NDZkMGYzZmJhNDc4ZGU3Yzc0NWZkZmM5ZmJiZjNhZjM1ZWE2M2JhYzM2MWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3ZGQ0YWRlOTYxMTI3ODY2MmJkMjJkYmYwOTQ2ZTUyY2Y1ZmIzZGUxYzk2YmI0NmQwOTNiNTIyYjM3MDNhMTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg5Yzg3MjNmNGZmMjM1MmNiYzhiYWEyM2RlOGE5NjcwODYxY2EzYTkzMTU0MjYyYTU0N2I0YzI3Y2QxMTQ5YTgifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/readiness.ts#L1-L60",
+          "version": "repo-lines-v1:sha256:8dc2a28e32ac1d299f98860ca1c2a9e06d4ec5ec86a7727c2fcf3197d46e8e08:eyJzZWxlY3RlZExpbmVDb3VudCI6NjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMzMzgwYmY1ZTVhNDk1ODY0ZTQ0YmQ0ZWIyODEzZDEyOTY2NzViYjU0ZDkyZTQ4OGNhYzcwMWExNWJmNzI2ZTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFmZmZkMjc4NThmNWQyMmE4YzdmZjc0NmU3NWQ4MDBkMzIzOWM4M2U2YzQ2ZDA0NGMzMGMwY2ZlOGY0MmIzYWYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM1MmFhYWU3ZGUxZGU0MGE3MWRkZjIxZDFlOGQzMDJmMGYyNjM4ZjZkMTZhMTkwYTFlNmMyODY2OTBkMzk3YzUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

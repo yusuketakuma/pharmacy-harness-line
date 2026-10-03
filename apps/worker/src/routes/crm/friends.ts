@@ -6,6 +6,7 @@ import {
   tagBelongsToTenant,
   removeTagFromFriend,
   getFriendTags,
+  getTagsForFriends,
   getFormSubmissionsByFriend,
   getScenariosForAccount,
   enrollFriendInScenario,
@@ -300,18 +301,18 @@ friends.get('/api/friends', async (c) => {
     const listResult = await listStmt.bind(...listBinds).all<DbFriend>();
     const items = listResult.results;
 
-    // Fetch tags for each friend in parallel so the list response includes tags.
-    // Skipped when ?includeTags=false (autocomplete consumers don't render
-    // tags and would otherwise pay N D1 reads per keystroke).
+    // Fetch tags in one batched query so the list response includes tags
+    // without N D1 reads. Skipped when ?includeTags=false (autocomplete
+    // consumers don't render tags and would otherwise pay a read per keystroke).
     let itemsWithTags = includeTags
-      ? await Promise.all(
-          items.map(async (friend) => {
-            const tags = await getFriendTags(db, friend.id);
-            return {
-              ...serializeFriendListRow(friend, includeChatStatus),
-              tags: tags.map(serializeTag),
-            };
-          }),
+      ? await getTagsForFriends(
+          db,
+          items.map((friend) => friend.id),
+        ).then((tagsByFriend) =>
+          items.map((friend) => ({
+            ...serializeFriendListRow(friend, includeChatStatus),
+            tags: (tagsByFriend.get(friend.id) ?? []).map(serializeTag),
+          })),
         )
       : items.map((friend) => ({ ...serializeFriendListRow(friend, includeChatStatus), tags: [] }));
 

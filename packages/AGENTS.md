@@ -12,3 +12,7 @@
 | `plugin-template` | プラグイン雛形 | フォーク元由来 |
 
 ルール: `line_account_id` / `tenant_id` で scope しないクエリを `db` に追加しない。PHI を含む列は暗号化方針(`docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md`)に従う。
+
+## コード探索
+
+探索・Jevgrep への送信承認と除外条件はルート `AGENTS.md` を継承する。PHI/PII・認証情報・secret・本番/実データは送らない。

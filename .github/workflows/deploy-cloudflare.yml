@@ -107,6 +107,7 @@ jobs:
           grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets
           grep -R -Fq "pharmacy-receive" apps/liff/dist/assets
           grep -R -Fq "pharmacy-liff-multitenant-v1" apps/liff/dist/assets
+          test -f apps/liff/dist/_headers
         env:
           VITE_API_BASE: ${{ vars.WORKER_URL }}
 
@@ -154,6 +155,7 @@ jobs:
         run: |
           pnpm --filter web build
           grep -R -Fq "$NEXT_PUBLIC_LIFF_ORIGIN" apps/web/.next
+          test -f apps/web/out/_headers
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
