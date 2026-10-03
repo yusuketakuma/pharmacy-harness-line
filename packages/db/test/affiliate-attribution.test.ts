@@ -365,11 +365,14 @@ describe('trackConversion + attribution integration', () => {
     insertFriend(sqlite, 'friend-x');
     insertAffiliate(sqlite, 'aff-1');
     insertLink(sqlite, { id: 'link-1', affiliateId: 'aff-1', refCode: 'refx' });
+    // trackConversion resolves attribution at the real clock (jstNow), so the
+    // touch must be recent relative to now — not to the fixed NOW used by the
+    // resolveAffiliateAttribution unit tests above.
     insertTouch(sqlite, {
       id: 't1',
       refCode: 'refx',
       friendId: 'friend-x',
-      createdAt: jstDaysAgo(2),
+      createdAt: new Date(Date.now() - 2 * 86_400_000 + 9 * 60 * 60_000).toISOString().slice(0, -1) + '+09:00',
     });
 
     const ev = (await trackConversion(db, {
