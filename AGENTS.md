@@ -43,34 +43,28 @@ metadata, deployment evidence, and production operation are distinct claims.
 
 ## Devin Wiki
 
-`.devin/wiki.md` が存在する場合、Devin Cloud がこのリポジトリ用に生成した wiki へのリンクである。
-アーキテクチャ、モジュール配置、ドメイン用語などプロジェクトレベルの質問に答える前にまず読み、
-その後で実コードと照合する。無い場合は `~/.local/share/devin/cli/wiki/*/meta.json` の
-`repo_identifier` を `git remote get-url origin` 由来の `host/owner/repo` と照合し、一致する
-ディレクトリの `wiki.md` を参照する。`devin-wiki-sync` を実行するとリンクが更新される。
-wiki は概要把握の補助であり、正本は常にこのリポジトリのコードとドキュメントとする。
+プロジェクト質問は `.devin/wiki.md` を読み、実コードと照合する。無ければ `~/.local/share/devin/cli/wiki/*/meta.json` の `repo_identifier` と git remote の `host/owner/repo` が一致するものだけを参照する。コード・正式文書を正本とし、確認済み結果は同じタスク内で再利用する。
 
-<!-- BEGIN DEVFLOW MANAGED -->
-## Devflow 共通運用（managed block — この block 内のみ devflow が更新する）
+## Semantic code search (jevgrep)
 
-- 中央管理: `~/.config/devflow/`（registry/policy/roles/bin）,
-  task 正本: `~/.local/state/devflow/tasks/line/<task_id>/`,
-  worktree: `~/.herdr/worktrees/devflow/line/<task_id>/`
-- agmsg team `devflow-line` seats: planner(codex) / builder(devin) / reviewer(codex)。
-  delivery: codex seats=turn（`.codex/hooks.json` Stop+PostToolUse hook）、
-  builder=off（手動受信 `bash ~/.agents/skills/agmsg/scripts/inbox.sh devflow-line builder`）。
-  agmsg は通知用のみ — task 状態の正本は PLAN/STATUS/git/VERIFY/REVIEW。
-- 役割定義: `~/.config/devflow/roles/`（planner=計画のみ / builder=worktree内実装 /
-  reviewer=独立レビュー・修正禁止）
-- 実行権限: Astra planner/reviewer = Auto 相当（codex `-s workspace-write
-  -a on-request` + `approvals_reviewer="user"` + `sandbox_workspace_write.network_access=false`。
-  workspace-write は業務コードへの書込みを技術的に禁止しない — 計画/レビュー専任は
-  role 規約と diff 検査で守る）。Devin builder = Bypass（`--permission-mode dangerous`、
-  OS sandbox 無し — 境界は role 規約と devflow 権限 deny ルール）。
-- task packet: PLAN.md ACCEPTANCE.md STATUS.json HANDOFF.md VERIFY.md REVIEW.md。
-  PLAN/ACCEPTANCE は `devflow ready` で hash 固定。変更は Planner へ差し戻し新版で。
-- 外部操作禁止: push/PR/merge/deploy/外部送信/本番・実データ変更は明示承認のみ。
-  commit は Builder が PLAN の Commit Group 設計に沿った検証済み論理グループ単位で
-  worktree 内の作業 branch にのみ行う。秘密情報・患者情報を agmsg/文書に含めない。
-- 受入: ACCEPTED は技術的受入のみ。merge/deploy の許可ではない。
-<!-- END DEVFLOW MANAGED -->
+- 場所・関係・影響が未確定の探索は `jg`。既知ファイル・正確なシンボル・局所修正は read/rg/LSP。全体調査は主要領域を横断、または領域ごとに検索し、実ソースで確認する。
+- ユーザー継続承認（2026-09-28）により、全リポジトリの非公開コードと質問をコード探索・理解・動作確認のため `jg` の設定済み provider / Jevgrep 処理サービスへ送れる。この範囲の一般的な事前承認も充足済み。他の外部送信・公開・push/PR/merge/deploy・契約/課金変更は含まない。
+- PHI/PII・認証情報・secret・本番/実データ・送信権限のない第三者資料は送らない。実行前に対象を確認・除外し、混在時は安全なサブツリーか確認済みコピーを使う。拡張検索フラグも同じ条件で、既定除外を安全の証明にせず `--include-sensitive` でも禁止情報を送らない。
+- 利用不能・認証/通信エラー・安全な対象を作れない場合は理由を示してローカル探索を続ける。対象領域・重要な未探索範囲・不完全さを報告し、検索結果を正しさ・網羅性・テスト成功の証明にしない。
+
+<!-- OPENWIKI:START -->
+
+## OpenWiki
+
+This repository has a generated `openwiki/` evidence index. It is optional just-in-time context, not required startup reading.
+
+- Do not enumerate, preload, or search wikis at task start. Use retrieval when the user asks for it, when unfamiliar architecture or dependency behavior materially affects the task, or when source inspection leaves an important uncertainty. Stop once the question is grounded.
+- When those conditions apply and OpenWiki retrieval tools are available, use `openwiki_search` for just-in-time context and `openwiki_read` for the relevant complete sections. If search returns `workspace_required`, ask which listed workspace to use and retry with its ID.
+- Use `openwiki_list_workspaces` or `openwiki_list_wikis` when workspace membership itself needs to be discovered.
+- If the retrieval tools are unavailable, read `openwiki/quickstart.md` and follow its links to the relevant pages.
+- Treat source code and tests as authoritative. A brief's unknowns and review items are verification gaps, not automatic requirements.
+- Prefer the narrowest quiet validation that proves the changed behavior. Preserve complete failure output.
+
+The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
+
+<!-- OPENWIKI:END -->

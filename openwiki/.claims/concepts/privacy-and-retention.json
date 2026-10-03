@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:2a9604777b515f12fab0d580a4490e4d5b48cd4fa150362e7c8edfc61ac4292e",
+  "claims": [
+    {
+      "id": "claim_1deff9e907924d0b8e49cbf19c198f02",
+      "statement": "問診の answers_json と patient_snapshot_json は AES-256-GCM の envelope で暸号化され、AAD にテナント・アカウント・患者・項目名などを束ねる。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/intake/encryption.ts#L1-L44",
+          "version": "repo-lines-v1:sha256:39edcc22421bdebf912fa3ab7f24147be88c3bbe93b229b9ee950fb84bbff3a0:eyJzZWxlY3RlZExpbmVDb3VudCI6NDQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNiYzI5ZTc5ZTQzOTc4MmVmNTYyNTMyY2U5MTUwNDg3ZWY3YWQ4M2VmYjJiMGE1ZDRjMGQ4MGFiOWIyZGUyOWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1YmVhN2M3MGFjNmRiNTgxYjFkNWZmMzVkNmM2ZDUzYmEzZjYwYjIzOTFlYWVhNTJhODY5ZmU5NGQ5ODZiOGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ4MWIzN2FkMGQ3MDhkOGUwNDgwNTFiZmM0ZTc5NTc1NTYzNjZiNDk5YzJhNzJhMmRmYWEzOTcwY2QxYTUxMGEifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md#L28-L44",
+          "version": "repo-lines-v1:sha256:0986048e3e2574739047582e2a2b07ad49c5d7050bc6e03a6cff11ac9c6153bf:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhhZThhOWY3NzgzZTBlMDE3NjUxZDZkY2I1ZmU5MmMwYmQxZmIyNDE4ZmRkZTFiYzViYjZhZWNhNWFiMzNhZTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE3YjJhYjFlMDUxNmNlMjQwNjMxYWZkYmRlNDQzZWJhZDg0NzVkMTYxZTBkZTk4NTYyZjhkN2NhZWQ5MDJmNWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjkyYmY0YWQxNDQ5ZDZjMmNjZmIyMGY0YzYwMzk1YWE5ZTkyMDk5ZWUyNGE2Y2ZhYzJmMjY3ZWEyYjgwOWEwOGIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_12bf0d10b4f049f68b78d2256224324a",
+      "statement": "問診の読取りは暗号化行優先の dual-read で、壊れた envelope は平文へフォールバックせず失敗し、復号は認可後に限る。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md#L46-L66",
+          "version": "repo-lines-v1:sha256:c9cbeea11ad09ce7f6d69991198d7342fe3df62da1b870827f6d03c16e8cda49:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJiNjI1YjZkMWVlMmY3NWJiYTFiYjhmZGFjOTRjNjA4YjFlMjkxMDMxODE5NGY0ZmQ5ZjE3NWJjNWRkOWI2OGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhjZjk0YzM2MTAwNGE2MGVhYThhZjRiZjNjNDQ3ZTVkODJiZjU3NGI4ODgxNjkzNGIxOGViODYxZmNkNGRmZjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRlMTJmY2Y1NjY4ZWE4ZjI1M2VkNTYwZmE4OGQyYTZjYzM4YTE1ZjEzZTg5MjkzMDhjMTcxOTVhYTg0MGY3NDQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg1ZDVjZTM4MTc2ZTAxNWFkZThjNjUzMjk4ODM4YTBmYjJjNzNhZGU5NDM3YmMzMDM5OWJiNmIxMzRiMmY2ODEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_51de686961034b8e8a5c65573981eb3f",
+      "statement": "新規書込みに使う鍵の版は PHARMACY_PHI_ACTIVE_KEY_VERSION で明示した場合だけ 2 になり、不正な secret や未知の版は問診の読書きを fail-closed にする。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md#L67-L84",
+          "version": "repo-lines-v1:sha256:3147e89bda22e952b6cb5b4dfbcb4a8ca1d73fb31625e437684f1f2c3a73cca1:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU5ZjAyM2EzZjIyMmY5YzZhZGNmMzE4OTU3NTAxYTZhZjU4OTUyNjZhZWIxNmI3ZGVkZDM4YTg3ZGYzNjk3MGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE3NzU3MTE2NmNlMThmMDJjM2NlZDM2ZTEyYTUzYjE4ZWJiZTJkMDE1YTVkNzE1ZjgyNzRmNWQ0OTRhNDY2NGMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjIyMDlhNGUzYjc2YzlkODBlMzk2ZjVkZjRjOWMxNjY0ZTk2MWJiY2I4ZWJiMDU5YTRmMzYzNWYwYmMzYzQxNGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_826a6d7fe8ff4df6815fb2cfac4eda97",
+      "statement": "旧平文列の scrub はカバレッジ 100%・検証済みバックアップ・鍵復旧確認・書込み凍結・別 principal の承認実行が揃った場合に限って CAS で sentinel に更新し、列は drop しない。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md#L56-L64",
+          "version": "repo-lines-v1:sha256:b925c8282013cd16756ad8433890743d418e1e4bccdc2ff3c4fab091d93cc24a:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTQ0YmFmZTAwZTJjNzc2OWE0ODZmN2Y4ZjliNWJhNmI4M2YyN2I5NGFhZDdlYWE0MzgwMjhlZDUwN2RkY2QyMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZWRhYTFhNmRlNzUzNTM2NzMwYzQ1ZDFlMDM3NDU4ZTViNjdmYjk3MWFhM2UyNGQ1NmE0YzlhNTVkN2MwMGEyZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGJkYWQ1YjZhMTFkYWZlN2EzMWE4MTQzYjRmYThlMjIwYmQ0MmVmYTc5ZGFhZjI4ZDY5OGQxZWUzMDljZTIzOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGM5NzEyMjExNTIyMDcyNjRhODk2ZWM2NzY3OWYzYzM5M2EyMDQwYTFjNGM1NmFlNWI4ZjExNTE5OTVjMGZiMyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_0fd815c4936845bf865ec06eb812e34a",
+      "statement": "構造化ログは許可リストのキーだけを出力し、Error 値を 200 文字に切り詰める。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/lib/log.ts#L1-L32",
+          "version": "repo-lines-v1:sha256:c47df32897f7981f19b846005ab678ab477ac641ac50650004e52a1265298cdf:eyJzZWxlY3RlZExpbmVDb3VudCI6MzIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVhZjIyY2YwNzMyNTkyYzI0NzE0MWNiZTYxZWZhMTEwMTI2MTJmNWEzMTIyYjlhZjliYmFmNTJmNTcyNGQxOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_60d17850e076438abd99ee8ba28dac37",
+      "statement": "logging-privacy テストは Worker の全ソースを走査し、console に LINE ユーザー ID・患者 ID・トークン・回答を渡す書き方を失敗とする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/logging-privacy.test.ts#L7-L37",
+          "version": "repo-lines-v1:sha256:8733dc8b41caceeac2c7b5d5699b0b3a72585a1ee3498c8686d2599627995238:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ1MDU2N2ZhOGJjY2VmNDkzNDE4MTc0NGQzYjViZTM1OTE5OGQ0YWRlYjhhY2IxYjI3OWQ1ZDczNTM4ZGU5OTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZmY2E2YzE4NjM0NTc2NzVmNzU5ODZjOWZjYzk0MThlZWRkYjRiNDRjNDg3ZTMyNWViYjM1M2E0ZWI1MWIwYWQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d2279bdb8c7d4c268aca4a5f9e95d676",
+      "statement": "PHI を持つ全ストアに 3 年を一律に適用し、最新 PHI 記録から 3 年間を法定保存(legal hold)として消去・利用停止請求に応じない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/data-subject-requests/legal-hold.ts#L1-L40",
+          "version": "repo-lines-v1:sha256:e6aa82538d47739b20942468248dabfb5682468c622473e245f0c371630fb6c1:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk0MWIzYzg1MzcwZmM3ZTU1MDM4MDgyMDFjOWU4ZTBlNjcxZDkzZTk1YWI2ZDRhZmUyYjBkYWVmNTcxYTMzOTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRlOGQ0OWI1MGUyM2E2ZmI3OTRiOTY3ODgzM2FhMTc2YjU2YWRhN2UwYjcxZDlmYmI0NjBkYTYxN2IwOTAzZmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI0ZDBhYjY0NDlhNjAzZDYzNTM2MGJlOGU5YWZmMjc2OWRkNmNjNWE5MjM4YWI2YmZhMDRjNTA3YTE1OThlNmEifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/RETENTION_MATRIX.md#L37-L48",
+          "version": "repo-lines-v1:sha256:b210490d38809ac6c4faaa5b249468450e79f8dba5f94e06c0dde6c997957d63:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZjYmRhNDAxNjBlMDE1ZThkMWE0ODEzZDI1ZDczYzBlYjk3ZTZjODk3MzRlZTIwMjE0NmU2OTQ2YTc5MzcwNjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjExMzU4MzQ4Yzg0MjM5MWI0OTk2YzEzNWNhN2EwNjIwMzc4MjBhZDdmY2U2NGU0MGQ3OWU4NDE3OGI2NjMyODQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRiOTkyNWQ4ZTIyYjMzNjJjZDExMTJjNDhlNjQ4YzdiNTkyZjQ4MWUwZjE2NDcxNWYyYzhkMDkyMjYzM2Q2ZWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzMTE5NjI0Y2UxYTM5NmRlOTgxYjM4MWYxZjAzZDBhODllYTVlOTk2ZjFmMWQ1OTNhMzJhNjVjOTM2MTE1ZWIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_864c7001b25b4298b178b922d01053ec",
+      "statement": "retention の判定は held/released/unknown の 3 値で、時刻不正やクエリ失敗などは unknown(保存扱い)に倒す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/retention/fence.ts#L1-L40",
+          "version": "repo-lines-v1:sha256:7d83664e30ae5a445a29120d040d8de62bfe0b0767cdd3a932b868e90c866400:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkYmFmY2UyZDE5ZGUzYTc4MzU1OWM1MDBkN2IwOWUyZWRmYTU0NDhiZDhhNzBjZGU4NmMyYmU2NjcwNjllOWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYyZTA3YzliMjQyMzIyYjRkYmZjODdmZjYxMzZhMzUzZmRlYzVmMjM1ZjIxNGE5YTk4YTg0ZmZjZDZkNThhZWYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ4NDUyYzZlZTI3MWEzZTY5MzBjYTM1YmE4ZTAwYzk4NjJiOTM3MjA5NDk1NjMxNWRhODU4OWYzZGQ5MDVlNWUifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/RETENTION_MATRIX.md#L14-L22",
+          "version": "repo-lines-v1:sha256:ed0d52aa1d04113bd087cd9ad3a8c0b2575dd57876efec10715e74a91996242c:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M0MGFjOTFkZmExZWIxNGVkYTczYzNmOTBhMmUzMDJmOGRjNmY3MGQzOGVjMTBmYjdkNGRmNmVhOTYxYTE1YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmYzM2MyOGQxZWYxZWM2YjgyNjVmM2Y5ZmVhYTBmZjQxNGJkN2M2NjU3ZTU2NDdkMmIwNDhjNzk0MjA4NzYwYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjg0OTQyZDc0YThiYjQ3NGY0YmI1NzQ3NzUyYzY1YTlkNDk0YmViOWFiMjQ5NzkyOWU1ODMwZDIwNzlmMjY3OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_310c4357eb524503902d061ce46db48e",
+      "statement": "DSR の legal-hold 判定と解決は owner/admin のみで、expectedVersion の楽観ロックを要求し、解決には結果メモが必須である。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/data-subject-requests/routes.ts#L119-L169",
+          "version": "repo-lines-v1:sha256:726d885c88a3d7ed4c0f6d23d119fbefc6a5a540c17d62a7ba8ef4df681b2b43:eyJzZWxlY3RlZExpbmVDb3VudCI6NTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEwYmI2YzZiOTJlMjgyYzYyYzg3YjI5N2I5OTNkOGExYWRjZDZmYzAyNTNmZWM4YzE4N2ZiMjc0NWNjN2M1MjMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImViMWVhMTVhMGY3YjFkNzc0MWMwOTJkZTgwMmQzOWZkYTQ0MzRlY2YwNWY5NDM1OGM2ZjM2OWNhOTExNmUyMmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_cdfae18c0a7748018e1e5a8448493ed2",
+      "statement": "保持削除は platform admin の recovery operation としてだけ実行でき、別 principal の承認・実行、有効な execution fence、preflight で固定した inventory を必須とする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/recovery/operations.ts#L1-L12",
+          "version": "repo-lines-v1:sha256:c490dd88408ba1d1793849c862124c5fd827eea7ac31b46d555a210f96cd74ee:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIwMTUxZjU2NjNkZGViNjYwZjU2YWM2MTM4Mjc1YzZlMzNkMGIzODg3NDMzNTI3ZmUwMGIxZDdlN2Y1NzY1YmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY4ZWE4NmQ1MjIxZTNlOGQwNTk1Y2E5MGVhYTZjZDg3NWFlNWIzNTFiYWYwZWM1ZjJkYTI1ZGZjM2E1NzgyNWUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ1YmM1NzZhY2RmMjZhYzE0MzA5NjFjMDFjNGQxYmRkZDNiNmRlNzhkOGMxYTUwODY2MDAyYjkyZjVhM2NiMmQifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/retention/execution.ts#L1-L30",
+          "version": "repo-lines-v1:sha256:688f4b5d377fbbf77e40a2bcd724477ad5e38f9e9d6b9afcb820a900dab309d9:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk4ZjMwNjlmZTgzN2MyNDkyZGIyNTk1OThiY2ExNWExMTM4MzY0ZWFiNjhkZjA0YTFkMzFlMDQzNmY2YmZlNGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI1YzJkZWZjYTNiY2U2OWYxMzBlYTFiZDcyZTM3MGQ4NzYxNjAxZmVmOTBlZTVkZjYwNTkxOTVmMzk5YTA0NmEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFkYWFjMjYwZDE3MzQ2ZWZhYmM0OGQwOTcxYTk2ZGE4ZjhiNzkwZTIzYjU2OGQzMGM4NjAwNzQyY2FlNTA0ZDQifQ"
+        },
+        {
+          "resource": "repo://docs/pharmacy/RETENTION_MATRIX.md#L14-L30",
+          "version": "repo-lines-v1:sha256:136d1b15c611c9ed4aa42af9db96ef2aaa864fcccb17cf47f3a03ba15ed307b1:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE5ZGFlNjE4MTNlYWZiOTUzZTAxZjU0Y2E4MmU0OTQ0MjQ2YjkyNjc4YzU1ZWJiMTU3MGM4ODU2OTQ0OTAxYTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZmMzNjMjhkMWVmMWVjNmI4MjY1ZjNmOWZlYWEwZmY0MTRiZDdjNjY1N2U1NjQ3ZDJiMDQ4Yzc5NDIwODc2MGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU1YWQ1YmNlNDcwYjg2MTQzOTBiYjlkNjU1N2U1NjM5ZDAwOTU4YjViM2YyZmMxYTkwZWM2OTBlMGVhNTdkMjUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

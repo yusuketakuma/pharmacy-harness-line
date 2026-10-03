@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:86ef61b55e66fcf613d701f826c95ac45d253302936c1b9077cf26f489b7a2e7",
+  "claims": [
+    {
+      "id": "claim_e7dc27de82aa40a49686cc8f6c11b7ad",
+      "statement": "薬局モードはアカウントごとの pharmacy_account_capabilities 行の mode='pharmacy' で決まり、テナント紐付けだけでは判定しない。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L201-L219",
+          "version": "repo-lines-v1:sha256:02aed3d2a48aaac48900b35fdf44f2b5837a4c0c5b50b10b473e085410c8b135:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhNzY1YTg2MjUxOTRhMzRhNWZjODQ3MTU0YjFkYmFkOTQwZjE4OGY2MjU0OWNhMWFmYTMzMjMyMTcwOGI3YmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImIxMWQwMDEwYTRkM2UxMDZiOWZkMDExNGIyNjBkNTgxNjUxZWYxYjAwYWZlZjU2NWUzZjJjZjhmMTg1YzNiNjQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_25cfa3b78e354f61a24e1abc2ee925ab",
+      "statement": "薬局モードの判定関数は DB 例外時や、capability テーブルがデプロイ済みで行が無い場合に薬局扱いとして generic 経路を開けない(fail-closed)。hasPharmacyCapability は例外時に false を返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L182-L252",
+          "version": "repo-lines-v1:sha256:b1e6a8792a1544a1e9ca0059338941b5cc221202cabd6b675dc21ddeb515e167:eyJzZWxlY3RlZExpbmVDb3VudCI6NzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE0ZGM3NzU0M2EwN2E5N2UyNDY5ZTZjYWJlNDIyMzE1MjY5NjU2ODViZGNlZmZjMzRhZDljZGZlM2E0YzM1NDMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImE1YzQ2MzFmZWEyOTc2M2YzZTNhYTkwNzg5YzQxZDcxODc2OWZlZjFkZDZkOTc2ZmEzMTczMTVhYzc1NjUwNTQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L31-L49",
+          "version": "repo-lines-v1:sha256:7df87d88c2d62685730428d738aab954c5f5a2886a530d337dc0ba837d23bfdc:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ1OGYzNmFiY2M1ZjdkYmZjNTg4OWU5ZjZhMzBmNjcyYTMwNWIwZDUyOGVmYWEwMjk0ZDU0YWEwNDEwNzRlMzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ5ZDYyYjMxMGYyYzRjNmJmMmU1MDFjMGE3ZjU4NDMyMGMyZWI0MDdlNWFlMjcxNjdkYjk4MmNlYmZlOTYxMjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQxODAzZTM2MGNmZThhNTZkNGFmYjQzZDdmMjViY2RhODMxN2Y4MzQ2NzRmNGJkNThiNTVlMzg2YzBiOTkxOGIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_2bff13bcc26647c18bf17524b2582828",
+      "statement": "capability は患者向け 9 種と管理向け 4 種で、既定では electronic_prescription 以外が有効である。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L3-L28",
+          "version": "repo-lines-v1:sha256:24a1007485041da36ed46b64501f25303db251f0ffa1f5718282e30c8a16e382:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmYjI5ZDcxZDI4MGViMGFlNDk5MDA3NWJjZWNiZTY2ZWZlOWNlNzQyMTk5MzZkY2QyMmMyMmI0ZDI2ZGNhM2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFkODc5OGRjYTQxN2M5MDgwOWQ1ODM3YTRiYjY2MjJkYmYzNDE4YWM0NDY3Y2U0OTcyMWI4ZTUwY2ZlODhiZDAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjoyLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ4Zjk2ZTk3Yjg2ZjdkZmQ4NDFiYWZlNWVhYWJmNDRmODAyYjI1ODFiN2RkYjUzOGY5MjUwZTE2MGM3Y2ZmNWQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImVmMmU0NzAyMjA2OTM4MDdmZTJhYjYxZmM5OTIwY2UzOWM4ZmVmNjIyOWQyYjI4MmQ4NWRkY2M0NWMxNzNiMjgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_fd1f3d3063d74db7a459df9aac5fb582",
+      "statement": "薬局テナントは許可リスト以外の /api/* を 403 Feature disabled for pharmacy tenant で拒否し、platform admin は管理 API カバレッジ表に載るパスのみ通す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/generic-feature-guard.ts#L66-L90",
+          "version": "repo-lines-v1:sha256:82e2690512c9a28c24455e7ec2c7e9731654bb7521ce4175ad4b394bc6b97c75:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZiZWYzOTQyODA1NGM5OWFhZmVkNDNhMjYyMDczMjQ3MzRlZDNiODBiZmI5ZTg3ZDFhYjgzYzIwNTQ0ZWY4ZjQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc4ZDliZjlmZjMwZTVlM2IwOTgxNWNhZmI1NWRkNzAwYWUyOWM2MmJjOGJjN2Y0MDA3NGQyMzk0NDlmMDczODAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI3ZDg4NjZkMjY4NWE4ZDE2MWI5OTJjZDE2ZmM5ODYxNDk5ZWJjNjhjZjdjMjEyMjI3OTM4Y2RlMmJmNGY3MTgifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/generic-feature-guard.ts#L7-L27",
+          "version": "repo-lines-v1:sha256:efebbe85d3a78d3254fad5f7e60c4f4e0a7e69d781bf80b3e0203ba004d20173:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJhOTg3ZDEwOGE2OThhOTFjNDgzYWRlY2VjOTI2MzRlOTEzN2Y1NTNkOTEwNmJmZjkwODk1Y2E0Yzc5OGUxZmEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjU5YjQyNjU3YTA1MWNkMGNlODU1MDZkZGQzZjRhMzRkNWExMjM0Y2YxZjdiZmM4OGYzZmQ0ODA5MTI2NDBlYzYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjkyYWMyZjhmNzgyOWQwNGY1NWMzMjYxMGJkZGFkNDIxNGRlZTkxMzg0MjgxMjNmNGY2NzY5NjA2YzcwMGI3MWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_76b2f1186b32430c871e1a25c573f33b",
+      "statement": "resolveAccessiblePharmacyTenant はアカウントとテナントの対応・テナント有効・スタッフのメンバーシップ・アカウント割当を一つの SQL で検証し、分割検査による再マップの隙を避ける。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L127-L172",
+          "version": "repo-lines-v1:sha256:4aae0348f0b2dcfc441975ff2c6664f499e624f553f0b7ce7412b5b954c3b689:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZmNjVkNTEzNGQ2ZTYzMzg3NmMxMmJjODk2OTg3ODBkOTY3NjFkMGNkZTk4NTk4ZjBmZTAxN2E1ZGU1MWY4NGYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZiNTgwZTk2NGY4M2E0NzNmNDNkNDQzODQ2Mjk0OWQ2OGI1NjAwZmRhNzg3ZjE2Mzc0NWQwMGRlODljYmYzNmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImE5YmQxZjE3Yzc5NTBmOGE0NGQwNzJiMjllYjk4ZTYzYmM4NGNiMzFhYzYxMmFlMDlhZjAxYjQyNzcwNTQzNzYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a928f2ef02bf44a6ae017be786d14468",
+      "statement": "pharmacyAccountGuard は line_account_id を必須とし、解決したテナントが認証済みテナントと一致しなければ 403 を返す。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/account.ts#L11-L25",
+          "version": "repo-lines-v1:sha256:84f4165e3c4690a63b0080c8758ac0f2c1f5e6b8af47bbb8f8dce8ae07b1f50b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg5YzQ1YjQ1ZWNhNmQ0YTVlMWZiM2FjZWNmZjUzZWRhNzcxZDc4ODUwNzU3OTI1ZjljZGU2ZTFiMWExYjhiYmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhMWQxYTYzMzkwMjI5Yzc5ODM0N2U4M2EwNDA1NDQxYzk0MDAwMzUyODRhZDE2OGMxYmY2Y2RmMWQ3MGEzNzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjliZDU4NzY4OTc0MTFhM2E1ZTkzOTYwYTlhMzA2MjUxYjgzMjhhYWY2NTIxZWZkM2VjZjEwZDBkNDQ4YTcyNTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_346a5fc4a3484626853df9b7181c42cb",
+      "statement": "共有スタッフ用の列が無いスキーマでは従来の割当経路にフォールバックする。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/custom/pharmacy/growth-loop/access.ts#L51-L66",
+          "version": "repo-lines-v1:sha256:6d08969fdb13f99172a505c69881ecad01c428e2315bb65589941abbcdce59d8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZjMjg1MTM5ZTZkYWZkNzg4NGUzZWVjMjUxNWUwMjVhNjBjZjc3NmI2Y2IzM2QyNjZmYjY5NWEzMGE0OGRkY2EiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE5NjM1MzA3ODQ0ZDU0MWI5N2Y1YTU4MDExOGM2OWY1ZjE5YmQ2ODE3NDliNmY4OGFmNTUyNGUyMzE4MGIxMTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU4OGY4NjE2Y2ZiMTUyN2MzNDM5YjU3ZjM0YzA4M2YzMjAyMGEzYWZhMmJjYzBhZjg2MjYwYTM1YjQwNGFmZWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjUyYTA3ZmZkNTBlMjcwMzgwODVmMWU2ZDQ5OWYwNWQzNmZhNGQ0MTkyNjYyZTNmN2I2MDMyYjVmMGVjOTczYWEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0e6f133e3c1d4d73863312b23f0421d6",
+      "statement": "プロジェクト指針は本番ストレージのリセットやスキーマの drop/rename、API の削除・改名、ロックステップ配備を禁じ、旧版互換テストのない契約変更はリリース不可とする。",
+      "evidence": [
+        {
+          "resource": "repo://AGENTS.md#L20-L35",
+          "version": "repo-lines-v1:sha256:fc3598fe7ee350d854e0cbae6e55955d23f78aaf3bca521390a55cbd64496f89:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYwMTA1YWZkMTExNWY4Y2E4NGY0NmEwYzk4NjQwNjI5MTk3NDg2M2RjNjJiOTEwOWVjYmNlZGI3NWM0MGFhYTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU1NmNhNDM5NWYxNTg3Yzc5ZGM2ODhlYmU2Y2U1NzU5MTk0ZmUxMjQ2N2JlYWEzYTA2YTAwZWY5N2JiYmJjZTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjYwYWM2ZWNkY2RiMTIwMzlkNmRhOGExOWQ4OTM0MTAxOTgxYzc0NjZjMWI1ZTA3NWQ2MmQ0MWNkMGNmODllOTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjExZDIwYTJhZmI3YTMxN2EwN2FmYjM4OGMyZTY2N2YxNzhiNWQ4OWFjN2E0YTllOGY2NmQwZDBlZjgwMDg2MjIifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}

@@ -53,16 +53,21 @@ export async function processDuePrescriptionValidityReminders(
     .all<Pick<DueValidity, 'submission_id' | 'line_account_id'>>();
   let expiredReviewRequired = 0;
   for (const row of expiredRows.results ?? []) {
-    if (
-      await markPrescriptionValidityExpiredReview(db, {
-        lineAccountId: row.line_account_id,
-        submissionId: row.submission_id,
-        localDate: today,
-        actorId: 'system',
-        at: now,
-      })
-    )
-      expiredReviewRequired++;
+    try {
+      if (
+        await markPrescriptionValidityExpiredReview(db, {
+          lineAccountId: row.line_account_id,
+          submissionId: row.submission_id,
+          localDate: today,
+          actorId: 'system',
+          at: now,
+        })
+      )
+        expiredReviewRequired++;
+    } catch (error) {
+      // One bad row must not abort the sweep or block the reminder pass below.
+      console.error(`[validity-sweep] expired mark failed submission=${row.submission_id}:`, error);
+    }
   }
   const columns = await db
     .prepare('PRAGMA table_info(pharmacy_prescription_validities)')
@@ -107,9 +112,10 @@ export async function processDuePrescriptionValidityReminders(
     expiredReviewRequired,
   };
   for (const row of rows.results ?? []) {
-    const claim = await db
-      .prepare(
-        `UPDATE pharmacy_prescription_validities
+    try {
+      const claim = await db
+        .prepare(
+          `UPDATE pharmacy_prescription_validities
           SET reminder_claimed_at = ?, updated_at = ?${
             notificationQueue
               ? `,
@@ -141,87 +147,91 @@ export async function processDuePrescriptionValidityReminders(
                AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                             WHERE value = 'prescription_intake')
           )`,
-      )
-      .bind(
-        timestamp,
-        timestamp,
-        ...(notificationQueue ? [timestamp, timestamp] : []),
-        row.submission_id,
-        row.line_account_id,
-        row.tenant_id,
-        staleClaim,
-        today,
-      )
-      .run();
-    if ((claim.meta?.changes ?? 0) !== 1) {
-      result.skipped++;
-      continue;
-    }
-    // Hands the claim back so the reminder is due again on the next sweep.
-    const releaseClaim = () =>
-      db
-        .prepare(
-          `UPDATE pharmacy_prescription_validities
+        )
+        .bind(
+          timestamp,
+          timestamp,
+          ...(notificationQueue ? [timestamp, timestamp] : []),
+          row.submission_id,
+          row.line_account_id,
+          row.tenant_id,
+          staleClaim,
+          today,
+        )
+        .run();
+      if ((claim.meta?.changes ?? 0) !== 1) {
+        result.skipped++;
+        continue;
+      }
+      // Hands the claim back so the reminder is due again on the next sweep.
+      const releaseClaim = () =>
+        db
+          .prepare(
+            `UPDATE pharmacy_prescription_validities
           SET reminder_claimed_at = NULL, updated_at = ?
         WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-        )
-        .bind(timestamp, row.submission_id, row.line_account_id, timestamp)
-        .run();
+          )
+          .bind(timestamp, row.submission_id, row.line_account_id, timestamp)
+          .run();
 
-    const accessToken = options.lineCredentialKey
-      ? await readLineCredential(db, options.lineCredentialKey, {
-          tenantId: row.tenant_id,
-          lineAccountId: row.line_account_id,
-          kind: 'channel_access_token',
-        }).catch(() => null)
-      : null;
-    if (!accessToken) {
-      await releaseClaim();
-      result.skipped++;
-      continue;
-    }
-    try {
-      const retryKey = `prescription-validity:${row.submission_id}:${row.valid_until}`;
-      const betaMembershipId = row.patient_id
-        ? await getPharmacyBetaNotificationBinding(db, {
+      const accessToken = options.lineCredentialKey
+        ? await readLineCredential(db, options.lineCredentialKey, {
+            tenantId: row.tenant_id,
             lineAccountId: row.line_account_id,
-            retryKey,
-            participantFriendId: row.friend_id,
-            subjectPatientId: row.patient_id,
-          })
+            kind: 'channel_access_token',
+          }).catch(() => null)
         : null;
-      const outcome = await sendPharmacyAutomatedPush({
-        db,
-        proxyBaseUrl: options.proxyBaseUrl,
-        proxyDispatch: options.proxyDispatch,
-        accessToken,
-        to: row.line_user_id,
-        lineAccountId: row.line_account_id,
-        friendId: row.friend_id,
-        ...(row.patient_id ? { patientId: row.patient_id } : {}),
-        ...(betaMembershipId ? { betaMembershipId } : {}),
-        messageId: 'prescription_validity_reminder_v1',
-        category: 'transactional_care',
-        vars: { genericDate: row.valid_until },
-        retryKey,
-      });
-      // Never stamp reminder_sent_at while nothing was confirmed sent.
-      if (outcome !== 'sent' && outcome !== 'already_sent') {
+      if (!accessToken) {
         await releaseClaim();
         result.skipped++;
         continue;
       }
-      await db
-        .prepare(
-          `UPDATE pharmacy_prescription_validities
+      try {
+        const retryKey = `prescription-validity:${row.submission_id}:${row.valid_until}`;
+        const betaMembershipId = row.patient_id
+          ? await getPharmacyBetaNotificationBinding(db, {
+              lineAccountId: row.line_account_id,
+              retryKey,
+              participantFriendId: row.friend_id,
+              subjectPatientId: row.patient_id,
+            })
+          : null;
+        const outcome = await sendPharmacyAutomatedPush({
+          db,
+          proxyBaseUrl: options.proxyBaseUrl,
+          proxyDispatch: options.proxyDispatch,
+          accessToken,
+          to: row.line_user_id,
+          lineAccountId: row.line_account_id,
+          friendId: row.friend_id,
+          ...(row.patient_id ? { patientId: row.patient_id } : {}),
+          ...(betaMembershipId ? { betaMembershipId } : {}),
+          messageId: 'prescription_validity_reminder_v1',
+          category: 'transactional_care',
+          vars: { genericDate: row.valid_until },
+          retryKey,
+        });
+        // Never stamp reminder_sent_at while nothing was confirmed sent.
+        if (outcome !== 'sent' && outcome !== 'already_sent') {
+          await releaseClaim();
+          result.skipped++;
+          continue;
+        }
+        await db
+          .prepare(
+            `UPDATE pharmacy_prescription_validities
             SET reminder_sent_at = ?, reminder_claimed_at = NULL, updated_at = ?
           WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-        )
-        .bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp)
-        .run();
-      result.sent++;
+          )
+          .bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp)
+          .run();
+        result.sent++;
+      } catch {
+        await releaseClaim().catch(() => undefined);
+        result.failed++;
+      }
     } catch {
-      await releaseClaim();
+      // Claim update or credential read failed — the row retries next sweep.
       result.failed++;
     }
   }

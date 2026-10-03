@@ -214,6 +214,36 @@ export async function getFriendTags(db: D1Database, friendId: string): Promise<T
   return result.results;
 }
 
+/**
+ * Tags for many friends in a bounded number of queries — the friends list
+ * uses this instead of one getFriendTags call per row (N+1). Chunks stay
+ * under D1's bound-parameter limit.
+ */
+export async function getTagsForFriends(db: D1Database, friendIds: string[]): Promise<Map<string, Tag[]>> {
+  const tagsByFriend = new Map<string, Tag[]>();
+  for (let i = 0; i < friendIds.length; i += 90) {
+    const chunk = friendIds.slice(i, i + 90);
+    const placeholders = chunk.map(() => '?').join(',');
+    const result = await db
+      .prepare(
+        `SELECT ft.friend_id AS _friend_id, t.*
+         FROM tags t
+         INNER JOIN friend_tags ft ON ft.tag_id = t.id
+         WHERE ft.friend_id IN (${placeholders})
+         ORDER BY t.name ASC`,
+      )
+      .bind(...chunk)
+      .all<Tag & { _friend_id: string }>();
+    for (const row of result.results) {
+      const { _friend_id: friendId, ...tag } = row;
+      const list = tagsByFriend.get(friendId) ?? [];
+      list.push(tag as Tag);
+      tagsByFriend.set(friendId, list);
+    }
+  }
+  return tagsByFriend;
+}
+
 import { FRIEND_SELECT_COLUMNS, type Friend } from './friends';
 
 export async function getFriendsByTag(db: D1Database, tagId: string, lineAccountId?: string): Promise<Friend[]> {

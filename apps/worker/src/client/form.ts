@@ -1078,7 +1078,7 @@ async function submitForm(): Promise<void> {
           const errData = JSON.parse(errText);
           errMsg = errData.error || errMsg;
         } catch {
-          errMsg = errText || errMsg;
+          // Non-JSON error bodies (edge HTML, proxies) stay server-side; patients get the fixed message.
         }
         throw new Error(`${webhookSubmitRes.status}: ${errMsg}`);
       }
@@ -1111,7 +1111,7 @@ async function submitForm(): Promise<void> {
         const errData = JSON.parse(errText);
         errMsg = errData.error || errMsg;
       } catch {
-        errMsg = errText || errMsg;
+        // Non-JSON error bodies (edge HTML, proxies) stay server-side; patients get the fixed message.
       }
       throw new Error(`${res.status}: ${errMsg}`);
     }

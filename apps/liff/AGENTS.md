@@ -26,3 +26,7 @@
 - PHI を送る前に確認ブロック、送信後は「次にやること」を表示。
 - 日時入力はネイティブ `<input type="datetime-local">`、「処方せん」表記(「電子処方箋」は例外)。
 - テスト: `pnpm --filter liff test`、型: `pnpm --filter liff exec tsc --noEmit`。
+
+## コード探索
+
+探索・Jevgrep への送信承認と除外条件はルート `AGENTS.md` を継承する。PHI/PII・認証情報・secret・本番/実データは送らない。

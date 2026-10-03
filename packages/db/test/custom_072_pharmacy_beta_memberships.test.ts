@@ -170,17 +170,19 @@ describe('custom_072 pharmacy beta memberships', () => {
       WHERE line_account_id = 'account-a'`)
       .run();
 
+    // expiresAt must stay ahead of the real clock: canUsePharmacyBetaParticipant
+    // takes no `now` and evaluates expiry against Date.now().
     const self = await grantPharmacyBetaMembership(db, {
       lineAccountId: 'account-a',
       patientId: 'patient-a',
-      expiresAt: '2026-10-01T00:00:00.000Z',
+      expiresAt: '2099-10-01T00:00:00.000Z',
       actorStaffId: 'staff-a',
       now: new Date(NOW),
     });
     const child = await grantPharmacyBetaMembership(db, {
       lineAccountId: 'account-a',
       patientId: 'child-a',
-      expiresAt: '2026-10-01T00:00:00.000Z',
+      expiresAt: '2099-10-01T00:00:00.000Z',
       actorStaffId: 'staff-a',
       now: new Date(NOW),
     });

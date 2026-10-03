@@ -324,6 +324,27 @@ export async function markInsightFailed(db: D1Database, insightId: string, retry
     .run();
 }
 
+/**
+ * Cron sweep queries — fetch only the rows the scheduled/queued processors
+ * can act on instead of scanning the whole broadcasts table (with the
+ * insights join) every tick.
+ */
+export async function getScheduledStatusBroadcasts(db: D1Database): Promise<Broadcast[]> {
+  const result = await db
+    .prepare(`SELECT * FROM broadcasts WHERE status = 'scheduled' AND scheduled_at IS NOT NULL`)
+    .all<Broadcast>();
+  return result.results;
+}
+
+export async function getSendingProviderWideBroadcasts(db: D1Database): Promise<Broadcast[]> {
+  const result = await db
+    .prepare(
+      `SELECT * FROM broadcasts WHERE status = 'sending' AND batch_offset >= 0 AND sent_at IS NULL AND target_type = 'all' AND segment_conditions IS NULL`,
+    )
+    .all<Broadcast>();
+  return result.results;
+}
+
 export async function getQueuedBroadcasts(db: D1Database): Promise<Broadcast[]> {
   // Pick up broadcasts explicitly queued for batch processing:
   //   - segment_conditions IS NOT NULL: tag/segment queued batches

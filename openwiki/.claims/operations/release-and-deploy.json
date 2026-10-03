@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:73b530f42aed8ea25d841b35ab7ac0ac71524e7a95d47d57405c27876d172fc9",
+  "claims": [
+    {
+      "id": "claim_8c2305a16fcb4b54a749f0cfc0c5c7d9",
+      "statement": "deploy-cloudflare は dev への push と手動実行で起動し、上流リポジトリでないこと・LINE_HARNESS_CLOUDFLARE_DEPLOY が true・dev または main の手動実行という条件を満たすときだけジョブを実行する。",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/deploy-cloudflare.yml#L1-L37",
+          "version": "repo-lines-v1:sha256:2f88edfc851acc7e25154b64e8a58e0dd8c10bcf740b6e80a5d06839241baa10:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNiYjI1MGRjNWNiYmEyODE3MTExM2UyYWY2ZDhmMjgwNTRlY2Y3YmEyZDA3ODk0NTk2NjFiNjAxNjc5MjJhNGUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRiNmY5ZTZjNWQ4ZTVmZmE3MmNmMGIwNGM5MWYxYjE0Nzc1OWM0ZWI0NDY0MzM2MzFhNDkwNzFjMmUzZWI5OWYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjUzOTMxYjEwMDQ5YjI4ZmY5ZGUzMzk4MDBlZGQ2ZjA3ZmE1OTMyOTlmYjI2Njk3MDE1YmUwYTRlNmJhODlmZjIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c3ad0d6d1d0745e6acd3aaa2859deb60",
+      "statement": "本番(main)の配備は、チェックアウトしたコミットと SHA の一致、手動入力 production_source_sha と GITHUB_SHA の一致、DEPLOY_TARGET と環境の一致を要求する。",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/deploy-cloudflare.yml#L39-L58",
+          "version": "repo-lines-v1:sha256:49335b3d2ef238a47853072d08c32448e99649d35177de5eb6a6358bcac6eddb:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM4OTk5MTEwM2Y2YmE4ODhlM2RlNzY1MWM1YTMwNWM3N2U1NTQ3Njc3M2FiYTgzOTU5MWVjYzViZDBmMmFiMWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcwNmY5YTEwNGVkMWJjZmI5NTA3ZDhiMDFhNGRjNjIxYzRkYjRlMmU1ODdiMzU5ZjY4ZjJhNWU1MWE5ZmJmYTMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE5M2E3YWVjZGFmMTYwMmQ4NmRlZjc2Njk1NTE3NDVkMDA4OTNlYmYwMWM1ZjJhNWFlZjYwNmE1MjI0NWYwYWMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_105d3f5911ee4d9082eb10c1c1b3597e",
+      "statement": "配備は追加のみの migration 検査、顧客設定の保護、移行前状態と D1 bookmark の記録、migration 適用、Worker 配備、顧客設定保持の確認、LIFF と管理画面の配備と健全性確認をこの順で行う。",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/deploy-cloudflare.yml#L194-L300",
+          "version": "repo-lines-v1:sha256:e8b610d6118864e65f01ce1b0427963aeaeefb77542a95ea29fd0ac927c49fe9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA3LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJhZGQyZGU1YjZhZTgyMTA4YWFhYjg3ZDAzNmZiMjNiZjRhOGFlNjllODdlNGViYjFjNjJkYjljOWQ0NjlkZTJlIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI0ZTNjZDQyYjVkYWNmN2Y1ZDhkMGNjMGEwOWYyYWIwYjdkNTE1Y2UzOTllOWIxNTY5MDE3YWJiNmZhOGRkNmI5IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI3ZjE3MzhlOGRlY2IwZDY4ZGU5MTVkNmQ1ZTA5YWYzMGNiY2ZjM2RjY2Q0ODNhZjFmMTA4OWQ3NTA5ODBlZDVkIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJmNzk2MWNhNDA4OTczYjk1ZWRmN2U5MGJhMTQzM2RjYTBjYTg4ODE4YTVhNDk2OTg1NTE4ZjhhOTliMTg1NWQzIn0"
+        },
+        {
+          "resource": "repo://.github/workflows/deploy-cloudflare.yml#L363-L406",
+          "version": "repo-lines-v1:sha256:4594f2bdc8d4742e00b27ed7b97152dd705b66ed95efc6f680962cc4834fde03:eyJzZWxlY3RlZExpbmVDb3VudCI6NDQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkZTIxOGYxOTVjMGQwMWJlZmI1NjRlMTE1YWIyYzExNDQ3MjcxMTUyYzg0YTM0MWJiM2Q3NzE3MTQyZjVhZTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE0Yjk4OTU0YTU3YzBlZWRlYjYyNTI2MGM0ODNjYWNjODQxMmE1NjhhZjQ4ZmExYzA5OWNiZGJiNWJiZmVjZTIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQyNmZmYWRjN2I2MTEyNzI4YjU5NzkyZTRiZjQxNGI4OTE3ZGExZjZiOGFkZGE3MTMyMWMyYWMyOTcwY2ZlM2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZiYTUwYTZkMjZlZDcyNTVkNDg1ODNlNDM0NWJiMDA3ZWY4MjhlMzVlYzRiOGYwZmVlZWZiYmI3OGYzYTllYjUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f0d7316dc74d4dc899e6a1d1812faad0",
+      "statement": "Worker の本番ビルドと配備は CLOUDFLARE_ENV=production と --keep-vars を使い、本番の D1 とバケット名が開発用と混ざらないことをテストで固定している。",
+      "evidence": [
+        {
+          "resource": "repo://apps/worker/src/release-config.test.ts#L1-L23",
+          "version": "repo-lines-v1:sha256:d2ef4ef6729ac5106fea995d95a9076822f81febc55949087d04c37a31c6b736:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0YWRjNmU5Y2ExNjhjYTVkMmFhMGVjM2IwMjdiNTk3ZGY1NGI1ZDEzN2Y5Zjc4ODU0MzkwMGI4NTZiNmUyODYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY2ZjViNDBiMTU4NDU3ZDE3ODY0ZjIxNzkwNzg2ZGQ1YTJlY2RiNjRiNjZhNjUxZjc4OGQ0ZTI1Y2QzMzAzZDIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c49b0d314378409db01c281615fc1d4e",
+      "statement": "release.yml は v*.*.* と pharmacy-v*.*.* のタグで起動し、検査・テスト・ビルドを通して GitHub Release を作るが、配備はしない。",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/release.yml#L1-L65",
+          "version": "repo-lines-v1:sha256:7f31ed4f4bcfffaa5aa4154f7ec16633649f46a170ae1ecf77c64ef26a7faaa5:eyJzZWxlY3RlZExpbmVDb3VudCI6NjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZmNDllMzAzMGViMDY5Nzk5YWY1NmY3OTE4M2NmMDZhN2I3ZWIyY2YzNWQ3MmEwNDBiNmY4ZWY1MDIyZDBiOGUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA3NmQ1ZmQ3NzcyZTFmZTdiZmQwYTlhZmU3YjMyMzlkMTg1MmIxMmRjZWY1MzJlMWJhMTIxZTNhNDc0YzdlZmEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_27b1a22771b54ded9f0b3b47be1d8dd4",
+      "statement": "中央本番更新チェックリストは、追加のみの migration・直前版との後方互換テスト・越境の否定テストを更新前の必須項目とし、件数の予期しない変化や越境アクセスを中止・ロールバック条件にする。",
+      "evidence": [
+        {
+          "resource": "repo://docs/pharmacy/customer-production-update-checklist.md#L1-L48",
+          "version": "repo-lines-v1:sha256:ee0724f6a99963ad0d63e3e57812ee56706f2ac5647ddda0058bf05fb393da1a:eyJzZWxlY3RlZExpbmVDb3VudCI6NDgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjlkODFlMzRhOTNmMTkxMGNjOTAzOTJlNGQzZmQ3YzA0ZTZhNzM4ZDA2YjVmMTRmMTk2NTU2MzQ2YmYzNDZhZjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYyZGU4ZDY4Y2QwMDQ3OTQxNWZhNmE4NzBlMzhhN2ZkNDQ4MDViNmNhZjIyMzc0NTJmN2QxNDg4NjY2ZmE1YTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_15c24a74ce77470cb40d41ae1a296c2c",
+      "statement": "リポジトリの _version.ts は生成スクリプトの開発用スタブで、実際の版とハッシュは配備時に注入される。",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/deploy-cloudflare.yml#L164-L186",
+          "version": "repo-lines-v1:sha256:48ce65c250a460bbc2e9c2470bb9d7b914aee5a42c904c602e75ec4bf1002f47:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjYwY2Q2NTQ2YjhmZjc2NjQzNjBjZDE5NWJjNzU0MjljZDgzNjRiMjVmY2IyYmZjODQ3ZmZhY2JhM2Q5YTk3MzYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjlmOTY2Yzg3NjFmZDlhZmNkODQ4NGNmNjhiOWYxN2U1NzM2ODM4NWI2ZGVkMjM4OTg4MDgzYTljNTQ5Njk1NWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE2NTczMDVlMjA3NGNhODVmN2I4NWM4NTgzNzBiY2NhNjBmNjM3YjliNmU0ZjM1YjE3ZjUwODY3M2RlM2I4ZTQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjljMjk2NDA0ZTU4N2UwNTU4NDJjYzY1YTU4MDcwYmVmNWJmMmI3NGY4NGNiNmZlY2NmYzU3ZGI3NjMwMjBhZmEifQ"
+        },
+        {
+          "resource": "repo://apps/worker/src/_version.ts#L1-L10",
+          "version": "repo-lines-v1:sha256:f38237af7b6e401b525840480c5a902ceab64fe54b8ced9e6e23be7b00bde3e3:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3OTQ5MTA4MjgwMmMwMmI4ZGNjNzNiY2Q5NmI1ZmQ2ZjQzNDRlOTE2ZmQ2ZWZiYWExMGY1MDgzMWNmYzVmNjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJhMzQwMzliMTE1ZDA3OTQ4NjgxMTQ5ZDk3OWIwZTk3ZWVkMTY4ODg1MzYyNjUzZmQ1YTdhMmI1YWM4M2Y2MGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1823e9a91ae94ad588a150fc586ab3f6",
+      "statement": "CHANGELOG の各エントリは作成だけでは main 反映・本番配備・実患者データ操作・実 LINE 送信を行わないと断り、ソースタグと販売者向け pharmacy-v* リリースを別の識別子として扱う。",
+      "evidence": [
+        {
+          "resource": "repo://CHANGELOG.md#L1-L6",
+          "version": "repo-lines-v1:sha256:f738eeadbf328290aa4bd9cc6c2314256f294556fb9bc640644a496d6e0b9774:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2U3OWM0Y2FmYjUwNGEyMWY4OTEzZTRlMGU2NmYyZmY3YjExOTJhMTI3YzZmNTY0YWFiMzc5YzhiNWZhOWJkZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiN2EwMjJkMjdjMjBhYmJhNDQ2ZjVkYTlmZmYyYTI0YWMwNTY1OTI2ZmI4MWRjOTg5NzQ1MTg4Y2VlMzc2N2ZlMCJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.6.1",
+    "at": "2026-09-29T04:00:15.496Z"
+  }
+}
