@@ -5,7 +5,7 @@ import { deny } from './deny.js';
 
 const ACCOUNT_KEYS = ['lineAccountId', 'line_account_id', 'accountId', 'account_id', 'accountIds', 'account'] as const;
 
-function addAccountIds(target: Set<string>, value: unknown): void {
+export function addAccountIds(target: Set<string>, value: unknown): void {
   if (typeof value === 'string' && value) target.add(value);
   if (Array.isArray(value)) {
     for (const item of value) if (typeof item === 'string' && item) target.add(item);

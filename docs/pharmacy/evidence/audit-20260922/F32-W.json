@@ -1,8 +1,0 @@
-{
-  "P": "da40c463db40423af8bbc32ce2ade603949bcffb",
-  "paths": {
-    "apps/worker/src/routes/crm/chats.ts": "d7ce045008a81d24930f0011a87bc7407f5a6ec52d3dd36194b9a19efd5ce431",
-    "apps/worker/src/routes/crm/chats-manual-message.test.ts": "0d846e72309d5d1c6f7405de69fd50e8ed84fb34c4852283dc526d76a4a1ec82"
-  },
-  "isolatedPatchReplay": "PASS"
-}

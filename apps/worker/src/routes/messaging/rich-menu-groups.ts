@@ -23,6 +23,7 @@ import {
   type UpdateRichMenuGroupMetaInput,
 } from '@line-crm/db';
 import type { Env } from '../../index.js';
+import { toBase64Url } from '../../lib/base64.js';
 import { validateRichMenuImage } from '../../lib/image-validator.js';
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
 import { getPharmacyRichMenuPublishReadiness } from '../../custom/pharmacy/rich-menu/publish-readiness.js';
@@ -746,7 +747,7 @@ richMenuGroups.get('/api/rich-menu-groups', async (c) => {
   const groups = await getRichMenuGroups(c.env.DB, accountId);
   // 各 group の代表画像 (default_page_id の image_r2_key、なければ order_index=0 の page) を取得。
   // 一覧カードでサムネを出すために 1 クエリで JOIN する。
-  let imageByGroupId = new Map<string, { key: string; contentType: string | null }>();
+  const imageByGroupId = new Map<string, { key: string; contentType: string | null }>();
   if (groups.length > 0) {
     const placeholders = groups.map(() => '?').join(',');
     const result = await c.env.DB.prepare(
@@ -1966,12 +1967,6 @@ type ApplyConfirmationPayload = {
   expiresAt: number;
 };
 
-function confirmationBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
-}
-
 function decodeConfirmationBase64Url(value: string): Uint8Array {
   const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
@@ -1986,9 +1981,7 @@ async function confirmationHmac(secret: string, value: string): Promise<string> 
     false,
     ['sign'],
   );
-  return confirmationBase64Url(
-    new Uint8Array(await crypto.subtle.sign('HMAC', key, confirmationEncoder.encode(value))),
-  );
+  return toBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, confirmationEncoder.encode(value))));
 }
 
 function sameConfirmationSignature(left: string, right: string): boolean {
@@ -2001,7 +1994,7 @@ function sameConfirmationSignature(left: string, right: string): boolean {
 }
 
 async function signApplyConfirmation(secret: string, payload: ApplyConfirmationPayload): Promise<string> {
-  const encoded = confirmationBase64Url(confirmationEncoder.encode(JSON.stringify(payload)));
+  const encoded = toBase64Url(confirmationEncoder.encode(JSON.stringify(payload)));
   const signed = `rmc1.${encoded}`;
   return `${signed}.${await confirmationHmac(secret, signed)}`;
 }
@@ -2044,7 +2037,7 @@ async function verifyApplyConfirmation(secret: string, token: string): Promise<A
 async function richMenuAudienceDigest(userIds: string[]): Promise<string> {
   const uniqueSorted = [...new Set(userIds)].sort();
   const digest = await crypto.subtle.digest('SHA-256', confirmationEncoder.encode(uniqueSorted.join('\n')));
-  return confirmationBase64Url(new Uint8Array(digest));
+  return toBase64Url(new Uint8Array(digest));
 }
 
 richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => {

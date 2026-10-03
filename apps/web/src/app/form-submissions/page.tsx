@@ -1,5 +1,6 @@
 'use client';
 
+import { formatJpDateTime } from '@/lib/datetime';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { fetchApi } from '@/lib/api';
@@ -53,17 +54,6 @@ function formatRelative(iso: string | null): string {
   if (diffMin < 60 * 24) return `${Math.floor(diffMin / 60)}時間前`;
   if (diffMin < 60 * 24 * 7) return `${Math.floor(diffMin / (60 * 24))}日前`;
   return d.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' });
-}
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function formatValue(v: unknown): string {
@@ -536,7 +526,7 @@ export default function FormSubmissionsPage() {
 
               <div>
                 <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">送信日時</div>
-                <div className="text-sm text-gray-700">{formatDateTime(detailSubmission.createdAt)}</div>
+                <div className="text-sm text-gray-700">{formatJpDateTime(detailSubmission.createdAt)}</div>
               </div>
 
               <div>

@@ -908,20 +908,6 @@ export async function assertRecoveryExecution(
   return { operation: operationRow, fence };
 }
 
-export async function assertRecoveryFence(db: D1Database, scope: RecoveryScope): Promise<RecoveryFenceRecord | null> {
-  if (!validScope(scope)) throw new RecoveryOperationError('INVALID_INPUT');
-  const row = await db
-    .prepare(`SELECT fence_id, operation_id, tenant_id, line_account_id,
-      environment, execution_id, fence_token, owner_subject, status, expires_at,
-      created_at, released_at
-    FROM pharmacy_recovery_execution_fences
-    WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
-      AND status = 'active' AND expires_at > ? LIMIT 1`)
-    .bind(scope.tenantId, scope.lineAccountId, scope.environment, new Date().toISOString())
-    .first<FenceRow>();
-  return row ? rowToFence(row) : null;
-}
-
 // Recheck the execution lease inside each mutation, not only in the earlier read.
 const ACTIVE_OPERATION_FENCE = `EXISTS (
   SELECT 1 FROM pharmacy_recovery_execution_fences fence
