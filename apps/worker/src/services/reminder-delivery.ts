@@ -1,5 +1,3 @@
-import { extractFlexAltText } from '../utils/flex-alt-text.js';
-
 /**
  * リマインダ配信処理 — cronトリガーで定期実行
  *
@@ -8,9 +6,10 @@ import { extractFlexAltText } from '../utils/flex-alt-text.js';
  */
 
 import { getDueReminderDeliveries, completeReminderIfDone, getFriendById, jstNow } from '@line-crm/db';
-import type { LineClient, Message } from '@line-crm/line-sdk';
+import type { LineClient } from '@line-crm/line-sdk';
 import { addJitter, sleep } from './stealth.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { buildMessage } from './broadcast.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 import { getActiveMappedAccountTenantId } from './step-delivery.js';
@@ -83,34 +82,4 @@ export async function processReminderDeliveries(db: D1Database, _lineClient: Lin
       console.error('リマインダ配信エラー:', err);
     }
   }
-}
-
-function buildMessage(messageType: string, messageContent: string, altText?: string): Message {
-  if (messageType === 'text') {
-    return { type: 'text', text: messageContent };
-  }
-  if (messageType === 'image') {
-    try {
-      const parsed = JSON.parse(messageContent) as {
-        originalContentUrl: string;
-        previewImageUrl: string;
-      };
-      return {
-        type: 'image',
-        originalContentUrl: parsed.originalContentUrl,
-        previewImageUrl: parsed.previewImageUrl,
-      };
-    } catch {
-      return { type: 'text', text: messageContent };
-    }
-  }
-  if (messageType === 'flex') {
-    try {
-      const contents = JSON.parse(messageContent);
-      return { type: 'flex', altText: altText || extractFlexAltText(contents), contents };
-    } catch {
-      return { type: 'text', text: messageContent };
-    }
-  }
-  return { type: 'text', text: messageContent };
 }

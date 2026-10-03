@@ -1,4 +1,0 @@
-# F28 FIX — MCP設定例の必須tenant欠落
-P=3be2dbf1bed931fbf98cca4e40f934fce2058ba4、primary/dev。PT-01 confirmed/P3。書込READMEとMCP indexコメントのみ。両公開例のenvにはgetClients必須LINE_HARNESS_TENANT_IDがない。README環境表と両JSON例へplaceholder追加。runtime/env権限/API/依存を変更しない。実行コードの必須env4keysと両JSON例をparse比較して修正前missing1→修正後missing0、diffcheck、snapshotpatch再現。低impact doc-onlyなので新永久test/全verify/buildを反復しない。直前全verifyの実行コード同一性を保全。
-
-INTEGRATED `797a7cbc56e857a63b104a68cb2bf343bdb8f93d`。親が限定review全文/hash確認、index2pathだけstage。F28-example-check成功/diffcheck0/isolatedreplay。実行コード同一なので新test/build不要、未実施を成功と扱わない。

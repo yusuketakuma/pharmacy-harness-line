@@ -1,8 +1,0 @@
-{
-  "P": "07f131c3b65b59d746bca7a33635ba1c3a128610",
-  "commit": "6c940754b3661df5eeeda1dedf46612dfa256137",
-  "paths": [
-    "apps/worker/src/routes/admin/images.ts",
-    "apps/worker/src/routes/admin/images.test.ts"
-  ]
-}

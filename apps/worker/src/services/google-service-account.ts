@@ -1,3 +1,4 @@
+import { toBase64Url } from '../lib/base64.js';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
@@ -9,14 +10,8 @@ export interface GoogleServiceAccountCredentials {
 type CachedToken = { accessToken: string; expiresAtMs: number; email: string };
 let cachedToken: CachedToken | null = null;
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
 function encodeJson(value: unknown): string {
-  return base64Url(new TextEncoder().encode(JSON.stringify(value)));
+  return toBase64Url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -66,7 +61,7 @@ export async function getGoogleServiceAccountToken(credentials: GoogleServiceAcc
     ['sign'],
   );
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
-  const assertion = `${unsigned}.${base64Url(new Uint8Array(signature))}`;
+  const assertion = `${unsigned}.${toBase64Url(new Uint8Array(signature))}`;
 
   const response = await fetch(TOKEN_URL, {
     method: 'POST',

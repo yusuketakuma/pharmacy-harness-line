@@ -1,7 +1,0 @@
-# F30 FIX — 通知シナリオが完成してからtrigger tagを付ける
-P=34b32dfd1d0d2447b7bb324a8e4ef4f5704169b0、primary/dev、RUNNING。PT-C2候補。書込予定plugin-template/src/notify.ts、scripts/plugin-template-notify.test.ts、必要なREADME運用説明のみ。生成Worker distは正規buildで検証、MCPはnotifyを含まないので再build不要。
-根拠: notify契約はtag_added scenarioのstatic stepで通知しtagをdedup markerにする。現状active=true作成→addStep失敗で空activeが保存され、次cronのname一致returnでtag付与へ進む。通知なしでもdedup済になる。期待:新規はinactive→step成功→activate成功後に付与。既存はactive/stepCount>0/trigger type+tag一致を確認、不完全/停止中/別triggerなら付与も自動修復/再有効化もしない。
-既存途中状態の所有権/人の停止と区別するmetadataなしなので、自動resume/削除は追加しない。管理者が確認・完成・有効化後に既存経路へ復帰できることを検証。既存カスタムstep内容を上書きしない。公開export/API/schema/staticmessage/subject/account伝播は維持。
-Validation:実SDK+合成fetch/stateで旧Pの未完成有効化と次cron誤dedupをRED、成功/stepfailure/activationfailure/既存停止・空・trigger不一致・人による回復を検証。型/build/Worker生成物scheduled入口を合成fetchで起動、近傍回帰と必要範囲統合、限定review、isolatedpatch。実外部送信/本番操作なし。並列cronの同名create競合やread→tagの他者変更raceは本packetの保証外。
-
-INTEGRATED 6751d6edcb164dd8e4ac59fc53824a438bfac13d。RED9FAIL→GREEN9+privacy8PASS、scripts25files263PASS、typecheck/build0、compiledscheduledsuccess/dedup/stepfailure-retry0。実enum friend_add fixtureへ訂正後9PASS、3pathhash/isolatedpatch/限定review追補親確認。F30-result.json参照。

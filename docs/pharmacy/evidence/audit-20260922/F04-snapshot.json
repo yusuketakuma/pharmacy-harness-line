@@ -1,7 +1,0 @@
-{
-  "P": "42454a9",
-  "files": {
-    "apps/liff/src/custom/pharmacy/intake/PatientIntakePage.tsx": "7f0e0cdf289642199989fb70017e59686b1af9042d1c8cc5dea9839f76d1f82c",
-    "apps/liff/e2e/patient-intake-retry.e2e.ts": "abcfb70b58538c819b9f5de978f848b54bf04c1bedf9908352077c4c6345481c"
-  }
-}

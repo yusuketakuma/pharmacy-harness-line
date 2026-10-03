@@ -1,8 +1,0 @@
-{
-  "P": "dc01f9b2064c466d453f8ffbba2ce8cb30dfa585",
-  "commit": "2f40741e0510c8788418b06a5069b2467099a072",
-  "paths": [
-    "apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts",
-    "apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts"
-  ]
-}

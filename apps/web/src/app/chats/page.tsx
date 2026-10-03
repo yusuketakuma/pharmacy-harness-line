@@ -1,5 +1,6 @@
 'use client';
 
+import { formatJpDateTime } from '@/lib/datetime';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { parseStickerMessageContent, stickerFallback } from '@line-crm/shared';
 import { api, fetchApi } from '@/lib/api';
@@ -80,17 +81,6 @@ function StickerMessageImage({ content }: { content: string }) {
       onError={() => setFailed(true)}
     />
   );
-}
-
-function formatDatetime(iso: string | null): string {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function sameYmd(aIso: string, bIso: string): boolean {
@@ -1088,7 +1078,7 @@ export default function ChatsPage() {
                               <p className="text-sm font-medium text-gray-900 truncate">{chat.friendName}</p>
                             </div>
                             <span className="text-[10px] text-gray-400 flex-shrink-0">
-                              {formatDatetime(chat.lastMessageAt)}
+                              {formatJpDateTime(chat.lastMessageAt)}
                             </span>
                           </div>
                           <p

@@ -1,5 +1,0 @@
-# Continuity queue investigation
-
-Snapshot: d595215. CONFIRMED_BUG P2: active expectations are ordered by reminder_at,id with global LIMIT50; skipped/failed delivery does not mutate them. Two six-hour ticks select the identical first50 paused-tenant rows, leaving another tenant's expectation-050 unselected. Real bootstrap SQLite, foreign keys/triggers/checks enabled; sender/credential/beta are synthetic stubs, no external calls. `continuity-queue-progress-final.log` exit0,1PASS means the defect was reproduced, not repaired. First fixture attempt failed the legitimate unique active obligation per patient constraint; final fixture uses separate synthetic patients and retains the constraint.
-
-Next packet F21: additive queue scheduling timestamp for next-intake expectations; rotate checked rows before delivery/activation, preserve clinical status/version/times, per-tick limit50, approved sender and retry key. Previous-schema fallback and previous-version writes must remain compatible. Source and generated bootstrap, paired migration test, scoped queue behavior/races, full required checks and compiled cron remain required. Not yet implemented/verified.

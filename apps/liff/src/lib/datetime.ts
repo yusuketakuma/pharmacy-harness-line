@@ -24,6 +24,17 @@ export function formatJp(date: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${'日月火水木金土'[d.getUTCDay()]})`;
 }
 
+export function formatJpDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
+  });
+}
+
 export function jstStartsAtIso(date: string, hhmm: string): string {
   // `+09:00` suffix tells JS to treat the wall-clock time as JST.
   return new Date(`${date}T${hhmm}:00+09:00`).toISOString();

@@ -1,4 +1,4 @@
-import { assertRetentionDeleteExecution, executionMatchesScope, RetentionDeleteExecution } from './execution.js';
+import { assertRetentionDeleteExecution, executionMatchesScope, type RetentionDeleteExecution } from './execution.js';
 import { prepareRetentionFence } from './fence.js';
 import { ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL } from '../data-subject-requests/legal-hold.js';
 import { isR2RetentionTombstone, putR2RetentionTombstone } from '../../../services/immutable-r2.js';
@@ -294,9 +294,6 @@ export async function backfillIncomingImageTracking(
   }
   return result;
 }
-
-/** Alias kept explicit for callers that name the source in the operation. */
-export const backfillIncomingImagesFromMessagesLog = backfillIncomingImageTracking;
 
 async function claimIncomingDisposition(
   db: D1Database,
@@ -699,8 +696,6 @@ export async function purgeTrackedIncomingImages(
   return result;
 }
 
-export const purgeIncomingImages = purgeTrackedIncomingImages;
-
 /** Resolve durable external outcomes without retrying a present object blindly. */
 export async function reconcileIncomingImageDeletionOutcomes(
   db: D1Database,
@@ -1000,5 +995,3 @@ export async function incomingImageRetentionReadiness(
     dispositions: dispositions?.count ?? 0,
   };
 }
-
-export const getIncomingImageRetentionReadiness = incomingImageRetentionReadiness;

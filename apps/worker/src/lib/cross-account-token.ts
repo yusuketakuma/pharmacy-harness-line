@@ -1,17 +1,11 @@
+import { toBase64Url } from './base64.js';
 const encoder = new TextEncoder();
-
-function base64Url(bytes: ArrayBuffer | Uint8Array): string {
-  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let binary = '';
-  for (const byte of view) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
-}
 
 async function hmac(secret: string, payload: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
     'sign',
   ]);
-  return base64Url(await crypto.subtle.sign('HMAC', key, encoder.encode(payload)));
+  return toBase64Url(await crypto.subtle.sign('HMAC', key, encoder.encode(payload)));
 }
 
 export async function signCrossAccountToken(
