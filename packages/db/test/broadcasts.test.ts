@@ -3,7 +3,12 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createBroadcast, recoverStalledBroadcasts } from '../src/broadcasts.js';
+import {
+  createBroadcast,
+  getScheduledStatusBroadcasts,
+  getSendingProviderWideBroadcasts,
+  recoverStalledBroadcasts,
+} from '../src/broadcasts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -16,6 +21,9 @@ function asD1(sqlite: Database.Database): D1Database {
           const info = stmt.run();
           return { results: [], success: true, meta: { changes: info.changes } };
         },
+        async all<T>() {
+          return { results: stmt.all() as T[], success: true, meta: {} };
+        },
         bind(...params: unknown[]) {
           return {
             async run() {
@@ -24,6 +32,9 @@ function asD1(sqlite: Database.Database): D1Database {
             },
             async first<T>() {
               return (stmt.get(...params) as T) ?? null;
+            },
+            async all<T>() {
+              return { results: stmt.all(...params) as T[], success: true, meta: {} };
             },
           };
         },
@@ -110,5 +121,66 @@ describe('createBroadcast', () => {
         .prepare('SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?')
         .get('broadcast-provider-wide-stalled'),
     ).toEqual({ batch_offset: 0, batch_lock_at: null });
+  });
+});
+
+describe('cron sweep queries', () => {
+  let sqlite: Database.Database;
+  let db: D1Database;
+
+  beforeEach(() => {
+    sqlite = new Database(':memory:');
+    sqlite.exec(readFileSync(join(__dirname, '../schema.sql'), 'utf8'));
+    db = asD1(sqlite);
+  });
+
+  function insertBroadcast(
+    id: string,
+    over: Partial<{
+      status: string;
+      scheduled_at: string | null;
+      sent_at: string | null;
+      target_type: string;
+      batch_offset: number;
+      segment_conditions: string | null;
+    }> = {},
+  ): void {
+    sqlite
+      .prepare(`INSERT INTO broadcasts
+      (id, title, message_type, message_content, target_type, status,
+       scheduled_at, sent_at, total_count, success_count, batch_offset,
+       segment_conditions, track_links)
+      VALUES (?, 'B', 'text', 'm', ?, ?, ?, ?, 0, 0, ?, ?, 0)`)
+      .run(
+        id,
+        over.target_type ?? 'all',
+        over.status ?? 'draft',
+        over.scheduled_at ?? null,
+        over.sent_at ?? null,
+        over.batch_offset ?? 0,
+        over.segment_conditions ?? null,
+      );
+  }
+
+  test('getScheduledStatusBroadcasts returns only unsent scheduled rows', async () => {
+    insertBroadcast('due', { status: 'scheduled', scheduled_at: '2020-01-01T00:00:00.000+09:00' });
+    insertBroadcast('no-time', { status: 'scheduled', scheduled_at: null });
+    insertBroadcast('draft', { status: 'draft', scheduled_at: '2020-01-01T00:00:00.000+09:00' });
+    insertBroadcast('sent', { status: 'sent', scheduled_at: '2020-01-01T00:00:00.000+09:00' });
+
+    const rows = await getScheduledStatusBroadcasts(db);
+    expect(rows.map((r) => r.id)).toEqual(['due']);
+  });
+
+  test('getSendingProviderWideBroadcasts returns only resumable all-target sends', async () => {
+    insertBroadcast('resumable', { status: 'sending', batch_offset: 500 });
+    insertBroadcast('locked', { status: 'sending', batch_offset: -1 });
+    insertBroadcast('done', { status: 'sending', batch_offset: 500, sent_at: '2020-01-01T00:00:00.000+09:00' });
+    insertBroadcast('tag-scoped', { status: 'sending', batch_offset: 500, target_type: 'tag' });
+    insertBroadcast('segmented', { status: 'sending', batch_offset: 500, segment_conditions: '{}' });
+    insertBroadcast('not-sending', { status: 'scheduled', batch_offset: 0 });
+
+    const rows = await getSendingProviderWideBroadcasts(db);
+    expect(rows.map((r) => r.id)).toEqual(['resumable']);
   });
 });

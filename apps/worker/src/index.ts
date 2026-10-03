@@ -1346,12 +1346,25 @@ async function scheduled(event: ScheduledEvent, env: Env['Bindings'], ctx: Execu
     jobs.push(
       processPendingMileageEvents(env.DB, {
         limit: 100,
-        canProcessFriend: async (friendId) => {
-          const friend = await env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
-            .bind(friendId)
-            .first<{ line_account_id: string | null }>();
-          return !(await isPharmacyModeAccount(env.DB, friend?.line_account_id));
-        },
+        canProcessFriend: (() => {
+          // Up to 100 events per tick; cache the friend→account and
+          // account→pharmacy-mode lookups so repeats don't cost extra D1 reads.
+          const accountByFriend = new Map<string, string | null>();
+          const pharmacyModeByAccount = new Map<string | null, boolean>();
+          return async (friendId) => {
+            if (!accountByFriend.has(friendId)) {
+              const friend = await env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+                .bind(friendId)
+                .first<{ line_account_id: string | null }>();
+              accountByFriend.set(friendId, friend?.line_account_id ?? null);
+            }
+            const accountId = accountByFriend.get(friendId) ?? null;
+            if (!pharmacyModeByAccount.has(accountId)) {
+              pharmacyModeByAccount.set(accountId, await isPharmacyModeAccount(env.DB, accountId));
+            }
+            return !pharmacyModeByAccount.get(accountId);
+          };
+        })(),
       }).then((result) => {
         if (result.claimed > 0) {
           console.log(

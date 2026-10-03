@@ -1,8 +1,9 @@
 import { extractFlexAltText } from '../utils/flex-alt-text.js';
 import {
   getBroadcastById,
-  getBroadcasts,
   getQueuedBroadcasts,
+  getScheduledStatusBroadcasts,
+  getSendingProviderWideBroadcasts,
   updateBroadcastStatus,
   updateBroadcastBatchProgress,
   getFriendsByTag,
@@ -221,11 +222,9 @@ export async function processScheduledBroadcasts(
   workerUrl?: string,
   defaultAccountId?: string | null,
 ): Promise<void> {
-  const allBroadcasts = await getBroadcasts(db);
-
   const nowMs = Date.now();
-  const scheduled = allBroadcasts.filter(
-    (b) => b.status === 'scheduled' && b.scheduled_at !== null && new Date(b.scheduled_at).getTime() <= nowMs,
+  const scheduled = (await getScheduledStatusBroadcasts(db)).filter(
+    (b) => new Date(b.scheduled_at as string).getTime() <= nowMs,
   );
 
   for (const broadcast of scheduled) {
@@ -278,39 +277,29 @@ export async function processQueuedBroadcasts(
   defaultAccountId?: string | null,
 ): Promise<void> {
   const queued = await getQueuedBroadcasts(db);
-  const providerWide = (await getBroadcasts(db)).filter((broadcast) => {
-    const raw = broadcast as unknown as Record<string, unknown>;
-    return (
-      broadcast.status === 'sending' &&
-      typeof raw.batch_offset === 'number' &&
-      raw.batch_offset >= 0 &&
-      broadcast.sent_at === null &&
-      broadcast.target_type === 'all' &&
-      raw.segment_conditions == null
-    );
-  });
+  const providerWide = await getSendingProviderWideBroadcasts(db);
   for (const broadcast of providerWide) {
     if (!queued.some((queuedBroadcast) => queuedBroadcast.id === broadcast.id)) {
       queued.push(broadcast);
     }
   }
   for (const broadcast of queued) {
-    if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
-    if (
-      broadcast.target_type !== 'multi-account-dedup' &&
-      !(await isActiveMappedBroadcast(db, broadcast, defaultAccountId))
-    )
-      continue;
-    // アカウント別のlineClientを解決
-    const accountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
-    let client = lineClient;
-    if (accountId) {
-      const { getLineAccountById } = await import('@line-crm/db');
-      const account = await getLineAccountById(db, accountId);
-      if (account) client = new (await import('@line-crm/line-sdk')).LineClient(account.channel_access_token);
-    }
-
     try {
+      if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
+      if (
+        broadcast.target_type !== 'multi-account-dedup' &&
+        !(await isActiveMappedBroadcast(db, broadcast, defaultAccountId))
+      )
+        continue;
+      // アカウント別のlineClientを解決
+      const accountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
+      let client = lineClient;
+      if (accountId) {
+        const { getLineAccountById } = await import('@line-crm/db');
+        const account = await getLineAccountById(db, accountId);
+        if (account) client = new (await import('@line-crm/line-sdk')).LineClient(account.channel_access_token);
+      }
+
       await processQueuedBroadcastBatches(db, client, broadcast, workerUrl);
     } catch (err) {
       console.error(`Failed to process queued broadcast ${broadcast.id}:`, err);
