@@ -76,6 +76,9 @@ export interface PatientIntakeAnswers {
   medicationAdherence: MedicationAdherence;
   pregnancyStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   breastfeedingStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
+  genericPreference?: 'prefer' | 'brand' | 'consult' | 'unknown';
+  leftoverMedicationStatus?: 'none' | 'yes' | 'unknown';
+  leftoverMedicationDetail?: string;
   notes?: string;
 }
 
@@ -122,6 +125,9 @@ const ANSWER_KEYS = new Set([
   'medicationAdherence',
   'pregnancyStatus',
   'breastfeedingStatus',
+  'genericPreference',
+  'leftoverMedicationStatus',
+  'leftoverMedicationDetail',
   'notes',
 ]);
 const STATUS_VALUES = new Set(['none', 'yes', 'unknown']);
@@ -129,7 +135,8 @@ const SMOKING_VALUES = new Set(['never', 'former', 'current', 'unknown']);
 const ALCOHOL_VALUES = new Set(['none', 'occasional', 'weekly', 'frequent', 'unknown']);
 const MEDICATION_ADHERENCE_VALUES = new Set(['none', 'sometimes', 'often', 'unknown']);
 const PREGNANCY_VALUES = new Set(['not_applicable', 'yes', 'no', 'unknown']);
-const INTAKE_SCHEMA_VERSION = 2;
+const GENERIC_PREFERENCE_VALUES = new Set(['prefer', 'brand', 'consult', 'unknown']);
+export const INTAKE_SCHEMA_VERSION = 3;
 export const PATIENT_PROXY_TERMS_VERSION = 1;
 export const PATIENT_PROXY_TERMS_TEXT =
   '保護者として、この未成年の患者情報とアンケートを代理入力します。代理権限は登録から最長90日間（18歳になるまで）有効で、自動更新されず、いつでも取り消せます。';
@@ -382,7 +389,14 @@ function validateIntakeInput(input: CreatePatientIntakeInput): void {
   ) {
     throw new Error('invalid intake answers');
   }
-  for (const key of ['allergiesDetail', 'adverseReactionDetail', 'medicationSummary', 'medicalHistory', 'notes']) {
+  for (const key of [
+    'allergiesDetail',
+    'adverseReactionDetail',
+    'medicationSummary',
+    'medicalHistory',
+    'leftoverMedicationDetail',
+    'notes',
+  ]) {
     if (answerRecord[key] !== undefined && !boundedText(answerRecord[key], 2000)) {
       throw new Error('invalid intake answers');
     }
@@ -391,6 +405,18 @@ function validateIntakeInput(input: CreatePatientIntakeInput): void {
     if (answerRecord[key] !== undefined && !PREGNANCY_VALUES.has(answerRecord[key] as string)) {
       throw new Error('invalid intake answers');
     }
+  }
+  if (
+    answerRecord.genericPreference !== undefined &&
+    !GENERIC_PREFERENCE_VALUES.has(answerRecord.genericPreference as string)
+  ) {
+    throw new Error('invalid intake answers');
+  }
+  if (
+    answerRecord.leftoverMedicationStatus !== undefined &&
+    !STATUS_VALUES.has(answerRecord.leftoverMedicationStatus as string)
+  ) {
+    throw new Error('invalid intake answers');
   }
 }
 

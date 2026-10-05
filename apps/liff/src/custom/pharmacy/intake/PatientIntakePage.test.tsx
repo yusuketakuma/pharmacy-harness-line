@@ -78,6 +78,7 @@ describe('patient intake UI contract', () => {
             step={step}
             busy={false}
             showPregnancyQuestions
+            showExtendedQuestions={step === 2}
             representativeConsent={false}
             privacyConsent={false}
             onAnswersChange={() => undefined}
@@ -113,6 +114,7 @@ describe('patient intake UI contract', () => {
         step={1}
         busy={false}
         showPregnancyQuestions={false}
+        showExtendedQuestions={false}
         representativeConsent={false}
         privacyConsent={false}
         onAnswersChange={() => undefined}
@@ -139,6 +141,7 @@ describe('patient intake UI contract', () => {
         step={3}
         busy={false}
         showPregnancyQuestions={false}
+        showExtendedQuestions={false}
         representativeConsent={false}
         privacyConsent={false}
         privacyPolicy={{
@@ -169,6 +172,7 @@ describe('patient intake UI contract', () => {
         step={3}
         busy={false}
         showPregnancyQuestions={false}
+        showExtendedQuestions={false}
         representativeConsent={false}
         privacyConsent={false}
         privacyPolicy={null}
@@ -281,6 +285,7 @@ describe('patient intake submit flow (WP-12)', () => {
         step={1}
         busy={false}
         showPregnancyQuestions={false}
+        showExtendedQuestions={false}
         representativeConsent={false}
         privacyConsent={false}
         showErrors
@@ -301,6 +306,7 @@ describe('patient intake submit flow (WP-12)', () => {
         step={3}
         busy={false}
         showPregnancyQuestions={false}
+        showExtendedQuestions={false}
         representativeConsent={false}
         privacyConsent={false}
         onAnswersChange={() => undefined}
@@ -312,6 +318,88 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(html).toContain('アレルギー');
     expect(html).toContain('吸わない');
     expect(html).not.toContain('回答済み');
+  });
+
+  it('shows the generic preference and leftover medication questions only for schema v3', () => {
+    const render = (showExtendedQuestions: boolean) =>
+      renderToStaticMarkup(
+        <PatientQuestionnaire
+          answers={INITIAL_INTAKE_ANSWERS}
+          step={2}
+          busy={false}
+          showPregnancyQuestions={false}
+          showExtendedQuestions={showExtendedQuestions}
+          representativeConsent={false}
+          privacyConsent={false}
+          onAnswersChange={() => undefined}
+          onRepresentativeConsentChange={() => undefined}
+          onPrivacyConsentChange={() => undefined}
+        />,
+      );
+    const extended = render(true);
+    expect(extended).toContain('ジェネリック医薬品（後発医薬品）の希望');
+    expect(extended).toContain('余っているお薬（残薬）');
+    expect(extended).toContain('name="genericPreference"');
+    expect(extended).toContain('name="leftoverMedicationStatus"');
+    const legacy = render(false);
+    expect(legacy).not.toContain('ジェネリック医薬品');
+    expect(legacy).not.toContain('残薬');
+    expect(legacy).not.toContain('name="genericPreference"');
+  });
+
+  it('shows the leftover medication detail only when leftover medication is reported', () => {
+    const render = (leftoverMedicationStatus: 'yes' | 'none') =>
+      renderToStaticMarkup(
+        <PatientQuestionnaire
+          answers={{ ...INITIAL_INTAKE_ANSWERS, leftoverMedicationStatus }}
+          step={2}
+          busy={false}
+          showPregnancyQuestions={false}
+          showExtendedQuestions
+          representativeConsent={false}
+          privacyConsent={false}
+          onAnswersChange={() => undefined}
+          onRepresentativeConsentChange={() => undefined}
+          onPrivacyConsentChange={() => undefined}
+        />,
+      );
+    expect(render('yes')).toContain('余っているお薬の名前や量');
+    expect(render('none')).not.toContain('余っているお薬の名前や量');
+  });
+
+  it('includes the extended answers in the confirmation summary for schema v3', () => {
+    const html = renderToStaticMarkup(
+      <PatientQuestionnaire
+        answers={{
+          ...answers,
+          genericPreference: 'prefer' as const,
+          leftoverMedicationStatus: 'yes' as const,
+          leftoverMedicationDetail: '以前の風邪薬',
+        }}
+        step={3}
+        busy={false}
+        showPregnancyQuestions={false}
+        showExtendedQuestions
+        representativeConsent={false}
+        privacyConsent={false}
+        onAnswersChange={() => undefined}
+        onRepresentativeConsentChange={() => undefined}
+        onPrivacyConsentChange={() => undefined}
+      />,
+    );
+    expect(html).toContain('ジェネリック医薬品の希望');
+    expect(html).toContain('ジェネリックを希望する');
+    expect(html).toContain('余っているお薬（残薬）');
+  });
+
+  it('defaults the extended answers and strips them from submissions to older Workers', () => {
+    expect(INITIAL_INTAKE_ANSWERS.genericPreference).toBe('unknown');
+    expect(INITIAL_INTAKE_ANSWERS.leftoverMedicationStatus).toBe('unknown');
+    expect(INITIAL_INTAKE_ANSWERS.leftoverMedicationDetail).toBe('');
+    expect(source).toContain('intakeSchemaVersion >= 3');
+    expect(source).toContain('delete scopedAnswers.genericPreference');
+    expect(source).toContain('delete scopedAnswers.leftoverMedicationStatus');
+    expect(source).toContain('delete scopedAnswers.leftoverMedicationDetail');
   });
 
   it('validates the patient profile field by field', () => {

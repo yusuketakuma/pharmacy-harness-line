@@ -8,6 +8,7 @@ import { MedicationFollowUpPanel } from '../medication-followup/MedicationFollow
 import {
   ADHERENCE_LABELS,
   ALCOHOL_LABELS,
+  GENERIC_PREFERENCE_LABELS,
   MEDICAL_HISTORY_TAG_LABELS,
   NOTEBOOK_LABELS,
   PREGNANCY_LABELS,
@@ -372,6 +373,15 @@ export default function PatientIntakeAdminPage() {
                     <p className="mt-2">
                       <span className="font-medium">お薬手帳：</span>
                       {NOTEBOOK_LABELS[String(answers.medicationNotebook)] ?? '未回答'}
+                    </p>
+                    <p className="mt-2">
+                      <span className="font-medium">ジェネリック医薬品の希望：</span>
+                      {GENERIC_PREFERENCE_LABELS[String(answers.genericPreference)] ?? '未回答'}
+                    </p>
+                    <p className="mt-2">
+                      <span className="font-medium">残薬：</span>
+                      {STATUS_LABELS[String(answers.leftoverMedicationStatus)] ?? '未回答'}
+                      {answers.leftoverMedicationDetail ? ` / ${String(answers.leftoverMedicationDetail)}` : ''}
                     </p>
                     <p className="mt-2">
                       <span className="font-medium">喫煙：</span>

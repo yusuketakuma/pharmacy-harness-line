@@ -55,6 +55,13 @@ const adherenceOptions = [
   { value: 'unknown', label: 'わからない' },
 ] as const;
 
+const genericPreferenceOptions = [
+  { value: 'prefer', label: 'ジェネリックを希望する' },
+  { value: 'brand', label: '先発医薬品（今までと同じ薬）を希望する' },
+  { value: 'consult', label: '薬剤師に相談して決めたい' },
+  { value: 'unknown', label: 'わからない' },
+] as const;
+
 const intakeSteps = ['安全確認', '体調・生活', '確認・送信'] as const;
 export const INTAKE_STEP_COUNT = intakeSteps.length;
 
@@ -154,6 +161,9 @@ export const INITIAL_INTAKE_ANSWERS: IntakeAnswersDraft = {
   medicationAdherence: 'unknown',
   pregnancyStatus: 'not_applicable',
   breastfeedingStatus: 'not_applicable',
+  genericPreference: 'unknown',
+  leftoverMedicationStatus: 'unknown',
+  leftoverMedicationDetail: '',
   notes: '',
 };
 
@@ -162,6 +172,7 @@ export function PatientQuestionnaire({
   step,
   busy,
   showPregnancyQuestions,
+  showExtendedQuestions,
   representativeConsent,
   privacyConsent,
   privacyPolicy = null,
@@ -175,6 +186,8 @@ export function PatientQuestionnaire({
   step: number;
   busy: boolean;
   showPregnancyQuestions: boolean;
+  /** Schema v3+ only: an older Worker would reject these keys with a 400. */
+  showExtendedQuestions: boolean;
   representativeConsent: boolean;
   privacyConsent: boolean;
   privacyPolicy?: TenantPrivacyPolicy | null;
@@ -394,6 +407,39 @@ export function PatientQuestionnaire({
               options={notebookOptions}
               onChange={(value) => updateAnswer('medicationNotebook', value)}
             />
+            {showExtendedQuestions && (
+              <>
+                <ChoiceField
+                  disabled={busy}
+                  name="genericPreference"
+                  label="ジェネリック医薬品（後発医薬品）の希望"
+                  value={answers.genericPreference ?? 'unknown'}
+                  options={genericPreferenceOptions}
+                  onChange={(value) => updateAnswer('genericPreference', value)}
+                />
+                <ChoiceField
+                  disabled={busy}
+                  name="leftoverMedicationStatus"
+                  label="余っているお薬（残薬）"
+                  value={answers.leftoverMedicationStatus ?? 'unknown'}
+                  options={statusOptions}
+                  onChange={(value) => updateAnswer('leftoverMedicationStatus', value)}
+                />
+                {answers.leftoverMedicationStatus === 'yes' && (
+                  <label className="block text-base">
+                    余っているお薬の名前や量（わかる範囲で・任意）
+                    <textarea
+                      disabled={busy}
+                      value={answers.leftoverMedicationDetail ?? ''}
+                      onChange={(event) => updateAnswer('leftoverMedicationDetail', event.target.value)}
+                      className="mt-1 block w-full rounded-lg border p-3 text-base"
+                      rows={2}
+                      maxLength={2000}
+                    />
+                  </label>
+                )}
+              </>
+            )}
             <ChoiceField
               disabled={busy}
               name="smokingStatus"
@@ -477,6 +523,14 @@ export function PatientQuestionnaire({
                 <dd>{labelOf(statusOptions, answers.medicalHistoryStatus)}</dd>
                 <dt className="text-gray-600">お薬手帳</dt>
                 <dd>{labelOf(notebookOptions, answers.medicationNotebook)}</dd>
+                {showExtendedQuestions && (
+                  <>
+                    <dt className="text-gray-600">ジェネリック医薬品の希望</dt>
+                    <dd>{labelOf(genericPreferenceOptions, answers.genericPreference)}</dd>
+                    <dt className="text-gray-600">余っているお薬（残薬）</dt>
+                    <dd>{labelOf(statusOptions, answers.leftoverMedicationStatus)}</dd>
+                  </>
+                )}
                 <dt className="text-gray-600">喫煙</dt>
                 <dd>{labelOf(smokingOptions, answers.smokingStatus)}</dd>
                 <dt className="text-gray-600">飲酒</dt>

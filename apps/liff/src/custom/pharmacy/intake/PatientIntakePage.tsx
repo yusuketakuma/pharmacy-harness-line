@@ -25,6 +25,7 @@ import {
   type IntakeAnswersDraft,
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
+import { usePharmacyAccess } from '../PharmacyShell.js';
 import {
   PharmacyLoading,
   PharmacySpinner,
@@ -139,6 +140,8 @@ function clearIntakeDraft(patientId: string) {
 
 export default function PatientIntakePage() {
   const navigate = useNavigate();
+  const { intakeSchemaVersion } = usePharmacyAccess();
+  const showExtendedQuestions = intakeSchemaVersion >= 3;
   const [patients, setPatients] = useState<PharmacyPatient[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [latestRevision, setLatestRevision] = useState<number | null>(null);
@@ -797,8 +800,15 @@ export default function PatientIntakePage() {
     }
     // Build the retained operation BEFORE marking busy: clone/key generation
     // can throw on older WebViews, and a stuck busy flag disables the page.
+    const scopedAnswers = cloneJsonValue(nextAnswers);
+    if (!showExtendedQuestions) {
+      // An older Worker rejects these v3 keys with a 400 — never send them.
+      delete scopedAnswers.genericPreference;
+      delete scopedAnswers.leftoverMedicationStatus;
+      delete scopedAnswers.leftoverMedicationDetail;
+    }
     const submissionInput: PatientIntakeSubmissionInput = {
-      answers: cloneJsonValue(nextAnswers),
+      answers: scopedAnswers,
       representativeConsent: nextRepresentativeConsent,
       privacyConsent: nextPrivacyConsent,
       privacyPolicyVersion: privacyPolicy.policy_version,
@@ -1165,6 +1175,7 @@ export default function PatientIntakePage() {
               step={intakeStep}
               busy={busy || intakeLoading}
               showPregnancyQuestions={showPregnancyQuestions}
+              showExtendedQuestions={showExtendedQuestions}
               representativeConsent={representativeConsent}
               privacyConsent={privacyConsent}
               privacyPolicy={privacyPolicy}

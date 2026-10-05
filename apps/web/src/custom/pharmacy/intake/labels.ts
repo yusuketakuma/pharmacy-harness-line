@@ -51,6 +51,12 @@ export const ADHERENCE_LABELS: Record<string, string> = {
   often: 'よくある',
   unknown: 'わからない',
 };
+export const GENERIC_PREFERENCE_LABELS: Record<string, string> = {
+  prefer: 'ジェネリックを希望',
+  brand: '先発医薬品を希望',
+  consult: '薬剤師に相談して決める',
+  unknown: 'わからない',
+};
 export const MEDICAL_HISTORY_TAG_LABELS: Record<string, string> = {
   hypertension: '高血圧',
   diabetes: '糖尿病',
@@ -79,6 +85,9 @@ export const INTAKE_QUESTION_LABELS: Record<string, string> = {
   medicationAdherence: 'お薬の飲み忘れ',
   pregnancyStatus: '妊娠の可能性',
   breastfeedingStatus: '授乳中',
+  genericPreference: 'ジェネリック医薬品の希望',
+  leftoverMedicationStatus: '残薬',
+  leftoverMedicationDetail: '残薬の内容',
   notes: '連絡事項',
 };
 
@@ -94,6 +103,8 @@ const ANSWER_VALUE_LABELS: Record<string, Record<string, string>> = {
   medicationAdherence: ADHERENCE_LABELS,
   pregnancyStatus: PREGNANCY_LABELS,
   breastfeedingStatus: PREGNANCY_LABELS,
+  genericPreference: GENERIC_PREFERENCE_LABELS,
+  leftoverMedicationStatus: STATUS_LABELS,
 };
 
 export function intakeQuestionLabel(key: string): string {

@@ -31,6 +31,8 @@ describe('patient list request gate', () => {
     expect(page).toContain('error && patients.length === 0');
     expect(page).toContain('受付回答');
     expect(page).toContain("timeZone: 'Asia/Tokyo'");
+    expect(page).toContain('ジェネリック医薬品の希望');
+    expect(page).toContain('残薬');
   });
 
   it('requires explicit confirmation and explains safe wrong-binding recovery', () => {

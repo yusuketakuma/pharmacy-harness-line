@@ -19,6 +19,7 @@ type PharmacyAccess = {
   enabledFeatures: string[];
   existingFeatures: string[];
   existingError: string;
+  intakeSchemaVersion: number;
 };
 
 type PharmacyAccessState = PharmacyAccess & {
@@ -34,6 +35,7 @@ const PharmacyAccessContext = createContext<PharmacyAccessState>({
   enabledFeatures: [],
   existingFeatures: [],
   existingError: '',
+  intakeSchemaVersion: 2,
   loading: true,
   configError: '',
   retrying: false,
@@ -47,7 +49,7 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
   });
   const body = (await response.json()) as {
     success?: boolean;
-    data?: { accountName?: unknown; enabledFeatures?: unknown };
+    data?: { accountName?: unknown; enabledFeatures?: unknown; intakeSchemaVersion?: unknown };
   };
   if (
     !response.ok ||
@@ -58,6 +60,15 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
     throw new Error('invalid LIFF config');
   }
   const enabledFeatures = body.data.enabledFeatures.filter((value): value is string => typeof value === 'string');
+  // Schema 2 predates the version field itself — absent/invalid means the
+  // Worker is still old and would 400 on the newer answer keys.
+  const intakeSchemaVersion =
+    typeof body.data.intakeSchemaVersion === 'number' &&
+    Number.isFinite(body.data.intakeSchemaVersion) &&
+    Number.isInteger(body.data.intakeSchemaVersion) &&
+    body.data.intakeSchemaVersion > 0
+      ? body.data.intakeSchemaVersion
+      : 2;
   try {
     const projection = await requestPharmacyJson<{ data: { existingFeatures: unknown } }>(
       '/api/liff/pharmacy/feature-access',
@@ -68,6 +79,7 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
       enabledFeatures,
       existingFeatures: projection.data.existingFeatures.filter((value): value is string => typeof value === 'string'),
       existingError: '',
+      intakeSchemaVersion,
     };
   } catch {
     return {
@@ -75,6 +87,7 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
       enabledFeatures,
       existingFeatures: [],
       existingError: '利用中の機能を確認できませんでした。',
+      intakeSchemaVersion,
     };
   }
 }
@@ -85,6 +98,7 @@ export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
     enabledFeatures: [],
     existingFeatures: [],
     existingError: '',
+    intakeSchemaVersion: 2,
     loading: true,
     configError: '',
     retrying: false,
