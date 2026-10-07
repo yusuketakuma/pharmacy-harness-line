@@ -40,6 +40,8 @@ describe('custom_054 pharmacy CLI break-glass sessions', () => {
       '027_custom_079_pharmacy_followup_notification_queue.sql',
       '028_custom_080_pharmacy_continuity_notification_queue.sql',
       '029_custom_081_pharmacy_validity_notification_queue.sql',
+      '030_custom_082_pharmacy_cron_scan_indexes.sql',
+      '031_custom_083_pharmacy_status_notification_work.sql',
     ]);
   });
 

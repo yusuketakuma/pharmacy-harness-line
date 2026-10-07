@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite } from '../test-sqlite.js';
@@ -21,6 +21,9 @@ import { processExpiredMynaHandoffNotifications, sendMynaHandoffStatusNotificati
 const baseHandoff = {
   id: 'handoff-a',
   line_account_id: 'account-a',
+  work_retry_key: 'myna-status:handoff-a:EXPIRED',
+  work_attempt_count: 0,
+  work_expires_at: '2026-08-23T23:15:00.000Z',
   friend_id: 'friend-a',
   patient_id: 'patient-a',
   status: 'EXPIRED',
@@ -35,17 +38,19 @@ function fakeDb(
   alreadySentIds = new Set<string>(),
 ) {
   return {
+    batch: async (statements: unknown[]) => statements.map(() => ({ meta: { changes: 1 } })),
     prepare: vi.fn((sql: string) => ({
       bind: () => ({
         all: async () => ({
           results:
             alreadySentIds.size > 0
-              ? sql.includes('NOT EXISTS')
+              ? sql.includes('SELECT')
                 ? handoffs.filter((row) => !alreadySentIds.has((row as { id: string }).id))
                 : handoffs.slice(0, 1)
               : handoffs,
         }),
         first: async () => recipient,
+        run: async () => ({ meta: { changes: 1 } }),
       }),
     })),
   } as unknown as D1Database;
@@ -57,11 +62,15 @@ const options = {
 };
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(now);
   vi.clearAllMocks();
   mocks.readCredential.mockResolvedValue('token');
   mocks.send.mockResolvedValue('sent');
   mocks.betaBinding.mockResolvedValue('membership-a');
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe('sendMynaHandoffStatusNotification', () => {
   it('sends the approved status push with a deterministic retry key', async () => {
@@ -157,7 +166,9 @@ describe('processExpiredMynaHandoffNotifications', () => {
       });
       const db = d1FromSqlite(sqlite);
       const tick = () => processExpiredMynaHandoffNotifications(db, { ...options, now, limit: 1 });
-      expect(await tick()).toEqual({ sent: 1, failed: 0, skipped: 0 });
+      const overlapping = await Promise.all([tick(), tick()]);
+      expect(overlapping.reduce((count, result) => count + result.sent, 0)).toBe(1);
+      expect(overlapping.reduce((count, result) => count + result.failed, 0)).toBe(0);
       expect(await tick()).toEqual({ sent: 1, failed: 0, skipped: 0 });
       expect(await tick()).toEqual({ sent: 0, failed: 0, skipped: 0 });
       expect(mocks.send.mock.calls.map(([call]) => call.retryKey)).toEqual([
@@ -211,5 +222,16 @@ describe('processExpiredMynaHandoffNotifications', () => {
         retryKey: 'myna-status:handoff-b:EXPIRED',
       }),
     );
+  });
+  it.each([
+    ['2026-08-20T22:59:59.999Z', 0], // JST 07:59:59
+    ['2026-08-20T23:00:00.000Z', 1], // JST 08:00
+    ['2026-08-21T11:59:59.999Z', 1], // JST 20:59:59
+    ['2026-08-21T12:00:00.000Z', 0], // JST 21:00
+  ])('preserves quiet-hour boundary %s', async (timestamp, sent) => {
+    const at = new Date(timestamp);
+    const result = await processExpiredMynaHandoffNotifications(fakeDb([baseHandoff]), { ...options, now: at });
+    expect(result.sent).toBe(sent);
+    expect(mocks.send).toHaveBeenCalledTimes(sent);
   });
 });

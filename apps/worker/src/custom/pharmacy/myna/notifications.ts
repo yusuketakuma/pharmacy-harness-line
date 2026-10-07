@@ -7,6 +7,14 @@ import type { MynaHandoffStatus } from './state.js';
 
 const NOTIFIED_STATUSES = new Set<MynaHandoffStatus>(['SUPPORT_NEEDED', 'PAPER_FALLBACK', 'EXPIRED']);
 
+import {
+  claimStatusNotificationWorks,
+  expireStatusNotificationWorks,
+  finishStatusNotificationWorks,
+  type StatusWorkSettlement,
+  type StatusNotificationWork,
+} from '../status-notification-work.js';
+
 const HOUR_MS = 60 * 60 * 1000;
 const JST_OFFSET_MS = 9 * HOUR_MS;
 
@@ -19,6 +27,8 @@ export interface MynaNotificationOptions {
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
   lineCredentialKey?: string;
+  now?: Date;
+  workClaim?: { retryKey: string; token: string };
 }
 
 type NotifiableHandoff = Pick<MynaHandoff, 'id' | 'line_account_id' | 'friend_id' | 'patient_id' | 'status'>;
@@ -40,12 +50,35 @@ export async function sendMynaHandoffStatusNotification(
       `SELECT friend.provider_line_user_id AS line_user_id,
             mapping.tenant_id AS tenant_id
        FROM friends AS friend
+       INNER JOIN pharmacy_myna_handoffs current_handoff
+               ON current_handoff.id = ?
+              AND current_handoff.line_account_id = friend.line_account_id
+              AND current_handoff.friend_id = friend.id
+              AND current_handoff.status = ?
        INNER JOIN tenant_line_accounts AS mapping
                ON mapping.line_account_id = friend.line_account_id
       WHERE friend.id = ? AND friend.line_account_id = ?
+        ${
+          options.workClaim
+            ? `AND EXISTS (
+          SELECT 1 FROM pharmacy_status_notification_work work
+           WHERE work.line_account_id = friend.line_account_id AND work.retry_key = ?
+             AND work.state = 'pending' AND work.claim_token = ? AND work.due_at > ?
+             AND work.expires_at >= ?
+        )`
+            : ''
+        }
       LIMIT 1`,
     )
-    .bind(handoff.friend_id, handoff.line_account_id)
+    .bind(
+      handoff.id,
+      handoff.status,
+      handoff.friend_id,
+      handoff.line_account_id,
+      ...(options.workClaim
+        ? [options.workClaim.retryKey, options.workClaim.token, new Date().toISOString(), new Date().toISOString()]
+        : []),
+    )
     .first<{ line_user_id: string | null; tenant_id: string }>();
   const accessToken =
     options.lineCredentialKey && recipient
@@ -82,6 +115,7 @@ export async function sendMynaHandoffStatusNotification(
         handoffStatus: handoff.status as 'EXPIRED' | 'SUPPORT_NEEDED' | 'PAPER_FALLBACK',
       },
       retryKey,
+      now: options.now,
     });
     return outcome === 'sent' || outcome === 'already_sent' ? 'sent' : 'skipped';
   } catch {
@@ -91,13 +125,13 @@ export async function sendMynaHandoffStatusNotification(
 
 /**
  * EXPIRED is materialized lazily inside other repository calls, so a sweep
- * delivers the one push a non-returning patient would otherwise never get.
+ * drains durable work created atomically by the expiry transition.
  * Retry keys are `myna-status:{id}:EXPIRED` — deterministic per handoff, so
  * repeat sweeps dedupe through the notification-events idempotency claim.
  *
  * JST 21:00–08:00 is quiet time, matching the appointment reminders and the
  * emergency-intake status sweep: expired rows stay unsent until the next
- * tick after 08:00 inside the 72 h lookback.
+ * tick after 08:00 inside the 72 h window.
  */
 export async function processExpiredMynaHandoffNotifications(
   db: D1Database,
@@ -106,26 +140,37 @@ export async function processExpiredMynaHandoffNotifications(
   const now = options.now ?? new Date();
   const result = { sent: 0, failed: 0, skipped: 0 };
   if (isQuietHours(now)) return result;
-  const lookback = new Date(now.getTime() - 72 * HOUR_MS).toISOString();
+  await expireStatusNotificationWorks(db, 'myna', now);
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 50)));
   const rows = await db
     .prepare(
-      `SELECT handoff.id, handoff.line_account_id, handoff.friend_id, handoff.patient_id, handoff.status
-       FROM pharmacy_myna_handoffs AS handoff
-      WHERE handoff.status = 'EXPIRED' AND handoff.updated_at >= ?
-        AND NOT EXISTS (
-          SELECT 1 FROM pharmacy_notification_events AS notice
-           WHERE notice.line_account_id = handoff.line_account_id
-             AND notice.idempotency_key = 'myna-status:' || handoff.id || ':EXPIRED'
-             AND notice.outcome = 'sent'
-        )
-      ORDER BY handoff.updated_at ASC, handoff.id ASC
+      `SELECT handoff.id, handoff.line_account_id, handoff.friend_id, handoff.patient_id, handoff.status,
+              work.retry_key AS work_retry_key, work.attempt_count AS work_attempt_count,
+              work.expires_at AS work_expires_at
+       FROM pharmacy_status_notification_work work
+       CROSS JOIN pharmacy_myna_handoffs handoff
+         ON handoff.id = work.source_id AND handoff.line_account_id = work.line_account_id
+      WHERE work.kind = 'myna' AND work.state = 'pending' AND work.due_at <= ?
+        AND handoff.status = 'EXPIRED'
+      ORDER BY work.due_at, work.source_id
       LIMIT ?`,
     )
-    .bind(lookback, limit)
-    .all<NotifiableHandoff>();
-  for (const handoff of rows.results ?? []) {
-    result[await sendMynaHandoffStatusNotification(db, options, handoff)] += 1;
+    .bind(now.toISOString(), limit)
+    .all<NotifiableHandoff & StatusNotificationWork>();
+  const candidates = rows.results ?? [];
+  const tokens = await claimStatusNotificationWorks(db, candidates, now);
+  const settlements: StatusWorkSettlement[] = [];
+  for (const [index, handoff] of candidates.entries()) {
+    const token = tokens[index];
+    if (!token) continue;
+    const outcome = await sendMynaHandoffStatusNotification(
+      db,
+      { ...options, now, workClaim: { retryKey: handoff.work_retry_key, token } },
+      handoff,
+    );
+    settlements.push({ row: handoff, token, outcome });
+    result[outcome] += 1;
   }
+  await finishStatusNotificationWorks(db, settlements, now);
   return result;
 }

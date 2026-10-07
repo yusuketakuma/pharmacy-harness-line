@@ -808,9 +808,14 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
             log.created_at AS accepted_at, scenario.delivery_mode,
             step.step_order, step.on_reach_tag_id,
             payload.scenario_claim_token AS claim_token
-       FROM outbound_line_deliveries operation
-       INNER JOIN outbound_line_delivery_payloads payload
-               ON payload.operation_id = operation.id
+       FROM friend_scenarios fs
+       -- Start with unresolved claims, not the ever-growing accepted history.
+       -- CROSS JOIN fixes the loop order while the predicates below retain scope checks.
+       CROSS JOIN outbound_line_delivery_payloads payload
+               ON payload.scenario_enrollment_id = fs.id
+              AND payload.scenario_claim_token = fs.delivery_claim_token
+       INNER JOIN outbound_line_deliveries operation
+               ON operation.id = payload.operation_id
               AND payload.tenant_id = operation.tenant_id
               AND payload.line_account_id = operation.line_account_id
        INNER JOIN friends friend
@@ -824,11 +829,6 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
                        AND scenario.line_account_id = operation.line_account_id))
               AND (scenario.line_account_id IS NULL
                    OR scenario.line_account_id = operation.line_account_id)
-       INNER JOIN friend_scenarios fs
-               ON fs.id = payload.scenario_enrollment_id
-              AND fs.friend_id = payload.friend_id
-              AND fs.scenario_id = step.scenario_id
-              AND fs.delivery_claim_token = payload.scenario_claim_token
        INNER JOIN messages_log log
                ON log.outbound_operation_id = operation.id
               AND log.scenario_step_id = step.id
@@ -837,6 +837,9 @@ export async function reconcileAcceptedScenarioReplies(db: D1Database): Promise<
         AND operation.source = 'scenario'
         AND payload.scenario_claim_token IS NOT NULL
         AND fs.status = 'paused'
+        AND fs.delivery_claim_token IS NOT NULL
+        AND fs.friend_id = payload.friend_id
+        AND fs.scenario_id = step.scenario_id
         AND fs.current_step_order < step.step_order
       ORDER BY operation.settled_at ASC
       LIMIT 100`,
