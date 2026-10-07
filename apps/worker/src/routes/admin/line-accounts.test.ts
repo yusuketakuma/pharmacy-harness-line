@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, vi } from 'vitest';
+import { describe, expect, test, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 
 // Mock @line-crm/db so we can assert on the values the route forwards to the
@@ -149,6 +149,12 @@ const fakeAccount = {
 };
 
 beforeEach(() => {
+  // Profile enrichment is outside these route tests. Keep every test offline,
+  // including tests whose credential fixture returns a synthetic token.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{}', { status: 200 })),
+  );
   for (const fn of Object.values(dbMocks)) fn.mockReset();
   lineClientMocks.getFollowersInsight.mockReset();
   lineClientMocks.getFollowerIds.mockReset();
@@ -166,6 +172,8 @@ beforeEach(() => {
   dbMocks.jstNow.mockReturnValue('2026-08-10T12:00:00.000+09:00');
   lineClientMocks.getFollowerIds.mockResolvedValue({ userIds: [] });
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('POST /api/line-accounts/:id/connect', () => {
   function connectionDb(batchError?: Error) {
@@ -387,6 +395,13 @@ describe('GET /api/line-accounts', () => {
 
     expect(res.status).toBe(200);
     expect(body.data.map(({ id }) => id)).toEqual(['acc-1']);
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledTimes(1);
+    expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(db, 'synthetic-line-credential-root-v1', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      kind: 'channel_access_token',
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 });
 
