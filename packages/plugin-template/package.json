@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@types/node": "^26.4.1",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
