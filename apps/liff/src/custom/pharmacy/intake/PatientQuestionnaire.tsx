@@ -512,7 +512,7 @@ export function PatientQuestionnaire({
               <p id="intake-confirm-heading" className="font-bold">
                 送信内容の確認
               </p>
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-gray-800">
+              <dl className="mt-2 grid grid-cols-[fit-content(50%)_1fr] gap-x-3 gap-y-1 text-gray-800">
                 <dt className="text-gray-600">アレルギー</dt>
                 <dd>{labelOf(statusOptions, answers.allergiesStatus)}</dd>
                 <dt className="text-gray-600">具合が悪くなった経験</dt>
