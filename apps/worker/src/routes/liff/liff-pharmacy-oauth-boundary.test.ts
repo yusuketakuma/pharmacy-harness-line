@@ -69,6 +69,7 @@ describe('legacy LINE OAuth boundary in pharmacy mode', () => {
         accountId: 'account-a',
         enabledFeatures: ['emergency_contraception', 'pharmacy_info'],
         capabilityRevision: 7,
+        intakeSchemaVersion: 3,
       },
     });
     expect(fetchMock).not.toHaveBeenCalled();

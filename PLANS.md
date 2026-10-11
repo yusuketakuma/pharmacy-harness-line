@@ -2,6 +2,19 @@
 
 ## Active
 
+### INTAKE-V3-20261005 — 薬局公式LINEアカウント機能の棚卸しと問診標準項目（ジェネリック希望・残薬）の追加
+
+- **基準**: `dev` / `403e35e`（PR #137 merge 後）。ローカル実装のみ。commit/push/deploy/本番 D1 変更/実 LINE 送信は含まない。
+- **棚卸し結果（2026-10-05、`rg`/read による実コード確認。`jg` は provider 側 HTTP 402 で未使用）**: 患者向け（処方せん事前送信・受付状況・受取希望日時・来局報告・電子処方箋・問診・継続/服薬後フォロー・緊急避妊薬 v2・有効期限リマインド・薬局情報・通知 ON/OFF・家族代理・利用状況 timeline・薬局へ相談）と職員向け（受付キュー・定型通知 9 種・チャット定型文・action queue・送受信統計・機能設定・薬局情報編集・DSR）は実装済み。一斉配信・お薬手帳連携・オンライン服薬指導・配送・決済は V040-CB の `BLOCKED` を維持。B41-L1 の「通知時間帯」は継続リマインドが 09:00 JST 固定（`continuity/next-intake.ts`）、他は職員指定時刻のため追加しない。残る未チェック項目は Human Gate（本番 deploy・実端末・復旧訓練）で、ローカル実装では閉じない。
+- **実装した機能ギャップ**: 日本の薬局質問票で標準の「ジェネリック医薬品の希望」「残薬の有無（＋任意の詳細）」が問診に無かったため追加した。
+  - Worker `intake/repository.ts`: `PatientIntakeAnswers` に任意キー `genericPreference`（`prefer|brand|consult|unknown`）、`leftoverMedicationStatus`（`none|yes|unknown`）、`leftoverMedicationDetail`（≤2000 文字）を追加。`ANSWER_KEYS` は strict allowlist を維持し値を検証。`INTAKE_SCHEMA_VERSION` を 3 に更新（列 CHECK は `>= 1`、migration 不要）。`GET /api/liff/config` に `intakeSchemaVersion` を追加。
+  - LIFF: `PharmacyShell` が `intakeSchemaVersion`（欠落時 2）を保持し、`PatientQuestionnaire` はステップ2に 2 問（＋残薬「あり」時の詳細欄）と確認サマリ行を `>= 3` のときだけ表示。`saveIntake` は `< 3` のとき新 3 キーを送信前に除去する（旧 Worker + 新 LIFF の切戻し構成でも送信可能）。
+  - Web: `intake/labels.ts` に `GENERIC_PREFERENCE_LABELS` と質問ラベル、`PatientIntakeAdminPage` に 2 行追加。platform-admin 患者詳細は既存の `Object.entries` + ラベル関数で自動反映。
+  - 文書: `manual-patient.md` §2、`manual-staff.md` §6 に 1 行ずつ追記。
+- **不変条件**: 既存回答（schema 2、キー無し）は「未回答」表示で読める。API/route/field の削除・改名なし。自動通知テンプレートは不変。回答は従来どおり FLE 暗号化 payload 内のみ。
+- **検証（ローカル）**: worker `intake` + `routes/liff` focused 15 files/161 tests、`pnpm --filter worker typecheck`、liff 全 28 files/210 tests（v032/v034/v036 ガード含む）+ `tsc --noEmit`、web `intake` 3 files/9 tests + `tsc --noEmit`、`pnpm format:check` PASS。全体ゲート（2026-10-05）: `pnpm -r typecheck` 11 projects、`pnpm -r test` 4,447 tests（worker 3,069 / web 267 / liff 210 / db 493 / update-engine 228 / create-line-harness 80 / sdk 56 / mcp-server 36 / line-sdk 8）、`pnpm test:scripts` 25 files / 263 tests、`check-migrations` 28 migrations、`git diff --check` すべて PASS。
+- **残 Human Gate**: 実端末 LINE での表示確認、dev/production deploy、`CHANGELOG.md` の版エントリ作成（リリース手順で別途）。
+
 ### AUDIT-20260922 — 契約保全型の全体監査・修復・構造改善
 
 - **状態**: RUNNING。基準 `dev` / `f62b90acd41154ab07c27f13b89a70ecb0eaa452`、開始差分なし。
@@ -998,7 +1011,7 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 - [x] **V033-P1 measured performance improvement（`V033-G7`）**: production/PHIを使わないrepeatable fixtureでbaselineを先に保存し、同一Node/runner/warm-up/measurement回数でcandidateを比較する。N+1 query、重複fetch/decrypt/serialization、不要なbundle/import、逐次I/O、長いtest feedbackのうち測定上位だけを改善する。cache追加はtenant/account key、TTL、invalidation、上限、cross-tenant negative testを持つ場合だけ許可し、数値改善がない最適化は戻す。v0.37のproduction SLO/load/alertを先取りしない。
 - [x] **V033-R1 behavior-preserving refactor（`V033-G8`）**: `apps/worker/src/index.ts`、`apps/web/src/lib/api.ts`、1000行超のroute/repository/UIを候補inventoryにするが、行数だけを理由に分割しない。全callerと既存flowを読み、characterization testをRed/Green境界にして、重複処理を既存shared helperへ集約し、composition root、HTTP adapter、domain service、repository、presentationの責務を分ける。単一実装のinterface/factory、将来用config、新dependency、全repo formatは追加しない。
 - [x] **V033-S1 code placement and dependency seams（`V033-G9`）**: `apps/worker/src/routes/<domain>`はHTTP境界、`services`はgeneric orchestration、`custom/pharmacy`は薬局固有policy/domain、`apps/web|liff/src/custom/pharmacy`は薬局UI、`packages/db`はschema/repository、`packages/shared`は複数consumerが実在するpure contractに限定する。配置違反をpath/owner/current callers/target/理由/test/rollbackでinventory化し、1 domainずつ移動する。route URL、API response、D1/R2 key、migration順、manual送信の`X-Line-Harness-Source: manual`を変えない。
-- [ ] **V033-A1 account-scoped messaging statistics（`V033-G10`）**: 新しいanalytics table/dashboardを作らず、既存`getGrowthDashboard`と`GrowthDashboardPage`へ「送信記録数（test除外）」「受信記録数」「手動/自動内訳」「push/reply内訳」「通知sent/attempted/failed/blocked」「一意の対応者数」「legacy/unscoped件数」を追加する。表示期間は既存のJST月selectorをauthorityにし、APIは妥当なISO日時、`from < to`、最大32日を検証する。`messages_log.line_account_id`を全current送受信経路で送信時に固定し、legacy `NULL`を現在のfriend所属へ暗黙再帰属せず`UNVERIFIED`として分離する。集計SQLはcount/groupだけを返し、本文・ID・sample listを返さない。Red -> Greenはstaff/account A/B、月境界、source/delivery type、test除外、legacy NULL、empty/loading/error、全送信pathの記録網羅性を含める。`EXPLAIN QUERY PLAN`とsynthetic baselineで必要性が出た場合だけ次の`custom_NNN`でaccount/date indexを追加する。
+- [ ] **V033-A1 account-scoped messaging statistics（`V033-G10`）**: 新しいanalytics table/dashboardを作らず、既存`getGrowthDashboard`と`GrowthDashboardPage`へ「送信記録数（test除外）」「受信記録数」「手動/自動内訳」「push/reply内訳」「通知sent/attempted/failed/blocked」「一意の対応者数」「legacy/unscoped件数」を追加する。表示期間は既存のJST月selectorをauthorityにし、APIは妥当なISO日時、`from < to`、最大32日を検証する。`messages_log.line_account_id`を全current送受信経路で送信時に固定し、legacy `NULL`を現在のfriend所属へ暗黙再帰属せず`UNVERIFIED`として分離する。集計SQLはcount/groupだけを返し、本文・ID・sample listを返さない。Red -> Greenはstaff/account A/B、月境界、source/delivery type、test除外、legacy NULL、empty/loading/error、全送信pathの記録網羅性を含める。`EXPLAIN QUERY PLAN`とsynthetic baselineで必要性が出た場合だけ次の`custom_NNN`でaccount/date indexを追加する。**実装状況メモ(2026-10-05)**: `getGrowthDashboard`の`messaging`集計（sent/received/manual/automated/push/reply/sourceUnverified/deliveryUnverified/uniqueCorrespondents/attempted/reconciliationRequired）と`GrowthDashboardPage`のカード表示、`custom_060`のaccount/date indexはローカル実装済み。32日上限・legacy NULL分離・全送信pathの記録網羅性の受入条件は本メモでは突合していないため checkbox は維持。
 - [ ] **V033-7 computed release gate**: `V033-G1`〜`V033-G10`を同一candidate/evidenceから全行`PASS`にし、`CB-P0-04`/`CB-P0-06`/`CB-P0-07`へ同じ結果を反映する。`docs/pharmacy/evidence/v0.33.0-engineering-foundation.json`へbaseline/candidate、対象外、変更path、test、performance、metric dictionary、全send/log path coverage、query plan、dependency/placement inventoryを固定する。1行でも`BLOCKED`/`NOT_RUN`/`UNVERIFIED`/`FAIL`ならV034〜V040の前提を満たさない。
 
 **2026-08-31 local progress**: prerelease migration再構成後、DB 82 files / 394 tests、update-engine 22 files / 218 tests、Worker 236 files / 2,536 tests、Web 52 files / 233 tests、LIFF 20 files / 128 tests、対象typecheck/build、bootstrap生成差分、7 post-baseline migration policy、`git diff --check`がPASS。Web buildは外部通信しない`NEXT_PUBLIC_API_URL=https://example.invalid`で68 routeのstatic生成までPASS。G4はroute inventory 1 file / 10 tests、33 jobs・8 storage/R2入口・患者6領域のoverlay 1 file / 3 tests、auth/cron/R2/患者negative matrix 29 files / 472 testsがPASSし、account未指定だったBAN health集計と別account clientへfallbackしたinsight jobをRed→Greenで修正した。全in-process provider message callもdurable delivery contractへ対応することをsource inventoryで固定した。staff static bundleは同じNode/pnpm/envのbaseline/candidateで比較し、共通APIから薬局専用clientを外したgeneric routeはgzip 263〜294 bytes減、全chunk合計は追加機能を含むcandidateが6,293 bytes増のため全体改善とは主張しない。commit/push/deploy、production query/mutation、migration applyは`NOT_RUN`のためrelease readinessは`BLOCKED`を維持する。
@@ -1250,14 +1263,14 @@ v0.33.0はlocal/syntheticの速度baseline、code refactor、配置整理を担�
 **患者LIFFフロントエンド**:
 
 - [ ] **B41-L1 通知受信設定画面**: 受け取り準備完了・呼び出し通知の患者側受信設定(ON/OFF・時間帯)。PHI-free approved templateと既存notification基盤を再利用し、新しい通知channelを追加しない。
-- [ ] **B41-L2 owner-scoped timelineの昇格**: V034-1(STRETCH)が延期された場合の昇格先。既存read-only union projection案のまま、Meet相談予約状態も既存`meet-consultations` APIの再利用で同projectionへ表示する。
+- [ ] **B41-L2 owner-scoped timelineの昇格**: V034-1(STRETCH)が延期された場合の昇格先。既存read-only union projection案のまま、Meet相談予約状態も既存`meet-consultations` APIの再利用で同projectionへ表示する。**実装状況メモ(2026-10-05)**: timeline本体は`patient-timeline/`と LIFF `/pharmacy/timeline`（メニュー「利用状況」）としてローカル実装済み。Meet相談予約の同projection表示は未実装のため checkbox は維持。
 - [ ] **B41-L3 表示言語切替**: やさしい日本語/英語の切替。V032-L1のtoken・hierarchy固定後に文言resourceの差し替えだけで実現し、翻訳品質は薬事・法的文言のreview gateを通す。
 - ※EC 3週間後通知はECF裁定(本ファイル冒頭)で対象外のため起票しない。
 
 **薬局管理画面**:
 
-- [ ] **B41-A1 action queueの昇格**: V035-1〜3(STRETCH)が延期された場合の昇格先。read-only bounded union、mutationは既存detail経由の契約を維持する。
-- [ ] **B41-A2 チャット定型文**: PHI-freeテンプレのowner承認制定型文。自動送信はせず、送信は既存チャットのstaff操作・audit経由のみ。
+- [x] **B41-A1 action queueの昇格**: V035-1〜3(STRETCH)が延期された場合の昇格先。read-only bounded union、mutationは既存detail経由の契約を維持する。**ローカル実装確認(2026-10-05)**: `growth-loop/action-queue.ts` と `GET /api/custom/pharmacy/action-queue`（GET のみ、mutation route なし）、Web `TodayOperationsSummary.tsx` を確認。実端末・運用受入は V038/V039 の Human Gate に従う。
+- [x] **B41-A2 チャット定型文**: PHI-freeテンプレのowner承認制定型文。自動送信はせず、送信は既存チャットのstaff操作・audit経由のみ。**ローカル実装確認(2026-10-05)**: `custom_078_pharmacy_chat_templates`（`draft|approved|archived`、承認者・承認時刻列）、`chat-templates/routes.ts`（list/create/update/approve/archive）、Web `ChatTemplatesPanel` と `/chats` の手動返信欄への挿入のみ。自動送信経路からの参照なし（`rg` で `chat-templates/` 以外に参照なし）。
 - [ ] **B41-A3 統計のKPI整合**: 統計画面をKPI定義へ揃えるread-only強化。新しい集計store・patient識別子の集約表示は追加しない。**参照先更新(2026-09-15)**: 旧基準文書`docs/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md`はPR #111(`fa04371`)で削除済み。実施時は削除直前の`fa04371^`の同文書を参照するか、現行実装(`apps/worker/src/custom/pharmacy/growth-loop/repository.ts`の`getGrowthDashboard`と`GrowthDashboardPage`)を正本としてKPI一覧を再固定してから着手する。
 
 **全体管理画面**:
@@ -1269,7 +1282,7 @@ v0.33.0はlocal/syntheticの速度baseline、code refactor、配置整理を担�
 **患者向け新機能**:
 
 - [ ] **B41-F1 follow-upリマインド頻度設定**: 服薬後follow-upの回答リマインド頻度を患者が選べる設定。V036の閉ループ契約内、PHI-free approved templateのみ。
-- [ ] **B41-F2 家族proxy確認画面**: 家族proxyの対象・権限・期限を患者本人が確認できるread-only画面。V033-6(consent/proxy)完了が前提。
+- [ ] **B41-F2 家族proxy確認画面**: 家族proxyの対象・権限・期限を患者本人が確認できるread-only画面。V033-6(consent/proxy)完了が前提。**実装状況メモ(2026-10-05)**: 代理権限の有効期限表示と取消は LIFF `PatientIntakePage` の患者ごとの表示で既に提供されている。独立した一覧画面は、ベータ実績で必要性が出た場合だけ着手する。
 - ※e薬Link・決済・配送・オンライン服薬指導は`BLOCKED`維持。provider契約・適合確認が動くまでUI導線も作らない(現計画どおり)。
 
 #### 日次Go/No-Go運用例（時刻は担当体制確定後に調整、gate順序は維持）

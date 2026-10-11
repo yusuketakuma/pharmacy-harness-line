@@ -80,6 +80,9 @@ export interface PatientIntakeAnswers {
   medicationAdherence: MedicationAdherence;
   pregnancyStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   breastfeedingStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
+  genericPreference?: 'prefer' | 'brand' | 'consult' | 'unknown';
+  leftoverMedicationStatus?: 'none' | 'yes' | 'unknown';
+  leftoverMedicationDetail?: string;
   notes?: string;
 }
 

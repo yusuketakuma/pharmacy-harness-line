@@ -1,6 +1,6 @@
 {
   "name": "@line-harness/mcp-server",
-  "version": "0.36.5",
+  "version": "0.37.0",
   "description": "MCP server for LINE Harness — operate a LINE official account from AI agents over MCP",
   "type": "module",
   "bin": {
@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@line-harness/sdk": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
