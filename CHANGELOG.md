@@ -44,6 +44,10 @@ LINE の問診で「ジェネリック医薬品の希望」と「余っている
 
 - 問診と緊急避妊薬の「送信内容の確認」で、長い質問名に合わせて項目名の列が広がり、回答が1文字ずつ縦に並んで読みにくくなっていました（v0.36.2 以降）。項目名の列を画面幅の半分までに抑え、回答を横書きで読めるようにしました。
 
+#### 依存パッケージの既知の脆弱性に対応
+
+- Worker・管理画面・MCP server が使う依存パッケージを、脆弱性が修正された版へ上げました（重大 1 件・高 3 件・中 3 件）。Worker が使う Web フレームワーク hono も同じ 4.13 系の修正版へ上げています。画面や API の動作は変わりません。
+
 #### tag から Release が自動作成されない問題を修正
 
 - v0.36.4 以降、tag を push したときのリリース処理が、共有パッケージを組み立てる前に検査を始めて失敗し、Release が自動作成されませんでした。組み立てを先に行うよう順序を直しました。
@@ -61,10 +65,11 @@ LINE の問診で「ジェネリック医薬品の希望」と「余っている
 - 問診: Worker の `PatientIntakeAnswers` に任意キー `genericPreference`（`prefer|brand|consult|unknown`）、`leftoverMedicationStatus`（`none|yes|unknown`）、`leftoverMedicationDetail`（2000文字以内）を追加。`ANSWER_KEYS` の strict allowlist と値検証を維持。`INTAKE_SCHEMA_VERSION` を 3 に更新（列 CHECK は `>= 1` のため migration 不要）。`GET /api/liff/config` に `intakeSchemaVersion` を追加。LIFF は `intakeSchemaVersion`（欠落時 2）が 3 以上のときだけ新しい質問を表示し、3 未満では `saveIntake` が新しい3キーを除去する。回答は従来どおり field 暗号化された payload 内にだけ保存する。Web は `intake/labels.ts` と `PatientIntakeAdminPage` に表示を追加。
 - 共通化: `apps/worker/src/lib/base64.ts`（`toBase64Url`）、`isActiveMappedAccount` を `step-delivery.ts` へ移動、`broadcast.ts` の `buildMessage` を `reminder-delivery.ts` と共有、`tenant-boundary.ts` の `addAccountIds` を export、Web の `formatJpDateTime`（`apps/web/src/lib/datetime.ts`）と `StatCard`・`Field`、LIFF の `formatJpDateTime`。未使用の `assertRecoveryFence`、`incoming-images.ts` の別名 export 3件、未使用の設定 interface を削除。`docs/pharmacy/evidence/audit-20260922/` の作業用ツリー（追跡ファイル約500件）を承認のうえ削除。
 - 確認画面: `PatientQuestionnaire.tsx` と `EmergencyContraceptionPage.tsx` の確認一覧（`<dl>`）の `grid-cols-[auto_1fr]` を `grid-cols-[fit-content(50%)_1fr]` に変更。
+- 依存パッケージ: `pnpm audit --prod --audit-level high` が新しく公開された advisory で失敗したため、`pnpm-workspace.yaml` の overrides に `proxy-addr` 2.0.8、`source-map-js` 1.2.2、`sharp` 0.35.5（miniflare 経由の固定も 0.35.4 → 0.35.5）、`ip-address` 10.7.1、`hono`（4.13.7 未満を 4.13.13 へ）を追加。`packages/mcp-server` の `@modelcontextprotocol/sdk` を `^1.31.0`（解決 1.32.1）、`apps/worker` の `hono` を `^4.13.7`（解決 4.13.13）へ更新。更新後の `pnpm audit --prod` は脆弱性 0 件。
 - リリース workflow: `.github/workflows/release.yml` で共有パッケージの build を `test:scripts` より前へ移動。
 - README とスクリーンショット: `docs/assets/readme/screenshots/` の画面を現行 UI で撮り直し（LIFF 390×844、管理画面 1440×900 で全機能 ON、架空データ）、問診・管理画面の3枚を追加。撮影は `README_SCREENSHOTS=1` を指定したときだけ動く `apps/liff/e2e/readme-screenshots.e2e.ts`・`apps/web/e2e/readme-screenshots.e2e.ts` で再現できる。古くなった `hero.svg`・`admin-screens.svg`・`patient-flow.svg` を削除。
 - 版情報: `scripts/version-contract.test.ts` の対象6 manifest と `unifiedVersion`、LIFF の `MainMenuPage.test.tsx` を `0.37.0` に更新。
-- 検証（ローカル、CI と同じ順序・`--workspace-concurrency=1`）: `format:check`、共有パッケージ build、全 workspace typecheck、全 workspace test（worker 273 files / 3,069、db 104 / 493、web 55 / 267、update-engine 23 / 228、liff 28 / 210、create-line-harness 12 / 80、sdk 13 / 56、mcp-server 8 / 36、line-sdk 2 / 8）、`test:scripts` 25 files / 263、`check-migrations` 28 本がすべて PASS。並列実行（`pnpm verify:ci`）では db の bootstrap テスト2件が負荷で timeout したが、単独・順次実行では PASS。確認画面の表示修正と README・スクリーンショットの追加後に、`format:check`、liff test 28 / 210、liff build（`tsc -b` + `vite build`）、web `tsc --noEmit`（README 撮影スクリプトを含む）、`test:scripts` 25 / 263 を再実行して PASS。撮影スクリプトは LIFF 4件・管理画面 3件が成功し、全画像を目視で確認。
+- 検証（ローカル、CI と同じ順序・`--workspace-concurrency=1`）: `format:check`、共有パッケージ build、全 workspace typecheck、全 workspace test（worker 273 files / 3,069、db 104 / 493、web 55 / 267、update-engine 23 / 228、liff 28 / 210、create-line-harness 12 / 80、sdk 13 / 56、mcp-server 8 / 36、line-sdk 2 / 8）、`test:scripts` 25 files / 263、`check-migrations` 28 本がすべて PASS。並列実行（`pnpm verify:ci`）では db の bootstrap テスト2件が負荷で timeout したが、単独・順次実行では PASS。確認画面の表示修正と README・スクリーンショットの追加後に、`format:check`、liff test 28 / 210、liff build（`tsc -b` + `vite build`）、web `tsc --noEmit`（README 撮影スクリプトを含む）、`test:scripts` 25 / 263 を再実行して PASS。撮影スクリプトは LIFF 4件・管理画面 3件が成功し、全画像を目視で確認。依存パッケージ更新後に、CI と同じ順序で format・共有パッケージ build・全 workspace typecheck・全 workspace test（件数は上記と同じ）・`test:scripts`・`check-migrations` と worker / web / liff の build を再実行して PASS（db の bootstrap テストは高負荷時に1回 timeout し、単独・再実行で PASS）。
 
 </details>
 
