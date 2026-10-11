@@ -1,5 +1,55 @@
 # Changelog
 
+## Pharmacy v0.37.0 (2026-10-11)
+
+LINE の問診で「ジェネリック医薬品の希望」と「余っているお薬（残薬）の有無」を答えられるようになりました。薬局スタッフは、管理画面の患者アンケートでその回答を確認できます。あわせて、tag を付けたときに Release の作成前で止まっていたリリース処理を直しました。
+
+| 変更 | 以前 | 今回 | 利用者のメリット |
+|---|---|---|---|
+| 問診の項目 | 問診にジェネリック医薬品の希望・残薬を答える欄がなかった | 問診の2ページ目で選んで答えられ、残薬が「あり」のときは内容も書ける | 患者は来局前に LINE で伝えられ、薬局は管理画面で回答を確認できる |
+| リリース処理 | v0.36.4 以降、tag を push すると Release 作成の前に検査が失敗していた | 必要なパッケージを先に組み立ててから検査する | tag から Release が自動作成される |
+
+### 新機能
+
+#### 問診でジェネリック医薬品の希望と残薬を答えられる
+
+- 問診の2ページ目（体調・生活）に次の2問が加わりました。初期値は「わからない」です。
+  - ジェネリック医薬品（後発医薬品）の希望: ジェネリックを希望する／先発医薬品（今までと同じ薬）を希望する／薬剤師に相談して決めたい／わからない
+  - 余っているお薬（残薬）: なし／あり／わからない。「あり」のときは、お薬の名前や量を書けます（わかる範囲で・任意、2000文字まで）。
+- 送信前の確認画面、管理画面の患者アンケート、全体管理者の患者詳細に回答が表示されます。
+- この版より前に登録された回答は、2問とも「未回答」と表示されます。
+
+### 改善
+
+#### 説明文書を現在の画面に合わせた
+
+- 患者・スタッフ向けマニュアルと README の画面名・メニュー名・下書き保存の説明を、現在の画面に合わせて直し、新しい問診項目を書き足しました。
+- 画面の動作を変えずに、管理画面・LIFF・Worker の重複していた処理をまとめ、使われていないコードを削除しました。
+
+### 不具合修正
+
+#### tag から Release が自動作成されない問題を修正
+
+- v0.36.4 以降、tag を push したときのリリース処理が、共有パッケージを組み立てる前に検査を始めて失敗し、Release が自動作成されませんでした。組み立てを先に行うよう順序を直しました。
+
+### 更新時の注意
+
+- データベースの migration はありません。Worker・管理画面・LIFF を同時に更新する必要はありません。新しい LIFF は、古い Worker に対しては新しい2問を表示せず、送信前に新しい項目を取り除くため、切り戻した構成でも問診を送信できます。
+- この版はソースコードのリリース（tag `v0.37.0`）です。販売者向けリリース `pharmacy-v*` は作成しません。この記録だけでは、`main` への反映、本番環境への配備、実患者データの操作、実際の LINE 送信は行いません。`dev` への反映に伴い、開発環境（development）へは自動で配備されます。
+- 実機の LINE での問診表示の確認と、本番への反映は未実施です。
+
+<details>
+<summary>開発者向け詳細</summary>
+
+- 比較範囲: `v0.36.5`〜`v0.37.0`（`23f10b2` fix(ci)、`b155ee7` refactor、`02176da` feat(intake)、`4384eeb` docs と各 merge）。
+- 問診: Worker の `PatientIntakeAnswers` に任意キー `genericPreference`（`prefer|brand|consult|unknown`）、`leftoverMedicationStatus`（`none|yes|unknown`）、`leftoverMedicationDetail`（2000文字以内）を追加。`ANSWER_KEYS` の strict allowlist と値検証を維持。`INTAKE_SCHEMA_VERSION` を 3 に更新（列 CHECK は `>= 1` のため migration 不要）。`GET /api/liff/config` に `intakeSchemaVersion` を追加。LIFF は `intakeSchemaVersion`（欠落時 2）が 3 以上のときだけ新しい質問を表示し、3 未満では `saveIntake` が新しい3キーを除去する。回答は従来どおり field 暗号化された payload 内にだけ保存する。Web は `intake/labels.ts` と `PatientIntakeAdminPage` に表示を追加。
+- 共通化: `apps/worker/src/lib/base64.ts`（`toBase64Url`）、`isActiveMappedAccount` を `step-delivery.ts` へ移動、`broadcast.ts` の `buildMessage` を `reminder-delivery.ts` と共有、`tenant-boundary.ts` の `addAccountIds` を export、Web の `formatJpDateTime`（`apps/web/src/lib/datetime.ts`）と `StatCard`・`Field`、LIFF の `formatJpDateTime`。未使用の `assertRecoveryFence`、`incoming-images.ts` の別名 export 3件、未使用の設定 interface を削除。`docs/pharmacy/evidence/audit-20260922/` の作業用ツリー（追跡ファイル約500件）を承認のうえ削除。
+- リリース workflow: `.github/workflows/release.yml` で共有パッケージの build を `test:scripts` より前へ移動。
+- 版情報: `scripts/version-contract.test.ts` の対象6 manifest と `unifiedVersion`、LIFF の `MainMenuPage.test.tsx` を `0.37.0` に更新。
+- 検証（ローカル、CI と同じ順序・`--workspace-concurrency=1`）: `format:check`、共有パッケージ build、全 workspace typecheck、全 workspace test（worker 273 files / 3,069、db 104 / 493、web 55 / 267、update-engine 23 / 228、liff 28 / 210、create-line-harness 12 / 80、sdk 13 / 56、mcp-server 8 / 36、line-sdk 2 / 8）、`test:scripts` 25 files / 263、`check-migrations` 28 本がすべて PASS。並列実行（`pnpm verify:ci`）では db の bootstrap テスト2件が負荷で timeout したが、単独・順次実行では PASS。
+
+</details>
+
 ## Pharmacy v0.36.5 (2026-10-03)
 
 > パッケージ／ソースのバージョンを`0.36.5`として確定し、セキュリティ hardening、D1 読み取り削減、cron sweep の行単位失敗隔離の修復一式と CHANGELOG 全体の形式統一を`dev`で管理します。ソースコードのタグ`v0.36.5`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
