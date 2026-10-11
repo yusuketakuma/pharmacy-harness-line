@@ -66,9 +66,9 @@ Cloudflare Worker と D1 で動く、薬局向けの OSS です。汎用 LINE CR
 
 ### 薬局は、今日の対応をホームで把握する
 
-![管理画面のホーム：本日の対応の件数と、ホーム・日常業務・患者・法令・設定・安全のサイドバー](docs/assets/readme/screenshots/admin-today.png)
+![管理画面のホーム：全機能を ON にした状態で、本日の対応に各機能の件数が並ぶ画面](docs/assets/readme/screenshots/admin-today.png)
 
-「本日の対応」に各キューの件数を表示します。サイドバーは「ホーム / 日常業務 / 患者・法令 / 設定・安全」の 4 つにまとまっています。
+「本日の対応」に、ON にしている機能ごとの件数を表示します（画像は全機能 ON）。サイドバーは「ホーム / 日常業務 / 患者・法令 / 設定・安全」の 4 つのグループに分かれています。
 
 <a name="demo-queue"></a>
 
@@ -94,7 +94,7 @@ Cloudflare Worker と D1 で動く、薬局向けの OSS です。汎用 LINE CR
 - 薬局（tenant）ごとに、職員、LINE 接続の診断、LIFF の設定、電子処方箋・緊急避妊薬の準備状況（`READY` / `UNVERIFIED` / `BLOCKED`）を確認できます。
 - webhook の失敗を確認して手動で再試行でき（監査付き）、薬局単位で外向きの送信を一時停止できます。
 - 患者の情報は、理由・対象の薬局・有効期限を持つ **support grant** があるときだけ参照できます。開始・終了・参照はすべて監査ログに残ります。
-- 同じ操作を CLI の `pnpm tenant:settings` からも行えます（既定は dry-run、変更には明示的な確認が必要）。
+- 薬局の設定の確認・変更、導入前の確認（`--preflight` / `--doctor`）、リッチメニューの公開・既定化・切り戻しは、CLI の `pnpm tenant:settings` からも行えます。既定は dry-run で、変更は `--apply` を付けたときだけ送ります。support grant、患者情報の参照、webhook の再試行は CLI の対象外です。
 
 </details>
 
@@ -202,7 +202,7 @@ pnpm rich-menu:catalog
 | [本番更新のチェックリスト](docs/pharmacy/customer-production-update-checklist.md) | 本番へ更新するときの確認 |
 | [誤った LINE 紐付けの復旧](docs/pharmacy/WRONG_BINDING_RECOVERY.md) | 紐付けの停止と再登録 |
 
-> 本番へのデプロイ、D1 への schema 適用、薬局の有効化、LINE 側の変更（リッチメニューの公開、初期表示の変更、友だちへの一括適用）は、すべて人が明示的に行う操作です。CLI と管理画面はドラフトの作成と検証までを行い、外部への反映を暗黙に実行しません。
+> 本番へのデプロイ、D1 への schema 適用、薬局の有効化、LINE 側の変更（リッチメニューの公開、初期表示の変更、友だちへの一括適用）は、すべて人が明示的に行う操作です。CLI と管理画面は外部への反映を暗黙に実行せず、人が承認して明示の操作（CLI では `--apply`）をしたときだけ変更を送ります。
 
 <a name="data"></a>
 
@@ -230,7 +230,7 @@ flowchart LR
 ![データ分離と個人情報の保護](docs/assets/readme/security.svg)
 
 - **薬局ごとの分離。** すべての読み書きを LINE アカウント（`line_account_id`）と、認証済み職員の割り当てで絞り込みます。URL のパラメータや画面での選択を権限の根拠にしません。処方せんなどの所属の不一致は DB の trigger でも拒否します。
-- **LIFF の本人確認。** LINE の ID token を Worker で検証します。患者 ID・友だち ID・LIFF ID を外部の URL に付けません。
+- **LIFF の本人確認。** LINE の ID token を Worker で検証します。患者 ID・友だち ID を第三者の URL に付けません。LIFF の URL に含まれる LIFF ID は起動する画面を選ぶためのもので、権限の根拠にはしません。
 - **個人情報を含まない通知。** 自動の LINE 通知に患者名・LINE ID・処方内容が入らないことをテストで確認しています。
 - **ログと資格情報。** 構造化ログは許可したキーだけを残し、個人情報・秘密情報・リクエスト本文を渡しません。LINE の資格情報は専用の保存先、職員の API key は keyed hash で保存します。
 - **監査。** 処方せん画像の閲覧、緊急避妊薬の要配慮情報の参照、薬局の管理操作、全体管理者の操作を記録します。

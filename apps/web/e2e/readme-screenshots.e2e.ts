@@ -72,8 +72,6 @@ const domain = (activeCount: number, statusCounts: Record<string, number>) => ({
   error: false,
 });
 
-const disabledDomain = { enabled: false, activeCount: 0, statusCounts: {}, updatedAt: null, error: false };
-
 const rate = (numerator: number, denominator: number) => ({
   numerator,
   denominator,
@@ -113,12 +111,20 @@ const responses: Record<string, unknown> = {
   '/api/custom/pharmacy/growth/config': envelope({
     line_account_id: accountId,
     mode: 'pharmacy',
-    // 1440x900 でサイドバーの4グループ名（ホーム〜設定・安全）が収まるよう、有効機能を絞る。
+    // 全機能 ON の状態で撮る。
     capabilities: [
       'prescription_intake',
       'patient_intake',
+      'electronic_prescription',
+      'continuity',
       'medication_followup',
+      'emergency_contraception',
+      'meet_consultation',
+      'manual_chat',
       'pharmacy_info',
+      'fulfillment_quote',
+      'pharmacy_rich_menu',
+      'account_settings',
       'pharmacy_dashboard',
     ],
     proactive_monthly_limit: 4,
@@ -135,11 +141,11 @@ const responses: Record<string, unknown> = {
     capabilityError: false,
     domains: {
       prescriptionIntake: domain(3, { received: 1, accepted: 1, ready: 1 }),
-      electronicPrescription: disabledDomain,
+      electronicPrescription: domain(0, {}),
       patientIntake: domain(2, { unreviewed: 2 }),
-      continuity: disabledDomain,
+      continuity: domain(0, {}),
       medicationFollowup: domain(1, { delivered: 1 }),
-      emergencyContraception: disabledDomain,
+      emergencyContraception: domain(0, {}),
     },
     richMenu: {
       status: 'READY',
@@ -355,8 +361,6 @@ test('admin-today.png (dashboard home)', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '本日の対応', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: '対応が必要な項目' })).toBeVisible();
-  for (const group of ['ホーム', '日常業務', '患者・法令', '設定・安全'])
-    await expect(page.getByText(group, { exact: true }).filter({ visible: true })).toBeInViewport();
   await shoot(page, 'admin-today.png');
   expect(unexpected).toEqual([]);
 });
