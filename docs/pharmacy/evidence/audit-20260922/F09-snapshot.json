@@ -1,9 +1,0 @@
-{
-  "P": "376e4a0",
-  "W": "72fdd2671be45ea95cb3e94b078854fca6a3281f",
-  "tool_registration_and_schema_before_after_sha256": "a8b57d47846efb927b7f3f874a7e97017b3eea1f1f7245e79b8dc1d16f7cdbc4",
-  "paths": {
-    "packages/mcp-server/src/tools/broadcast.ts": "d79e4f5c75cd6bb56599c8ad86efbe11031c838bcb26195be4ded56fc8b906ac",
-    "packages/mcp-server/test/broadcast.test.ts": "1462696bf434e55e879eaf198466f95c885029a00408f06e887f7f1d5dac3247"
-  }
-}

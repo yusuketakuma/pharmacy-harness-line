@@ -1,9 +1,0 @@
-{
-  "P": "f3d3dc401a8859dd137bb9163752e9bb3425c124",
-  "paths": {
-    "apps/worker/src/routes/crm/chats.ts": "fe21e1de7a1554f67ddd5831dd9f4358261a6ed9b7434903d03f0b34982a4a0c",
-    "apps/worker/src/routes/crm/conversations.ts": "5c0cca70b71ae7133ab78c70948c2f366833988efb37525bfe25a0c0d546764b",
-    "apps/worker/src/routes/crm/chat-error-privacy.test.ts": "136306cf7668d64ebedee56f15cea11d39709520c1ab44c6eace4efc4d594749"
-  },
-  "isolatedPatchReplay": "PASS"
-}

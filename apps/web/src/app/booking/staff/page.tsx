@@ -1,5 +1,6 @@
 'use client';
 
+import Field from '@/components/common/field';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/layout/header';
@@ -297,17 +298,5 @@ function Modal({
         </div>
       </div>
     </div>
-  );
-}
-
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-xs font-medium text-gray-600 mb-1">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </span>
-      {children}
-    </label>
   );
 }

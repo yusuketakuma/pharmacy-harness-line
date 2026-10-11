@@ -1,8 +1,0 @@
-{
-  "P": "5565f85",
-  "files": {
-    "apps/liff/src/custom/pharmacy/medication-followup/MedicationFollowUpPage.tsx": "44b653f1bfa04292f2b20f1314e224d8734486f01c633e2da19755eed8ee7185",
-    "apps/liff/src/custom/pharmacy/medication-followup/MedicationFollowUpPage.test.tsx": "4b6404bd313d3ea2d042ca0b6d3e75e3f6bc5cdc664cc49f59dcc01297d9e638",
-    "apps/liff/e2e/medication-followup-submit.e2e.ts": "cd7d50c263519ee820bdbd59144069680c82a0331539ac363e72cf2637ee2a95"
-  }
-}

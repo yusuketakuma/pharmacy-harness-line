@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
 import { hasPharmacyCapability, hasPharmacyModeAccount, isPharmacyModeAccount, isPharmacyTenant } from './access.js';
+import { addAccountIds } from '../../../middleware/tenant-boundary.js';
 import { findPharmacyAdminApiCoverage } from '../platform-admin/api-coverage.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -88,13 +89,6 @@ export async function pharmacyTenantApiAllowlistGuard(c: Context<Env>, next: Nex
     return c.json({ success: false, error: 'Feature disabled for pharmacy tenant' }, 403);
   }
   return next();
-}
-
-function addAccountIds(target: Set<string>, value: unknown): void {
-  if (typeof value === 'string' && value) target.add(value);
-  if (Array.isArray(value)) {
-    for (const item of value) if (typeof item === 'string' && item) target.add(item);
-  }
 }
 
 function parseAccountIds(raw: string | null): string[] {

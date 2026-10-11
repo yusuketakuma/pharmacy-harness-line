@@ -1,6 +1,0 @@
-{
-  "exit": 0,
-  "command": "pnpm run build",
-  "source": "af9a082",
-  "env": "allowlist + synthetic URLs"
-}

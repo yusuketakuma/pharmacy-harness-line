@@ -1,7 +1,0 @@
-{
-  "P": "da40c463db40423af8bbc32ce2ade603949bcffb",
-  "paths": {
-    "apps/worker/src/routes/crm/chats.ts": "c6c13861545c8271c3215a2db05fde9dfbb7ec63836ab5f3912e1e43908989a3",
-    "apps/worker/src/routes/crm/chats-manual-message.test.ts": "ceeb2c00521dd26de96d6d9cdd9985aff1d1350316f1424a63d0a7c4175dd71c"
-  }
-}

@@ -56,7 +56,26 @@ describe('pharmacy LIFF common shell', () => {
       enabledFeatures: ['pharmacy_info'],
       existingFeatures: [],
       existingError: '利用中の機能を確認できませんでした。',
+      intakeSchemaVersion: 2,
     });
+  });
+
+  it('passes through the intake schema version and falls back to 2 without it', async () => {
+    const config = (intakeSchemaVersion: unknown) =>
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { accountName: 'みどり薬局', enabledFeatures: [], intakeSchemaVersion },
+        }),
+      });
+    request.mockResolvedValue({ data: { existingFeatures: [] } });
+    vi.stubGlobal('fetch', config(3));
+    await expect(loadPharmacyAccess()).resolves.toMatchObject({ intakeSchemaVersion: 3 });
+    vi.stubGlobal('fetch', config(undefined));
+    await expect(loadPharmacyAccess()).resolves.toMatchObject({ intakeSchemaVersion: 2 });
+    vi.stubGlobal('fetch', config('3'));
+    await expect(loadPharmacyAccess()).resolves.toMatchObject({ intakeSchemaVersion: 2 });
   });
 
   it('fails closed on config errors and keeps retry single-flight and keyboard reachable', async () => {

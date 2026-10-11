@@ -1,11 +1,6 @@
+import { toBase64Url } from './base64.js';
 // HLS アセット配信用の短命 HMAC トークン。URL パスに埋め込むので base64url。
 // 完全な DRM ではなく「友だち以外の直リンク視聴の抑止」が目的 (spec 参照)。
-
-function b64url(buf: ArrayBuffer): string {
-  let s = '';
-  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
 
 async function hmac(secret: string, msg: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -15,7 +10,7 @@ async function hmac(secret: string, msg: string): Promise<string> {
     false,
     ['sign'],
   );
-  return b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(msg)));
+  return toBase64Url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(msg)));
 }
 
 export async function signWebinarToken(secret: string, slug: string, expEpochSeconds: number): Promise<string> {

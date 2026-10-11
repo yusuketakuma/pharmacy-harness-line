@@ -1,17 +1,7 @@
+import { formatJpDateTime } from '../lib/datetime';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type EventBookingMine } from '../lib/api.js';
-
-function formatJp(iso: string): string {
-  return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-  });
-}
 
 const statusLabel: Record<string, { text: string; cls: string }> = {
   requested: { text: '承認待ち', cls: 'bg-yellow-100 text-yellow-800' },
@@ -120,7 +110,7 @@ export default function EventBookings() {
                       <div className="font-semibold text-sm line-clamp-2">{b.event_name}</div>
                       <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${s.cls}`}>{s.text}</span>
                     </div>
-                    <div className="text-xs text-gray-600 mt-1">{formatJp(b.slot_starts_at)}</div>
+                    <div className="text-xs text-gray-600 mt-1">{formatJpDateTime(b.slot_starts_at)}</div>
                     {b.venue_name && <div className="text-xs text-gray-600">📍 {b.venue_name}</div>}
                   </div>
                 </div>

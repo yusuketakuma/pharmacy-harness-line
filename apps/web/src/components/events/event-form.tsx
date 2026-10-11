@@ -1,5 +1,6 @@
 'use client';
 
+import { formatJpDateTime } from '@/lib/datetime';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { eventsApi, type EventDetail, type EventSlot } from '@/lib/api';
@@ -55,17 +56,6 @@ export interface EventFormProps {
 
 function jstNow(): Date {
   return new Date(Date.now());
-}
-
-function formatJpDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 export default function EventForm({ accountId, eventId }: EventFormProps) {

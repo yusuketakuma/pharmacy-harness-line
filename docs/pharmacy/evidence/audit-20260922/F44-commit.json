@@ -1,9 +1,0 @@
-{
-  "P": "6c940754b3661df5eeeda1dedf46612dfa256137",
-  "commit": "49ee0d2162e10761403b7d4fc8f1e0380a171d26",
-  "paths": [
-    "apps/worker/src/index.ts",
-    "apps/worker/src/lib/app-error-handler.ts",
-    "apps/worker/src/lib/app-error-handler.test.ts"
-  ]
-}

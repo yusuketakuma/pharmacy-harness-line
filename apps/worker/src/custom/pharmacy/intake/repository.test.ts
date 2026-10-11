@@ -1107,6 +1107,156 @@ describe('pharmacy patient repository', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('stores schema version 3 answers including generic preference and leftover medication', async () => {
+    const patient = {
+      id: 'patient-1',
+      line_account_id: 'account-1',
+      owner_friend_id: 'friend-1',
+      relationship: 'self',
+      name: '患者',
+      name_kana: 'カンジャ',
+      birth_date: '2000-01-01',
+      sex: null,
+      contact_phone: null,
+      archived_at: null,
+    };
+    const { db } = fakeDb([patient, null, policy, null, null]);
+    const response = await createPatientIntakeResponse(
+      db,
+      owner,
+      'patient-1',
+      {
+        idempotencyKey: 'intake-v3',
+        answers: {
+          allergiesStatus: 'none',
+          adverseReactionStatus: 'none',
+          medicationStatus: 'none',
+          medicalHistoryStatus: 'none',
+          medicalHistoryTags: [],
+          medicationNotebook: 'unknown',
+          smokingStatus: 'never',
+          alcoholStatus: 'none',
+          medicationAdherence: 'none',
+          genericPreference: 'prefer',
+          leftoverMedicationStatus: 'yes',
+          leftoverMedicationDetail: '以前の風邪薬が残っている',
+        },
+        representativeConsent: true,
+        privacyConsent: true,
+        ...policyProof,
+      },
+      cryptoScope,
+    );
+    expect(response).toMatchObject({ schema_version: 3, revision: 1 });
+    expect(JSON.parse(response.answers_json)).toMatchObject({
+      genericPreference: 'prefer',
+      leftoverMedicationStatus: 'yes',
+      leftoverMedicationDetail: '以前の風邪薬が残っている',
+    });
+  });
+
+  it('still accepts answers without the optional version 3 keys', async () => {
+    const patient = {
+      id: 'patient-1',
+      line_account_id: 'account-1',
+      owner_friend_id: 'friend-1',
+      relationship: 'self',
+      name: '患者',
+      name_kana: 'カンジャ',
+      birth_date: '2000-01-01',
+      sex: null,
+      contact_phone: null,
+      archived_at: null,
+    };
+    const { db } = fakeDb([patient, null, policy, null, null]);
+    await expect(
+      createPatientIntakeResponse(
+        db,
+        owner,
+        'patient-1',
+        {
+          idempotencyKey: 'intake-legacy',
+          answers: {
+            allergiesStatus: 'none',
+            adverseReactionStatus: 'none',
+            medicationStatus: 'none',
+            medicalHistoryStatus: 'none',
+            medicalHistoryTags: [],
+            medicationNotebook: 'unknown',
+            smokingStatus: 'never',
+            alcoholStatus: 'none',
+            medicationAdherence: 'none',
+          },
+          representativeConsent: true,
+          privacyConsent: true,
+          ...policyProof,
+        },
+        cryptoScope,
+      ),
+    ).resolves.toMatchObject({ schema_version: 3 });
+  });
+
+  it('rejects unsupported generic preference or leftover medication values', async () => {
+    const patient = {
+      id: 'patient-1',
+      line_account_id: 'account-1',
+      owner_friend_id: 'friend-1',
+      relationship: 'self',
+      name: '患者',
+      name_kana: 'カンジャ',
+      birth_date: '2000-01-01',
+      sex: null,
+      contact_phone: null,
+      archived_at: null,
+    };
+    const answers = {
+      allergiesStatus: 'none',
+      adverseReactionStatus: 'none',
+      medicationStatus: 'none',
+      medicalHistoryStatus: 'none',
+      medicalHistoryTags: [],
+      medicationNotebook: 'unknown',
+      smokingStatus: 'never',
+      alcoholStatus: 'none',
+      medicationAdherence: 'none',
+    };
+    const { db: genericDb, calls: genericCalls } = fakeDb(patient);
+    await expect(
+      createPatientIntakeResponse(
+        genericDb,
+        owner,
+        'patient-1',
+        {
+          idempotencyKey: 'intake-123',
+          answers: { ...answers, genericPreference: 'cheap' } as never,
+          representativeConsent: true,
+          privacyConsent: true,
+          ...policyProof,
+        },
+        cryptoScope,
+      ),
+    ).rejects.toThrow('invalid intake answers');
+    expect(genericCalls).toHaveLength(0);
+
+    const { db: leftoverDb, calls: leftoverCalls } = fakeDb(patient);
+    await expect(
+      createPatientIntakeResponse(
+        leftoverDb,
+        owner,
+        'patient-1',
+        {
+          idempotencyKey: 'intake-123',
+          answers: { ...answers, leftoverMedicationStatus: 'maybe' } as never,
+          representativeConsent: true,
+          privacyConsent: true,
+          ...policyProof,
+        },
+        cryptoScope,
+      ),
+    ).rejects.toThrow('invalid intake answers');
+    expect(leftoverCalls).toHaveLength(0);
+  });
+
   it('loads the newest intake revision within the owner scope', async () => {
     const { db, calls } = fakeDb({ id: 'response-2', revision: 2 });
     await expect(getLatestPatientIntake(db, owner, 'patient-1', cryptoScope)).resolves.toEqual({

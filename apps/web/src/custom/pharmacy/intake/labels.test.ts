@@ -20,6 +20,11 @@ describe('shared intake labels', () => {
     expect(intakeAnswerText('medicationNotebook', 'electronic')).toBe('電子');
     expect(intakeAnswerText('notes', '夜間の連絡は避けてほしい')).toBe('夜間の連絡は避けてほしい');
     expect(intakeAnswerText('allergiesStatus', null)).toBe('未回答');
+    expect(intakeQuestionLabel('genericPreference')).toBe('ジェネリック医薬品の希望');
+    expect(intakeQuestionLabel('leftoverMedicationStatus')).toBe('残薬');
+    expect(intakeAnswerText('genericPreference', 'prefer')).toBe('ジェネリックを希望');
+    expect(intakeAnswerText('leftoverMedicationStatus', 'yes')).toBe('あり');
+    expect(intakeAnswerText('leftoverMedicationStatus', undefined)).toBe('未回答');
     expect(RELATIONSHIP_LABELS.child).toBe('子ども');
     expect(SEX_LABELS.prefer_not_to_say).toBe('回答しない');
     expect(Object.keys(INTAKE_QUESTION_LABELS)).toContain('pregnancyStatus');

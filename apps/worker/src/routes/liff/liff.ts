@@ -49,6 +49,7 @@ import {
 import { resolvePrescriptionPatient } from '../../custom/pharmacy/prescriptions/patient.js';
 import { listExistingPatientFeatures } from '../../custom/pharmacy/growth-loop/patient-feature-access.js';
 import { canUsePharmacyBetaParticipant } from '../../custom/pharmacy/beta-membership/repository.js';
+import { INTAKE_SCHEMA_VERSION } from '../../custom/pharmacy/intake/repository.js';
 
 // OAuth state base64 helpers. btoa() only accepts Latin-1, so a single
 // multibyte query param (e.g. utm_campaign=夏キャンペーン) used to throw
@@ -1222,6 +1223,7 @@ liffRoutes.get('/api/liff/config', async (c) => {
         accountId: account.id,
         enabledFeatures,
         capabilityRevision: account.capability_revision,
+        intakeSchemaVersion: INTAKE_SCHEMA_VERSION,
       },
     });
   } catch (err) {

@@ -1320,7 +1320,7 @@ export default function EmergencyContraceptionPage() {
                   >
                     送信内容の確認
                   </h2>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-base text-gray-800">
+                  <dl className="grid grid-cols-[fit-content(50%)_1fr] gap-x-3 gap-y-1 text-base text-gray-800">
                     <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt>
                     <dd>
                       {draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}

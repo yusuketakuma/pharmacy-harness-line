@@ -1,3 +1,4 @@
+import { toBase64Url } from '../lib/base64.js';
 import type { GoogleServiceAccountCredentials } from './google-service-account.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -31,12 +32,6 @@ interface GoogleTokenResponse {
   expires_in?: number;
 }
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
 function decodeBase64Url(value: string): Uint8Array {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
@@ -68,8 +63,8 @@ export function googleOAuthConfigured(credentials: GoogleOAuthClientCredentials)
 
 export async function signGoogleOAuthState(payload: GoogleOAuthStatePayload, secret: string): Promise<string> {
   if (!secret) throw new Error('google_oauth_state_secret_missing');
-  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${encoded}.${base64Url(await hmac(encoded, secret))}`;
+  const encoded = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${encoded}.${toBase64Url(await hmac(encoded, secret))}`;
 }
 
 export async function verifyGoogleOAuthState(

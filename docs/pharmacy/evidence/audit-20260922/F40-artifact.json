@@ -1,6 +1,0 @@
-{
-  "path": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F40-native-v96QYA/consumers.mjs",
-  "bytes": 60612,
-  "sha256": "a6a6aaf0fd8c77ff050722223d822c316f437911ce11c4e46b93461f74972651",
-  "runtime": "Node imported compiled actual functions and native Miniflare D1, no Worker HTTP/R2 deployment"
-}

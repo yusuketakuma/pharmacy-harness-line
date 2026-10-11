@@ -1,5 +1,6 @@
 'use client';
 
+import { formatJpDateTime } from '@/lib/datetime';
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { Tag } from '@line-crm/shared';
@@ -35,17 +36,6 @@ const statusConfig: Record<ApiBroadcast['status'], { label: string; className: s
   sending: { label: '送信中', className: 'bg-yellow-100 text-yellow-700' },
   sent: { label: '送信完了', className: 'bg-green-100 text-green-700' },
 };
-
-function formatDatetime(iso: string | null): string {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 export default function BroadcastsPage() {
   const searchParams = useSearchParams();
@@ -317,10 +307,10 @@ function BroadcastList() {
                       </td>
 
                       {/* Scheduled */}
-                      <td className="px-4 py-3 text-sm text-gray-500">{formatDatetime(broadcast.scheduledAt)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{formatJpDateTime(broadcast.scheduledAt)}</td>
 
                       {/* Sent */}
-                      <td className="px-4 py-3 text-sm text-gray-500">{formatDatetime(broadcast.sentAt)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{formatJpDateTime(broadcast.sentAt)}</td>
 
                       {/* Stats & Insight */}
                       <td className="px-4 py-3 text-sm text-gray-500">

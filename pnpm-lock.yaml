@@ -8,16 +8,16 @@ overrides:
   esbuild@<0.28.1: '>=0.28.1'
   fast-uri@<3.1.8: 3.1.8
   qs@<6.16.0: 6.16.0
-  '@cyclonedx/cdxgen@12.8.4>undici': 7.29.1
-  miniflare@5.20260831.0-alpha>sharp: 0.35.5
   proxy-addr@<2.0.8: 2.0.8
+  ip-address@<10.7.1: 10.7.1
+  hono@<4.13.7: 4.13.13
   source-map-js@<1.2.2: 1.2.2
   sharp@<0.35.5: 0.35.5
-  ip-address@<10.7.1: 10.7.1
-  hono@<4.13.7: 4.13.7
   undici@>=7.0.0 <7.29.1: 7.29.1
   brace-expansion@>=5.0.0 <5.0.12: 5.0.12
   compression@<1.8.2: 1.8.2
+  '@cyclonedx/cdxgen@12.8.4>undici': 7.29.1
+  miniflare@5.20260831.0-alpha>sharp: 0.35.5
 
 importers:
 
@@ -164,8 +164,8 @@ importers:
         specifier: ^1.7.2
         version: 1.7.2
       hono:
-        specifier: 4.13.7
-        version: 4.13.7
+        specifier: ^4.13.7
+        version: 4.13.13
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -274,8 +274,8 @@ importers:
         specifier: workspace:*
         version: link:../sdk
       '@modelcontextprotocol/sdk':
-        specifier: 1.31.0
-        version: 1.31.0(supports-color@10.2.2)(zod@4.5.4)
+        specifier: ^1.31.0
+        version: 1.32.1(supports-color@10.2.2)(zod@4.5.4)
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -300,8 +300,8 @@ importers:
         specifier: ^5.20260903.1
         version: 5.20260903.1
       '@modelcontextprotocol/sdk':
-        specifier: 1.31.0
-        version: 1.31.0(supports-color@10.2.2)(zod@4.5.4)
+        specifier: ^1.31.0
+        version: 1.32.1(supports-color@10.2.2)(zod@4.5.4)
       '@types/node':
         specifier: ^26.4.1
         version: 26.4.1
@@ -1013,7 +1013,7 @@ packages:
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: 4.13.7
+      hono: 4.13.13
 
   '@iarna/toml@2.2.5':
     resolution: {integrity: sha512-trnsAYxU3xnS1gPHPyU961coFyLkh4gAD/0zQ5mymY4yOZ+CYvsPqUbOFSw0aDM4y0tV7tiFxL/1XfXPNC6IPg==}
@@ -1460,8 +1460,8 @@ packages:
     resolution: {integrity: sha512-9uQM+JXOwmhpWzlvmP5gPKcjPbYEtlPyE4rFd/1dKKRLVCQhSv5RDzQjaQM49rLTLcmt7hEDrHjn9Btf2+dRVg==}
     deprecated: This version has been deprecated because an issue with potential security implications was identified. Update to LIFF v2.31.1 immediately. See https://developers.line.biz/en/docs/liff/release-notes/#liff-v2-31-1
 
-  '@modelcontextprotocol/sdk@1.31.0':
-    resolution: {integrity: sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==}
+  '@modelcontextprotocol/sdk@1.32.1':
+    resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -2680,8 +2680,8 @@ packages:
   hls.js@1.7.2:
     resolution: {integrity: sha512-CW/pPvSOFIRsosbwxrYaE9ERmpTo5fbTqL7wCvuCFlqW1Bmb1K5fXsY7yiH95rmlr4rVuA7UXHbM/cIXQ6AXwg==}
 
-  hono@4.13.7:
-    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@9.0.3:
@@ -4278,9 +4278,9 @@ snapshots:
 
   '@gar/promise-retry@1.0.3': {}
 
-  '@hono/node-server@2.1.1(hono@4.13.7)':
+  '@hono/node-server@2.1.1(hono@4.13.13)':
     dependencies:
-      hono: 4.13.7
+      hono: 4.13.13
 
   '@iarna/toml@2.2.5': {}
 
@@ -4968,9 +4968,9 @@ snapshots:
       - debug
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.31.0(supports-color@10.2.2)(zod@4.5.4)':
+  '@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.5.4)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.7)
+      '@hono/node-server': 2.1.1(hono@4.13.13)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -4980,7 +4980,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.2.1(supports-color@10.2.2)
       express-rate-limit: 8.7.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
-      hono: 4.13.7
+      hono: 4.13.13
       jose: 6.2.10
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -6071,7 +6071,7 @@ snapshots:
 
   hls.js@1.7.2: {}
 
-  hono@4.13.7: {}
+  hono@4.13.13: {}
 
   hosted-git-info@9.0.3:
     dependencies:

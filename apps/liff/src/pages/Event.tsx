@@ -1,17 +1,7 @@
+import { formatJpDateTime } from '../lib/datetime';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type EventDetail, type EventSlot, type EventBookingMine } from '../lib/api.js';
-
-function formatJp(iso: string): string {
-  return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-  });
-}
 
 export default function Event() {
   const { id } = useParams<{ id: string }>();
@@ -116,7 +106,7 @@ export default function Event() {
                       disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'hover:bg-blue-50'
                     }`}
                   >
-                    <span className="text-sm">{formatJp(s.starts_at)}</span>
+                    <span className="text-sm">{formatJpDateTime(s.starts_at)}</span>
                     <span className="text-xs">
                       {full ? '満員' : s.capacity == null ? '定員なし' : `残 ${s.remaining}`}
                     </span>

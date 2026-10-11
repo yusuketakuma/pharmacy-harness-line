@@ -17,36 +17,9 @@ import { pushViaHarnessProxy } from './line-proxy-send.js';
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { isActiveMappedAccount } from './step-delivery.js';
 
 const LEAD_SECONDS = 300;
-
-async function isActiveMappedAccount(
-  db: D1Database,
-  accountId: string | null | undefined,
-  friendId: string,
-): Promise<boolean> {
-  if (!accountId || !friendId) return false;
-  try {
-    const row = await db
-      .prepare(
-        `SELECT 1 AS ok
-         FROM tenant_line_accounts AS mapping
-         INNER JOIN line_accounts AS account
-                 ON account.id = mapping.line_account_id
-         INNER JOIN tenants AS tenant
-                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
-         INNER JOIN friends AS f
-                 ON f.id = ? AND f.line_account_id = account.id
-        WHERE mapping.line_account_id = ? AND account.is_active = 1
-        LIMIT 1`,
-      )
-      .bind(friendId, accountId)
-      .first<{ ok: number }>();
-    return Boolean(row);
-  } catch {
-    return false;
-  }
-}
 
 export type WebinarProxyDeliveryOptions = {
   proxyBaseUrl: string;

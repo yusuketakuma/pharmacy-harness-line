@@ -1,7 +1,0 @@
-{
-  "result": "PASS",
-  "foreign_keys": true,
-  "refCodePersisted": "ref-b",
-  "trackingRejected": "REF_TRACKING_ENTRY_ROUTE_TENANT_SCOPE_MISMATCH",
-  "fixture": "synthetic in-memory SQLite, all bootstrap triggers enabled"
-}

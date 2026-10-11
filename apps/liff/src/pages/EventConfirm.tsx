@@ -1,17 +1,7 @@
+import { formatJpDateTime } from '../lib/datetime';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, type EventDetail, type EventSlot } from '../lib/api.js';
-
-function formatJp(iso: string): string {
-  return new Date(iso).toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-  });
-}
 
 function nanoid(): string {
   return crypto.randomUUID();
@@ -119,7 +109,7 @@ export default function EventConfirm() {
       <h1 className="text-lg font-bold mb-3">予約内容の確認</h1>
       <div className="border rounded p-3 mb-4 space-y-1">
         <div className="text-sm font-semibold">{event.name}</div>
-        <div className="text-sm text-gray-700">📅 {formatJp(slot.starts_at)}</div>
+        <div className="text-sm text-gray-700">📅 {formatJpDateTime(slot.starts_at)}</div>
         {event.venue_name && <div className="text-sm text-gray-700">📍 {event.venue_name}</div>}
       </div>
 

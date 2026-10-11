@@ -1,8 +1,0 @@
-{
-  "P": "d8eb36c",
-  "W": "a96aa8158a88f296237e068c5f8ba67ab3abb1a2",
-  "paths": {
-    "packages/db/scripts/generate-bootstrap.mjs": "5b94f661d53f5cdbe1b1d0a6cf23dea85cd67d0ebf23e096bd977ae26fbe9651",
-    "packages/db/test/bootstrap-generator.test.ts": "a86808ea73dfd4b586965ca2436fefdcbf03eebafef1b52770c21cfa8a407237"
-  }
-}
