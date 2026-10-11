@@ -2,16 +2,23 @@
 
 ## Pharmacy v0.37.0 (2026-10-11)
 
-LINE の問診で「ジェネリック医薬品の希望」と「余っているお薬（残薬）の有無」を答えられるようになりました。薬局スタッフは、管理画面の患者アンケートでその回答を確認できます。あわせて、tag を付けたときに Release の作成前で止まっていたリリース処理を直しました。
+LINE の問診で「ジェネリック医薬品の希望」と「余っているお薬（残薬）の有無」を答えられるようになりました。薬局スタッフは、管理画面の患者アンケートでその回答を確認できます。あわせて、tag を付けたときに Release の作成前で止まっていたリリース処理を直し、README を現在の画面のスクリーンショットで作り直しました。
 
 | 変更 | 以前 | 今回 | 利用者のメリット |
 |---|---|---|---|
 | 問診の項目 | 問診にジェネリック医薬品の希望・残薬を答える欄がなかった | 問診の2ページ目で選んで答えられ、残薬が「あり」のときは内容も書ける | 患者は来局前に LINE で伝えられ、薬局は管理画面で回答を確認できる |
 | リリース処理 | v0.36.4 以降、tag を push すると Release 作成の前に検査が失敗していた | 必要なパッケージを先に組み立ててから検査する | tag から Release が自動作成される |
+| README | 2026-08 時点の画面と説明図のまま | 現在の画面のスクリーンショットで全面的に作り直した | 導入を検討する人が、実際の画面で機能を確かめられる |
 
 ### 新機能
 
 #### 問診でジェネリック医薬品の希望と残薬を答えられる
+
+| 問診: 体調・生活 | 問診: 確認・送信 |
+|:-:|:-:|
+| ![問診の体調・生活のページ。ジェネリック医薬品の希望と、残薬「あり」のときの詳細欄が表示されている](https://raw.githubusercontent.com/yusuketakuma/pharmacy-harness-line/v0.37.0/docs/assets/readme/screenshots/liff-intake-step2.png) | ![問診の確認・送信のページ。ジェネリック医薬品の希望と残薬の回答が一覧に表示されている](https://raw.githubusercontent.com/yusuketakuma/pharmacy-harness-line/v0.37.0/docs/assets/readme/screenshots/liff-intake-confirm.png) |
+
+新しい2問は体調・生活のページに並び、送信前の確認ページにも回答が表示されます（架空のデータで撮影した画面）。
 
 - 問診の2ページ目（体調・生活）に次の2問が加わりました。初期値は「わからない」です。
   - ジェネリック医薬品（後発医薬品）の希望: ジェネリックを希望する／先発医薬品（今までと同じ薬）を希望する／薬剤師に相談して決めたい／わからない
@@ -21,12 +28,21 @@ LINE の問診で「ジェネリック医薬品の希望」と「余っている
 
 ### 改善
 
+#### README を現在の画面で作り直した
+
+- 患者・薬局スタッフ・全体管理者の画面を、現在の画面のスクリーンショット（架空のデータ）で紹介する構成に作り直しました。画面名が古くなっていた説明図3点は削除しました。
+- リリースはソース版（tag `vX.Y.Z`）だけで行い、販売者向けリリース `pharmacy-v*` は新しく作らない方針を記載しました。
+
 #### 説明文書を現在の画面に合わせた
 
-- 患者・スタッフ向けマニュアルと README の画面名・メニュー名・下書き保存の説明を、現在の画面に合わせて直し、新しい問診項目を書き足しました。
+- 患者・スタッフ向けマニュアルの画面名・メニュー名・下書き保存の説明を、現在の画面に合わせて直し、新しい問診項目を書き足しました。
 - 画面の動作を変えずに、管理画面・LIFF・Worker の重複していた処理をまとめ、使われていないコードを削除しました。
 
 ### 不具合修正
+
+#### 確認画面で回答が1文字ずつ縦に並ぶ表示崩れを修正
+
+- 問診と緊急避妊薬の「送信内容の確認」で、長い質問名に合わせて項目名の列が広がり、回答が1文字ずつ縦に並んで読みにくくなっていました（v0.36.2 以降）。項目名の列を画面幅の半分までに抑え、回答を横書きで読めるようにしました。
 
 #### tag から Release が自動作成されない問題を修正
 
@@ -44,9 +60,11 @@ LINE の問診で「ジェネリック医薬品の希望」と「余っている
 - 比較範囲: `v0.36.5`〜`v0.37.0`（`23f10b2` fix(ci)、`b155ee7` refactor、`02176da` feat(intake)、`4384eeb` docs と各 merge）。
 - 問診: Worker の `PatientIntakeAnswers` に任意キー `genericPreference`（`prefer|brand|consult|unknown`）、`leftoverMedicationStatus`（`none|yes|unknown`）、`leftoverMedicationDetail`（2000文字以内）を追加。`ANSWER_KEYS` の strict allowlist と値検証を維持。`INTAKE_SCHEMA_VERSION` を 3 に更新（列 CHECK は `>= 1` のため migration 不要）。`GET /api/liff/config` に `intakeSchemaVersion` を追加。LIFF は `intakeSchemaVersion`（欠落時 2）が 3 以上のときだけ新しい質問を表示し、3 未満では `saveIntake` が新しい3キーを除去する。回答は従来どおり field 暗号化された payload 内にだけ保存する。Web は `intake/labels.ts` と `PatientIntakeAdminPage` に表示を追加。
 - 共通化: `apps/worker/src/lib/base64.ts`（`toBase64Url`）、`isActiveMappedAccount` を `step-delivery.ts` へ移動、`broadcast.ts` の `buildMessage` を `reminder-delivery.ts` と共有、`tenant-boundary.ts` の `addAccountIds` を export、Web の `formatJpDateTime`（`apps/web/src/lib/datetime.ts`）と `StatCard`・`Field`、LIFF の `formatJpDateTime`。未使用の `assertRecoveryFence`、`incoming-images.ts` の別名 export 3件、未使用の設定 interface を削除。`docs/pharmacy/evidence/audit-20260922/` の作業用ツリー（追跡ファイル約500件）を承認のうえ削除。
+- 確認画面: `PatientQuestionnaire.tsx` と `EmergencyContraceptionPage.tsx` の確認一覧（`<dl>`）の `grid-cols-[auto_1fr]` を `grid-cols-[fit-content(50%)_1fr]` に変更。
 - リリース workflow: `.github/workflows/release.yml` で共有パッケージの build を `test:scripts` より前へ移動。
+- README とスクリーンショット: `docs/assets/readme/screenshots/` の画面を現行 UI で撮り直し（LIFF 390×844、管理画面 1440×900、架空データ）、問診・管理画面の3枚を追加。撮影は `README_SCREENSHOTS=1` を指定したときだけ動く `apps/liff/e2e/readme-screenshots.e2e.ts`・`apps/web/e2e/readme-screenshots.e2e.ts` で再現できる。古くなった `hero.svg`・`admin-screens.svg`・`patient-flow.svg` を削除。
 - 版情報: `scripts/version-contract.test.ts` の対象6 manifest と `unifiedVersion`、LIFF の `MainMenuPage.test.tsx` を `0.37.0` に更新。
-- 検証（ローカル、CI と同じ順序・`--workspace-concurrency=1`）: `format:check`、共有パッケージ build、全 workspace typecheck、全 workspace test（worker 273 files / 3,069、db 104 / 493、web 55 / 267、update-engine 23 / 228、liff 28 / 210、create-line-harness 12 / 80、sdk 13 / 56、mcp-server 8 / 36、line-sdk 2 / 8）、`test:scripts` 25 files / 263、`check-migrations` 28 本がすべて PASS。並列実行（`pnpm verify:ci`）では db の bootstrap テスト2件が負荷で timeout したが、単独・順次実行では PASS。
+- 検証（ローカル、CI と同じ順序・`--workspace-concurrency=1`）: `format:check`、共有パッケージ build、全 workspace typecheck、全 workspace test（worker 273 files / 3,069、db 104 / 493、web 55 / 267、update-engine 23 / 228、liff 28 / 210、create-line-harness 12 / 80、sdk 13 / 56、mcp-server 8 / 36、line-sdk 2 / 8）、`test:scripts` 25 files / 263、`check-migrations` 28 本がすべて PASS。並列実行（`pnpm verify:ci`）では db の bootstrap テスト2件が負荷で timeout したが、単独・順次実行では PASS。確認画面の表示修正と README・スクリーンショットの追加後に、`format:check`、liff test 28 / 210、liff build（`tsc -b` + `vite build`）、web `tsc --noEmit`（README 撮影スクリプトを含む）、`test:scripts` 25 / 263 を再実行して PASS。撮影スクリプトは LIFF 4件・管理画面 3件が成功し、全画像を目視で確認。
 
 </details>
 
