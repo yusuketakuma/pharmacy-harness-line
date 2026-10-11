@@ -1,0 +1,1657 @@
+{
+  "baseline": "f5164efce3456be17dd4f32722fd901b25a8b50d",
+  "sqlite_version": "3.53.1",
+  "metric": "SQLite VM instructions, not D1 rows_read",
+  "discovery_statement_count_per_tick": 7,
+  "added_expiry_range_statements_per_tick": 2,
+  "cases": [
+    {
+      "name": "normal-1k",
+      "history_per_domain": 1000,
+      "recent_sent_per_domain": 100,
+      "pending_per_notification_kind": 10,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 3483,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 3436,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 38169,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 3141,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 4323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 5804,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 11279,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 47,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 22,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 592,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 253,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 298,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 1395,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "normal-10k",
+      "history_per_domain": 10000,
+      "recent_sent_per_domain": 1000,
+      "pending_per_notification_kind": 10,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 30483,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 30436,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 380169,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 30141,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 40323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 54404,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 98579,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 47,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 22,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 592,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 253,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 298,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 1395,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "normal-50k",
+      "history_per_domain": 50000,
+      "recent_sent_per_domain": 5000,
+      "pending_per_notification_kind": 10,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 150483,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 150436,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 1900169,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 150141,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 200323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 270404,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 486579,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 47,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 22,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 592,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 253,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 298,
+            "selected": 10,
+            "selection_digest": "5a30514241aed70cdfe628a99e660b93c0862e771c2b781f9739d0d748900dab",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 1395,
+            "selected": 10,
+            "selection_digest": "8915a2f081890cfad0fffe60a674ae6099daaa3ae75b835f68c16eced9e6ce29",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "idle-50k",
+      "history_per_domain": 50000,
+      "recent_sent_per_domain": 5000,
+      "pending_per_notification_kind": 0,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 150017,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 150046,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 1900139,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 150101,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 200323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 270044,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 485259,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 43,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 18,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 28,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 58,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 85,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 291,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "burst-50k",
+      "history_per_domain": 50000,
+      "recent_sent_per_domain": 5000,
+      "pending_per_notification_kind": 200,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 150483,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 150436,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 1900169,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 150141,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 200323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 275594,
+            "selected": 50,
+            "selection_digest": "148fa4a2e80dffa862fad6b2a61d3a8260074a2d41f90c21d6c52954410920e8",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 502059,
+            "selected": 50,
+            "selection_digest": "2899bf738c05b9c8a795be0625debbf614e6b8c4f5c49eb4ed42f12c48b56170",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 47,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 22,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 592,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 5,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 253,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 1135,
+            "selected": 50,
+            "selection_digest": "148fa4a2e80dffa862fad6b2a61d3a8260074a2d41f90c21d6c52954410920e8",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 5789,
+            "selected": 50,
+            "selection_digest": "2899bf738c05b9c8a795be0625debbf614e6b8c4f5c49eb4ed42f12c48b56170",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "future-50k",
+      "history_per_domain": 50000,
+      "recent_sent_per_domain": 5000,
+      "pending_per_notification_kind": 200,
+      "versions": {
+        "before": {
+          "expiry": {
+            "vm_instructions": 150067,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 150446,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 1900169,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN operation",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 150151,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH fs USING INDEX sqlite_autoindex_friend_scenarios_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 200323,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SCAN payload",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 275594,
+            "selected": 50,
+            "selection_digest": "148fa4a2e80dffa862fad6b2a61d3a8260074a2d41f90c21d6c52954410920e8",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN handoff",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 502059,
+            "selected": 50,
+            "selection_digest": "2899bf738c05b9c8a795be0625debbf614e6b8c4f5c49eb4ed42f12c48b56170",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN event",
+              "CORRELATED SCALAR SUBQUERY 3",
+              "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        },
+        "after": {
+          "myna_work_expiry": {
+            "vm_instructions": 47,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "emergency_work_expiry": {
+            "vm_instructions": 22,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+            ]
+          },
+          "expiry": {
+            "vm_instructions": 32,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH outbound_line_deliveries USING INDEX idx_outbound_open_expiry (retry_until<?)"
+            ]
+          },
+          "broadcast": {
+            "vm_instructions": 253,
+            "selected": 5,
+            "selection_digest": "dde4a6fc984582e00cf629a7412e019bf67be88b36802b7d4772312ff85dccc5",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN delivery USING INDEX idx_outbound_broadcast_test_replay",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?) LEFT-JOIN"
+            ]
+          },
+          "accepted": {
+            "vm_instructions": 275,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token>?)",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH log USING INDEX idx_messages_log_outbound_operation (outbound_operation_id=?)",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "unsent": {
+            "vm_instructions": 181,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SCAN outbound_line_deliveries USING INDEX idx_outbound_unattempted_scenario_reply",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH payload USING INDEX sqlite_autoindex_outbound_line_delivery_payloads_1 (operation_id=?)",
+              "SEARCH friend USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH fs USING COVERING INDEX idx_friend_scenarios_paused_claim (status=? AND delivery_claim_token=? AND id=? AND friend_id=? AND scenario_id=? AND current_step_order<?)"
+            ]
+          },
+          "resume": {
+            "vm_instructions": 344,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH friend_scenarios USING INDEX idx_friend_scenarios_status (status=?)",
+              "CORRELATED SCALAR SUBQUERY 1",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH friend USING INDEX sqlite_autoindex_friends_1 (id=?)",
+              "SEARCH scenario USING INDEX sqlite_autoindex_scenarios_1 (id=?)",
+              "SEARCH payload USING INDEX idx_outbound_payload_scenario_claim (scenario_enrollment_id=? AND scenario_claim_token=?)",
+              "SEARCH operation USING INDEX sqlite_autoindex_outbound_line_deliveries_3 (id=? AND tenant_id=? AND line_account_id=?)",
+              "SEARCH step USING INDEX sqlite_autoindex_scenario_steps_1 (id=?)"
+            ]
+          },
+          "myna": {
+            "vm_instructions": 89,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+            ]
+          },
+          "emergency": {
+            "vm_instructions": 295,
+            "selected": 0,
+            "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "logical_changes": 0,
+            "plan": [
+              "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+              "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+              "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+              "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+              "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+              "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+              "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+              "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+              "CORRELATED SCALAR SUBQUERY 2",
+              "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+              "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "mutation_and_retry_cases": [
+    {
+      "version": "before",
+      "history_per_domain": 10000,
+      "changed_jobs": 20,
+      "phases": {
+        "state_change_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1666,
+          "logical_changes": 20
+        },
+        "sender_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1866,
+          "logical_changes": 20
+        },
+        "sender_failed_ack_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1286,
+          "logical_changes": 20
+        },
+        "sender_retry_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1306,
+          "logical_changes": 20
+        },
+        "sender_sent_ack_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1286,
+          "logical_changes": 20
+        }
+      },
+      "scope": "actual queue SQL plus synthetic sender SQL; no HTTP, Worker CPU, D1 billing, or full authorization reads measured"
+    },
+    {
+      "version": "after",
+      "history_per_domain": 10000,
+      "changed_jobs": 20,
+      "phases": {
+        "state_change_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 5206,
+          "logical_changes": 40
+        },
+        "queue_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1826,
+          "logical_changes": 20
+        },
+        "sender_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1986,
+          "logical_changes": 20
+        },
+        "sender_failed_ack_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1626,
+          "logical_changes": 20
+        },
+        "queue_reschedule_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1706,
+          "logical_changes": 20
+        },
+        "queue_retry_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1826,
+          "logical_changes": 20
+        },
+        "sender_retry_claim_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 1646,
+          "logical_changes": 20
+        },
+        "sender_sent_ack_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 3066,
+          "logical_changes": 40
+        },
+        "queue_finish_after_sent_20": {
+          "sql_statements": 20,
+          "local_transactions": 1,
+          "vm_instructions": 446,
+          "logical_changes": 0
+        }
+      },
+      "scope": "actual queue SQL plus synthetic sender SQL; no HTTP, Worker CPU, D1 billing, or full authorization reads measured"
+    }
+  ],
+  "backlog_cases": [
+    {
+      "version": "before",
+      "rows_per_tick": [
+        50,
+        50,
+        50,
+        50,
+        0
+      ],
+      "discovery_vm_per_tick": [
+        59594,
+        59529,
+        59479,
+        59429,
+        58829
+      ],
+      "distinct_jobs": 200,
+      "scope": "200 Myna jobs drained via synthetic sent records; no HTTP or real time waits"
+    },
+    {
+      "version": "after",
+      "rows_per_tick": [
+        50,
+        50,
+        50,
+        50,
+        0
+      ],
+      "discovery_vm_per_tick": [
+        1135,
+        1099,
+        1099,
+        1099,
+        49
+      ],
+      "distinct_jobs": 200,
+      "scope": "200 Myna jobs drained via synthetic sent records; no HTTP or real time waits"
+    }
+  ],
+  "expired_backlog_cases": [
+    {
+      "version": "before",
+      "expired_jobs_per_kind": 200,
+      "live_jobs_reached_per_kind": 1,
+      "results": {
+        "myna": {
+          "vm_instructions": 55080,
+          "selected": 1,
+          "selection_digest": "326c7cabc92cc422ed4300baf1747b77f38d14b4d0ce76a6b71a0f8ee16cb99c",
+          "logical_changes": 0,
+          "plan": [
+            "SCAN handoff",
+            "CORRELATED SCALAR SUBQUERY 1",
+            "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+            "USE TEMP B-TREE FOR ORDER BY"
+          ]
+        },
+        "emergency": {
+          "vm_instructions": 99191,
+          "selected": 1,
+          "selection_digest": "cdb902c6cdc36a332b8575fa222b4ced011996a9603a14eab14a38154195c7fb",
+          "logical_changes": 0,
+          "plan": [
+            "SCAN event",
+            "CORRELATED SCALAR SUBQUERY 3",
+            "SEARCH notice USING INDEX sqlite_autoindex_pharmacy_notification_events_2 (line_account_id=? AND idempotency_key=?)",
+            "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+            "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+            "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+            "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+            "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+            "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+            "CORRELATED SCALAR SUBQUERY 2",
+            "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+            "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:",
+            "USE TEMP B-TREE FOR ORDER BY"
+          ]
+        }
+      }
+    },
+    {
+      "version": "after",
+      "expired_jobs_per_kind": 200,
+      "live_jobs_reached_per_kind": 1,
+      "results": {
+        "myna_work_expiry": {
+          "vm_instructions": 11644,
+          "selected": 0,
+          "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "logical_changes": 200,
+          "plan": [
+            "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+          ]
+        },
+        "emergency_work_expiry": {
+          "vm_instructions": 11622,
+          "selected": 0,
+          "selection_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "logical_changes": 200,
+          "plan": [
+            "SEARCH pharmacy_status_notification_work USING INDEX idx_pharmacy_status_work_expiry (kind=? AND expires_at<?)"
+          ]
+        },
+        "myna": {
+          "vm_instructions": 109,
+          "selected": 1,
+          "selection_digest": "326c7cabc92cc422ed4300baf1747b77f38d14b4d0ce76a6b71a0f8ee16cb99c",
+          "logical_changes": 0,
+          "plan": [
+            "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+            "SEARCH handoff USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          ]
+        },
+        "emergency": {
+          "vm_instructions": 405,
+          "selected": 1,
+          "selection_digest": "cdb902c6cdc36a332b8575fa222b4ced011996a9603a14eab14a38154195c7fb",
+          "logical_changes": 0,
+          "plan": [
+            "SEARCH work USING INDEX idx_pharmacy_status_work_due (kind=? AND due_at<?)",
+            "SEARCH event USING INDEX sqlite_autoindex_pharmacy_emergency_intake_events_1 (id=?)",
+            "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)",
+            "SEARCH friend USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)",
+            "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)",
+            "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)",
+            "SEARCH settings USING INDEX sqlite_autoindex_pharmacy_emergency_settings_1 (line_account_id=?) LEFT-JOIN",
+            "SEARCH control USING INDEX sqlite_autoindex_pharmacy_emergency_reminder_controls_1 (line_account_id=?) LEFT-JOIN",
+            "CORRELATED SCALAR SUBQUERY 2",
+            "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)",
+            "SCAN json_each EXISTS VIRTUAL TABLE INDEX 1:"
+          ]
+        }
+      }
+    }
+  ]
+}

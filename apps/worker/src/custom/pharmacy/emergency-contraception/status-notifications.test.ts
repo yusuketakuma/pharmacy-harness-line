@@ -19,6 +19,9 @@ const baseRow = {
   intake_status: 'reviewed',
   tenant_id: 'tenant-a',
   line_account_id: 'account-a',
+  work_retry_key: 'emergency-intake-status:event-a',
+  work_attempt_count: 0,
+  work_expires_at: '2026-08-23T23:15:00.000Z',
   friend_id: 'friend-a',
   line_user_id: 'U-a',
   is_following: 1,
@@ -35,12 +38,14 @@ const now = new Date('2026-08-20T23:15:00.000Z');
 
 function fakeDb(rows: unknown[], alreadySentEventIds = new Set<string>()) {
   return {
+    batch: async (statements: unknown[]) => statements.map(() => ({ meta: { changes: 1 } })),
     prepare: vi.fn((sql: string) => ({
       bind: () => ({
+        run: async () => ({ meta: { changes: 1 } }),
         all: async () => ({
           results:
             alreadySentEventIds.size > 0
-              ? sql.includes('NOT EXISTS')
+              ? sql.includes('SELECT')
                 ? rows.filter((row) => !alreadySentEventIds.has((row as { event_id: string }).event_id))
                 : rows.slice(0, 1)
               : rows,
@@ -179,7 +184,9 @@ describe('processEmergencyIntakeStatusNotifications', () => {
       });
       const db = d1FromSqlite(sqlite);
       const tick = () => processEmergencyIntakeStatusNotifications(db, { ...options, limit: 1 });
-      expect(await tick()).toEqual({ sent: 1, failed: 0, skipped: 0 });
+      const overlapping = await Promise.all([tick(), tick()]);
+      expect(overlapping.reduce((count, result) => count + result.sent, 0)).toBe(1);
+      expect(overlapping.reduce((count, result) => count + result.failed, 0)).toBe(0);
       expect(await tick()).toEqual({ sent: 1, failed: 0, skipped: 0 });
       expect(await tick()).toEqual({ sent: 0, failed: 0, skipped: 0 });
       expect(mocks.send.mock.calls.map(([call]) => call.retryKey)).toEqual([
@@ -258,5 +265,16 @@ describe('processEmergencyIntakeStatusNotifications', () => {
         retryKey: 'emergency-intake-status:event-b',
       }),
     );
+  });
+  it.each([
+    ['2026-08-20T22:59:59.999Z', 0], // JST 07:59:59
+    ['2026-08-20T23:00:00.000Z', 1], // JST 08:00
+    ['2026-08-21T11:59:59.999Z', 1], // JST 20:59:59
+    ['2026-08-21T12:00:00.000Z', 0], // JST 21:00
+  ])('preserves quiet-hour boundary %s', async (timestamp, sent) => {
+    const at = new Date(timestamp);
+    const result = await processEmergencyIntakeStatusNotifications(fakeDb([baseRow]), { ...options, now: at });
+    expect(result.sent).toBe(sent);
+    expect(mocks.send).toHaveBeenCalledTimes(sent);
   });
 });

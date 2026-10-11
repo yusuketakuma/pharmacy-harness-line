@@ -2418,6 +2418,19 @@ CREATE TABLE pharmacy_staff_accounts (
   FOREIGN KEY (staff_id) REFERENCES staff_members(id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_status_notification_work (
+  line_account_id TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  retry_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('myna', 'emergency')),
+  source_id TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'expired')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  claim_token TEXT,
+  PRIMARY KEY (line_account_id, retry_key)
+);
+
 CREATE TABLE pharmacy_submission_attributes (
   submission_id TEXT PRIMARY KEY,
   line_account_id TEXT NOT NULL,
@@ -3154,6 +3167,10 @@ CREATE INDEX idx_friend_scenarios_friend_id ON friend_scenarios (friend_id);
 
 CREATE INDEX idx_friend_scenarios_next_delivery_at ON friend_scenarios (next_delivery_at);
 
+CREATE INDEX idx_friend_scenarios_paused_claim
+  ON friend_scenarios (status, delivery_claim_token, id, friend_id, scenario_id, current_step_order, started_at)
+  WHERE status = 'paused' AND delivery_claim_token IS NOT NULL;
+
 CREATE INDEX idx_friend_scenarios_status ON friend_scenarios (status);
 
 CREATE UNIQUE INDEX idx_friend_scenarios_unique ON friend_scenarios (friend_id, scenario_id) WHERE status != 'completed';
@@ -3275,8 +3292,26 @@ CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
 
+CREATE INDEX idx_outbound_broadcast_test_replay
+  ON outbound_line_deliveries (updated_at)
+  WHERE outcome = 'open' AND delivery_type = 'push'
+    AND source = 'broadcast' AND attempt_count > 0;
+
 CREATE INDEX idx_outbound_line_deliveries_reconcile
   ON outbound_line_deliveries(tenant_id, line_account_id, outcome, updated_at);
+
+CREATE INDEX idx_outbound_open_expiry
+  ON outbound_line_deliveries (retry_until)
+  WHERE outcome = 'open';
+
+CREATE INDEX idx_outbound_payload_scenario_claim
+  ON outbound_line_delivery_payloads (scenario_enrollment_id, scenario_claim_token)
+  WHERE scenario_claim_token IS NOT NULL;
+
+CREATE INDEX idx_outbound_unattempted_scenario_reply
+  ON outbound_line_deliveries (id)
+  WHERE outcome = 'open' AND delivery_type = 'reply'
+    AND source = 'scenario' AND attempt_count = 0;
 
 CREATE INDEX idx_outgoing_webhook_deliveries_reconcile
   ON outgoing_webhook_deliveries(tenant_id, line_account_id, outcome, updated_at);
@@ -3342,6 +3377,10 @@ CREATE INDEX idx_pharmacy_emergency_access_intake
   ON pharmacy_emergency_intake_access_events
     (line_account_id, intake_id, accessed_at, id);
 
+CREATE INDEX idx_pharmacy_emergency_active_expiry
+  ON pharmacy_emergency_intakes (line_account_id, expires_at, id)
+  WHERE status IN ('provisional', 'reviewed');
+
 CREATE INDEX idx_pharmacy_emergency_admin_events_account
   ON pharmacy_emergency_admin_events (line_account_id, occurred_at, id);
 
@@ -3368,6 +3407,10 @@ CREATE INDEX idx_pharmacy_emergency_sale_records_sold_at
 
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
+
+CREATE INDEX idx_pharmacy_emergency_status_notice
+  ON pharmacy_emergency_intake_events (occurred_at, id)
+  WHERE event_type IN ('reviewed', 'cancelled', 'expired');
 
 CREATE INDEX idx_pharmacy_followup_notification_queue
   ON pharmacy_medication_followups (COALESCE(notification_checked_at, due_at), due_at, id)
@@ -3421,6 +3464,10 @@ CREATE INDEX idx_pharmacy_medication_followups_due
 CREATE INDEX idx_pharmacy_medication_followups_patient
   ON pharmacy_medication_followups (line_account_id, patient_id, created_at DESC, id DESC);
 
+CREATE INDEX idx_pharmacy_myna_active_expiry
+  ON pharmacy_myna_handoffs (line_account_id, expires_at)
+  WHERE status NOT IN ('PAPER_FALLBACK','ABANDONED','CLOSED','EXPIRED');
+
 CREATE INDEX idx_pharmacy_myna_endpoint_account
   ON pharmacy_myna_endpoint_configs (line_account_id, revision DESC, updated_at DESC);
 
@@ -3430,6 +3477,10 @@ CREATE UNIQUE INDEX idx_pharmacy_myna_endpoint_active_account
 
 CREATE INDEX idx_pharmacy_myna_events_handoff
   ON pharmacy_myna_events (line_account_id, handoff_id, occurred_at, id);
+
+CREATE INDEX idx_pharmacy_myna_expired_notice
+  ON pharmacy_myna_handoffs (updated_at, id)
+  WHERE status = 'EXPIRED';
 
 CREATE INDEX idx_pharmacy_myna_handoffs_friend
   ON pharmacy_myna_handoffs (line_account_id, friend_id, created_at DESC, id);
@@ -3570,6 +3621,14 @@ CREATE INDEX idx_pharmacy_shared_staff_tenant
 
 CREATE INDEX idx_pharmacy_staff_accounts_staff
   ON pharmacy_staff_accounts (staff_id, is_active, line_account_id);
+
+CREATE INDEX idx_pharmacy_status_work_due
+  ON pharmacy_status_notification_work (kind, due_at, source_id)
+  WHERE state = 'pending';
+
+CREATE INDEX idx_pharmacy_status_work_expiry
+  ON pharmacy_status_notification_work (kind, expires_at)
+  WHERE state = 'pending';
 
 CREATE INDEX idx_pharmacy_submission_sources_account
   ON pharmacy_submission_sources(line_account_id, classification, entered_at);
@@ -4508,6 +4567,21 @@ CREATE TRIGGER pharmacy_emergency_sale_records_no_update
 BEFORE UPDATE ON pharmacy_emergency_sale_records
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
 
+CREATE TRIGGER pharmacy_emergency_status_work_insert AFTER INSERT ON pharmacy_emergency_intake_events
+WHEN NEW.event_type IN ('reviewed', 'cancelled', 'expired')
+BEGIN
+  INSERT OR IGNORE INTO pharmacy_status_notification_work
+    (line_account_id, retry_key, kind, source_id, due_at, expires_at)
+  VALUES (NEW.line_account_id, 'emergency-intake-status:' || NEW.id, 'emergency', NEW.id,
+          NEW.occurred_at, strftime('%Y-%m-%dT%H:%M:%fZ', NEW.occurred_at, '+72 hours'));
+END;
+
+CREATE TRIGGER pharmacy_emergency_status_work_source_removed AFTER DELETE ON pharmacy_emergency_intake_events
+BEGIN
+  UPDATE pharmacy_status_notification_work SET state = 'expired', claim_token = NULL
+   WHERE line_account_id = OLD.line_account_id AND retry_key = 'emergency-intake-status:' || OLD.id AND state = 'pending';
+END;
+
 CREATE TRIGGER pharmacy_followup_operations_enabled_staff_insert
 BEFORE INSERT ON pharmacy_medication_followup_operations
 WHEN NEW.enabled = 1 AND (
@@ -4662,9 +4736,58 @@ WHEN EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'PHARMACY_HUMAN_CREDENTIAL_DISABLED'); END;
 
+CREATE TRIGGER pharmacy_myna_expired_work_insert AFTER INSERT ON pharmacy_myna_handoffs
+WHEN NEW.status = 'EXPIRED'
+BEGIN
+  INSERT OR IGNORE INTO pharmacy_status_notification_work
+    (line_account_id, retry_key, kind, source_id, due_at, expires_at)
+  VALUES (NEW.line_account_id, 'myna-status:' || NEW.id || ':EXPIRED', 'myna', NEW.id,
+          NEW.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', NEW.updated_at, '+72 hours'));
+END;
+
+CREATE TRIGGER pharmacy_myna_expired_work_refresh AFTER UPDATE OF updated_at ON pharmacy_myna_handoffs
+WHEN NEW.status = 'EXPIRED' AND OLD.status = 'EXPIRED' AND NEW.updated_at != OLD.updated_at
+BEGIN
+  INSERT INTO pharmacy_status_notification_work
+    (line_account_id, retry_key, kind, source_id, due_at, expires_at)
+  SELECT NEW.line_account_id, 'myna-status:' || NEW.id || ':EXPIRED', 'myna', NEW.id,
+         NEW.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', NEW.updated_at, '+72 hours')
+   WHERE NOT EXISTS (SELECT 1 FROM pharmacy_notification_events notice
+                      WHERE notice.line_account_id = NEW.line_account_id
+                        AND notice.idempotency_key = 'myna-status:' || NEW.id || ':EXPIRED'
+                        AND notice.outcome = 'sent')
+  ON CONFLICT (line_account_id, retry_key) DO UPDATE SET
+    expires_at = excluded.expires_at,
+    due_at = MAX(pharmacy_status_notification_work.due_at, excluded.due_at),
+    state = 'pending'
+  WHERE pharmacy_status_notification_work.state != 'done';
+END;
+
+CREATE TRIGGER pharmacy_myna_expired_work_update AFTER UPDATE OF status ON pharmacy_myna_handoffs
+WHEN NEW.status = 'EXPIRED' AND OLD.status != 'EXPIRED'
+BEGIN
+  INSERT OR IGNORE INTO pharmacy_status_notification_work
+    (line_account_id, retry_key, kind, source_id, due_at, expires_at)
+  VALUES (NEW.line_account_id, 'myna-status:' || NEW.id || ':EXPIRED', 'myna', NEW.id,
+          NEW.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', NEW.updated_at, '+72 hours'));
+END;
+
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_myna_status_work_cancelled AFTER UPDATE OF status ON pharmacy_myna_handoffs
+WHEN OLD.status = 'EXPIRED' AND NEW.status != 'EXPIRED'
+BEGIN
+  UPDATE pharmacy_status_notification_work SET state = 'expired', claim_token = NULL
+   WHERE line_account_id = OLD.line_account_id AND retry_key = 'myna-status:' || OLD.id || ':EXPIRED' AND state = 'pending';
+END;
+
+CREATE TRIGGER pharmacy_myna_status_work_source_removed AFTER DELETE ON pharmacy_myna_handoffs
+BEGIN
+  UPDATE pharmacy_status_notification_work SET state = 'expired', claim_token = NULL
+   WHERE line_account_id = OLD.line_account_id AND retry_key = 'myna-status:' || OLD.id || ':EXPIRED' AND state = 'pending';
+END;
 
 CREATE TRIGGER pharmacy_patient_control_audit_immutable_delete
 BEFORE DELETE ON pharmacy_patient_control_audit_events
@@ -5111,6 +5234,20 @@ BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE'); END;
 CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_status_work_sent_insert AFTER INSERT ON pharmacy_notification_events
+WHEN NEW.outcome = 'sent'
+BEGIN
+  UPDATE pharmacy_status_notification_work SET state = 'done', claim_token = NULL
+   WHERE line_account_id = NEW.line_account_id AND retry_key = NEW.idempotency_key AND state = 'pending';
+END;
+
+CREATE TRIGGER pharmacy_status_work_sent_update AFTER UPDATE OF outcome ON pharmacy_notification_events
+WHEN NEW.outcome = 'sent'
+BEGIN
+  UPDATE pharmacy_status_notification_work SET state = 'done', claim_token = NULL
+   WHERE line_account_id = NEW.line_account_id AND retry_key = NEW.idempotency_key AND state = 'pending';
+END;
 
 CREATE TRIGGER platform_admin_access_grant_authority_guard
 BEFORE INSERT ON platform_admin_access_grants
