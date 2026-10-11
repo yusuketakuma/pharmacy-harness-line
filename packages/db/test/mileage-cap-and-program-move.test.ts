@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { splitSqlStatements } from '../scripts/split-sql-statements.mjs';
 
 import {
   createAffiliateOffer,
@@ -26,10 +27,7 @@ const PKG_ROOT = join(__dirname, '..');
 const BENIGN = /duplicate column name|already exists/i;
 
 function execSafe(db: Database.Database, sql: string): void {
-  for (const stmt of sql
-    .split(/;\s*(?:\r?\n|$)/)
-    .map((s) => s.trim())
-    .filter(Boolean)) {
+  for (const stmt of splitSqlStatements(sql)) {
     try {
       db.exec(stmt);
     } catch (err) {
