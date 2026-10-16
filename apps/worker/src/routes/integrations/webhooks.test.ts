@@ -678,3 +678,34 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
     expect(fireEvent).not.toHaveBeenCalled();
   });
 });
+
+test('binds optional timestamps to signatures while deduplicating the same body across signature formats', async () => {
+  vi.mocked(getIncomingWebhookById).mockResolvedValue({
+    id: 'iwh-1',
+    tenant_id: 'tenant-a',
+    source_type: 'custom',
+    secret: VALID_SECRET,
+    is_active: 1,
+  } as never);
+  const body = JSON.stringify({ syntheticEventId: 'event-1' });
+  const digest = await signWebhookBody(body);
+  const now = String(Math.floor(Date.now() / 1000));
+  for (const [timestamp, signature, status] of [
+    [undefined, digest, 200],
+    [now, await signWebhookBody(`${now}.${body}`), 200],
+    ['1', await signWebhookBody(`1.${body}`), 401],
+    [now, digest, 401],
+  ] as const) {
+    const response = await setupApp().request(
+      '/api/webhooks/incoming/iwh-1/receive',
+      {
+        method: 'POST',
+        headers: { 'X-Webhook-Signature': signature, ...(timestamp ? { 'X-Webhook-Timestamp': timestamp } : {}) },
+        body,
+      },
+      baseEnv,
+    );
+    expect(response.status).toBe(status);
+  }
+  expect(vi.mocked(fireEvent).mock.calls.map((call) => call[6])).toEqual([`iwh-1:${digest}`, `iwh-1:${digest}`]);
+});

@@ -337,7 +337,7 @@ liffRoutes.get('/auth/line', async (c) => {
   const utmMedium = c.req.query('utm_medium') || '';
   const utmCampaign = c.req.query('utm_campaign') || '';
   let accountParam = c.req.query('account') || '';
-  const uidParam = c.req.query('uid') || ''; // existing user UUID for cross-account linking
+  const uidParam = c.req.query('crossAccountToken') || c.req.query('uid') || ''; // signed cross-account token; bare UUID is not authority
   const igParam = c.req.query('ig') || ''; // IG Harness IGSID for cross-platform linking
   const igaParam = c.req.query('iga') || ''; // IG Harness business account id
   const iganParam = c.req.query('igan') || ''; // IG Harness business account @username
@@ -589,7 +589,7 @@ liffRoutes.get('/auth/oauth', async (c) => {
   const utmMedium = c.req.query('utm_medium') || '';
   const utmCampaign = c.req.query('utm_campaign') || '';
   const accountParam = c.req.query('account') || '';
-  const uidParam = c.req.query('uid') || '';
+  const uidParam = c.req.query('crossAccountToken') || c.req.query('uid') || '';
   const igParam = c.req.query('ig') || '';
   const igaParam = c.req.query('iga') || '';
   const iganParam = c.req.query('igan') || '';
@@ -826,9 +826,20 @@ liffRoutes.get('/auth/callback', async (c) => {
     if (existingUserId) {
       userId = existingUserId;
     } else {
-      // Cross-account linking: if uid is provided, use that existing UUID
+      // OAuth state is unsigned routing data. Only a signed token bound to
+      // the verified Login channel can authorize an existing user link.
       if (uidParam) {
-        userId = uidParam;
+        const link = await verifyCrossAccountToken(c.env.CROSS_ACCOUNT_TOKEN_KEY, uidParam);
+        const account = link
+          ? (await getLineAccounts(db)).find((candidate) => candidate.login_channel_id === loginChannelId)
+          : null;
+        if (link && account?.id === link.targetAccountId) {
+          const target = await db
+            .prepare('SELECT id FROM users WHERE id = ?')
+            .bind(link.userId)
+            .first<{ id: string }>();
+          if (target) userId = target.id;
+        }
       }
 
       // Try to find by email

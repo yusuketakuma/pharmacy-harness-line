@@ -91,3 +91,52 @@ test('normal linking cannot overwrite a link committed after its initial read', 
     sqlite.close();
   }
 });
+
+test.each(['bare-uuid', 'signed-token'])(
+  'OAuth state never treats an unsigned UUID as link authority: %s',
+  async (mode) => {
+    const sqlite = openTestSqlite();
+    try {
+      sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
+      sqlite.exec(
+        "INSERT INTO users (id) VALUES ('target-user'); INSERT INTO line_accounts (id,channel_id,name,channel_access_token,channel_secret,login_channel_id) VALUES ('target-account','channel','Synthetic','synthetic','synthetic','login');",
+      );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async (url: string) =>
+            new Response(
+              JSON.stringify(
+                url.includes('/token')
+                  ? { access_token: 'synthetic', id_token: 'synthetic' }
+                  : { sub: 'synthetic-line', name: 'Synthetic', displayName: 'Synthetic' },
+              ),
+              { status: 200 },
+            ),
+        ),
+      );
+      const key = 'synthetic-signing-key';
+      const uid =
+        mode === 'bare-uuid'
+          ? 'target-user'
+          : await signCrossAccountToken(key, { userId: 'target-user', targetAccountId: 'target-account' });
+      const state = btoa(JSON.stringify({ uid }));
+      const app = new Hono<Env>();
+      app.route('/', liffRoutes);
+      const response = await app.request(`/auth/callback?code=synthetic&state=${encodeURIComponent(state)}`, {}, {
+        DB: d1FromSqlite(sqlite),
+        LINE_LOGIN_CHANNEL_ID: 'login',
+        LINE_LOGIN_CHANNEL_SECRET: 'synthetic',
+        CROSS_ACCOUNT_TOKEN_KEY: key,
+      } as Env['Bindings']);
+      expect(response.status).toBe(200);
+      const linked = sqlite
+        .prepare("SELECT user_id FROM friends WHERE provider_line_user_id='synthetic-line'")
+        .get() as { user_id: string };
+      if (mode === 'signed-token') expect(linked.user_id).toBe('target-user');
+      else expect(linked.user_id).not.toBe('target-user');
+    } finally {
+      sqlite.close();
+    }
+  },
+);
