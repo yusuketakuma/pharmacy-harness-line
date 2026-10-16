@@ -600,6 +600,7 @@ test.each(['POST', 'PUT'])('rejects unsafe field definitions before persistence 
     { name: 'answer', label: 'Synthetic', type: 'text" onfocus="alert(1)' },
     { name: 'answer"]', label: 'Synthetic', type: 'text' },
     { name: 'answer', label: 'Synthetic', type: 'select', options: [{}] },
+    { name: 'answer', label: 'Synthetic', type: 'text', required: 'false' },
   ]) {
     const response = await app.request(
       method === 'POST' ? '/api/forms' : '/api/forms/synthetic',

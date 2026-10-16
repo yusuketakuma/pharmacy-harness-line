@@ -100,6 +100,21 @@ export async function linkFriendToUser(db: D1Database, friendId: string, userId:
     .run();
 }
 
+/** Automatic identity linking must never replace a concurrent or existing link. */
+export async function linkFriendToUserIfUnlinked(
+  db: D1Database,
+  friendId: string,
+  userId: string,
+  lineAccountId: string | null,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`UPDATE friends SET user_id = ?, updated_at = ?
+    WHERE id = ? AND line_account_id IS ? AND (user_id IS NULL OR user_id = ?)`)
+    .bind(userId, jstNow(), friendId, lineAccountId, userId)
+    .run();
+  return result.meta.changes === 1;
+}
+
 export async function getUserFriends(
   db: D1Database,
   userId: string,

@@ -71,6 +71,7 @@ function validFormFields(fields: unknown): boolean {
       typeof field.name === 'string' &&
       /^[A-Za-z_][A-Za-z0-9_-]*$/.test(field.name) &&
       FORM_FIELD_TYPES.has(field.type) &&
+      (field.required === undefined || typeof field.required === 'boolean') &&
       typeof field.label === 'string' &&
       (field.placeholder === undefined || typeof field.placeholder === 'string') &&
       (field.options === undefined ||

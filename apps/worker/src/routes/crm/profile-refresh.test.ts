@@ -14,7 +14,9 @@ import { scoring } from './scoring.js';
 
 const databases: TestSqliteDatabase[] = [];
 afterEach(() => {
-  databases.splice(0).forEach((db) => db.close());
+  databases.splice(0).forEach((db) => {
+    db.close();
+  });
   vi.unstubAllGlobals();
 });
 function setup(role: 'owner' | 'staff' | null = 'owner', tenant = 'tenant-a') {

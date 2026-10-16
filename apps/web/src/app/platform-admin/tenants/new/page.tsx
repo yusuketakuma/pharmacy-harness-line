@@ -42,7 +42,7 @@ export default function PlatformAdminTenantNewPage() {
   }
 
   async function submit() {
-    if (submitting) return;
+    if (submitting || !currentPassword) return;
     setSubmitting(true);
     setError('');
     idempotencyKey.current ??= crypto.randomUUID();
@@ -81,7 +81,7 @@ export default function PlatformAdminTenantNewPage() {
       setLoginChannelSecret('');
       setStep(4);
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught));
+      setError(`${platformAdminErrorMessage(caught)} 現在のパスワードを再入力してから再試行してください。`);
     } finally {
       setCurrentPassword('');
       setSubmitting(false);
@@ -339,7 +339,7 @@ export default function PlatformAdminTenantNewPage() {
             </button>
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || !currentPassword}
               onClick={submit}
               className="min-h-11 rounded-lg bg-purple-800 px-5 font-semibold text-white disabled:opacity-50"
             >

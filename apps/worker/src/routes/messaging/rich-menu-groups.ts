@@ -234,7 +234,7 @@ function parseAreaInput(raw: unknown): Parsed<RichMenuAreaInput> {
     try {
       if (
         typeof uri !== 'string' ||
-        /[\u0000-\u0020\u007F]/u.test(uri) ||
+        Array.from(uri).some((char) => char.charCodeAt(0) <= 32 || char.charCodeAt(0) === 127) ||
         !['https:', 'http:', 'line:', 'tel:'].includes(new URL(uri).protocol)
       ) {
         return { ok: false, error: 'area URI scheme is not allowed' };

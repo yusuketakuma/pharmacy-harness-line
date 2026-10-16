@@ -30,7 +30,7 @@ const dbMocks = {
   upsertFriend: vi.fn(),
   createUser: vi.fn().mockResolvedValue({ id: 'U-uuid' }),
   getUserByEmail: vi.fn().mockResolvedValue(null),
-  linkFriendToUser: vi.fn().mockResolvedValue(undefined),
+  linkFriendToUserIfUnlinked: vi.fn().mockResolvedValue(true),
   getEntryRouteByRefCode: vi.fn().mockResolvedValue(null),
   recordRefTracking: vi.fn().mockResolvedValue(undefined),
   getTrackedLinkById: vi.fn().mockResolvedValue(null),
