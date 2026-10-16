@@ -93,3 +93,13 @@ function safeRedirectTargetDenylist(raw: string | null | undefined): string | nu
   }
   return DANGEROUS_SCHEMES.has(url.protocol.toLowerCase()) ? null : value;
 }
+
+/** External marketing redirects remain supported; patient identity stays on local tracking links. */
+export function safeLiffRedirectTarget(raw: string | null, origin: string, lineUserId?: string): string | null {
+  const safe = safeRedirectTarget(raw);
+  if (!safe) return null;
+  const target = new URL(safe, origin);
+  if (lineUserId && target.origin === origin && target.pathname.startsWith('/t/'))
+    target.searchParams.set('lu', lineUserId);
+  return target.href;
+}

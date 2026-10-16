@@ -227,3 +227,65 @@ describe('chat template repository', () => {
     ).rejects.toThrow(/not found/);
   });
 });
+
+it('requires someone other than the latest editor to approve, while legacy NULL rows still work', async () => {
+  const { sqlite, db } = setup();
+  try {
+    const created = await createChatTemplate(db, createInput);
+    expect(created.last_edited_by_staff_id).toBeNull();
+    const edited = await updateChatTemplate(db, {
+      ...createInput,
+      actorStaffId: 'staff-d',
+      expectedVersion: 1,
+      title: '受付確認（編集）',
+    });
+    expect(edited.last_edited_by_staff_id).toBe('staff-d');
+    await expect(
+      approveChatTemplate(db, { ...createInput, actorStaffId: 'staff-d', expectedVersion: 2 }),
+    ).rejects.toThrow(/invalid chat template state/);
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE pharmacy_chat_templates SET status='approved',approved_by_staff_id='staff-d',approved_at=? WHERE template_id=?",
+        )
+        .run(NOW.toISOString(), createInput.templateId),
+    ).toThrow(/EDITOR_APPROVAL/);
+    // Existing rows that have never been edited retain the former two-person contract.
+    await createChatTemplate(db, { ...createInput, templateId: 'tpl-legacy-01' });
+    expect(
+      (
+        await approveChatTemplate(db, {
+          ...createInput,
+          templateId: 'tpl-legacy-01',
+          actorStaffId: 'staff-d',
+          expectedVersion: 1,
+        })
+      ).status,
+    ).toBe('approved');
+  } finally {
+    sqlite.close();
+  }
+});
+
+it('lets the prior approver edit into draft and a third staff member approve the edited text', async () => {
+  const { sqlite, db } = setup();
+  try {
+    sqlite.exec(
+      "INSERT INTO staff_members (id,name,role,api_key,principal_kind) VALUES ('staff-c','Synthetic','admin','disabled:staff-c','human'); INSERT INTO tenant_staff_memberships (tenant_id,staff_id,role) VALUES ('tenant-a','staff-c','admin'); INSERT INTO pharmacy_staff_accounts (line_account_id,staff_id,created_at,updated_at) VALUES ('account-a','staff-c','2026-10-16T00:00:00Z','2026-10-16T00:00:00Z');",
+    );
+    await createChatTemplate(db, createInput);
+    await approveChatTemplate(db, { ...createInput, expectedVersion: 1, actorStaffId: 'staff-d' });
+    const edited = await updateChatTemplate(db, {
+      ...createInput,
+      expectedVersion: 2,
+      actorStaffId: 'staff-d',
+      title: '再編集',
+    });
+    expect(edited).toMatchObject({ status: 'draft', approved_by_staff_id: null, last_edited_by_staff_id: 'staff-d' });
+    expect(
+      (await approveChatTemplate(db, { ...createInput, expectedVersion: 3, actorStaffId: 'staff-c' })).status,
+    ).toBe('approved');
+  } finally {
+    sqlite.close();
+  }
+});

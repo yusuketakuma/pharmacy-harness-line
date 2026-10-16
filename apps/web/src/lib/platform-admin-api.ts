@@ -563,7 +563,7 @@ export const platformAdminApi = {
       headers: { 'Idempotency-Key': idempotencyKey },
       body: JSON.stringify(input),
     }),
-  issueSharedLogin: (tenantId: string) =>
+  issueSharedLogin: (tenantId: string, currentPassword?: string) =>
     platformAdminFetch<
       Envelope<{
         tenantId: string;
@@ -572,8 +572,11 @@ export const platformAdminApi = {
         temporaryPassword: string;
         mustChangePassword: true;
       }>
-    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/issue`, { method: 'POST' }),
-  resetSharedLoginPassword: (tenantId: string) =>
+    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/issue`, {
+      method: 'POST',
+      ...(currentPassword ? { body: JSON.stringify({ currentPassword }) } : {}),
+    }),
+  resetSharedLoginPassword: (tenantId: string, currentPassword?: string) =>
     platformAdminFetch<
       Envelope<{
         tenantId: string;
@@ -582,7 +585,10 @@ export const platformAdminApi = {
         temporaryPassword: string;
         mustChangePassword: true;
       }>
-    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/reset-password`, { method: 'POST' }),
+    >(`/tenants/${encodeURIComponent(tenantId)}/shared-login/reset-password`, {
+      method: 'POST',
+      ...(currentPassword ? { body: JSON.stringify({ currentPassword }) } : {}),
+    }),
   tenant: (id: string) => platformAdminFetch<Envelope<PlatformTenantDetail>>(`/tenants/${encodeURIComponent(id)}`),
   updateTenant: (id: string, changes: { displayName?: string; status?: string }) =>
     platformAdminFetch<Envelope<{ id: string; displayName: string; status: string }>>(

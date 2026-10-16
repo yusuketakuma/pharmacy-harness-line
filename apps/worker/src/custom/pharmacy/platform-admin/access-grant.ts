@@ -1,3 +1,5 @@
+import { claimLoginAttempt, clearLoginThrottle } from '../provisioning/auth-throttle.js';
+import { recordPlatformAdminAccess } from './audit.js';
 import { verifyTenantPassword } from '../provisioning/credentials.js';
 
 export const MAX_GRANT_MINUTES = 60;
@@ -26,6 +28,34 @@ export class AccessGrantError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+/** Durable step-up budget is separate from login and shared by sensitive actions. */
+export async function verifyPlatformAdminStepUp(
+  db: D1Database,
+  platformAdminId: string,
+  password: string,
+  sessionTokenHash: string,
+): Promise<void> {
+  const key = { realm: 'platform_admin' as const, authorityId: platformAdminId, loginId: 'step-up' };
+  const attempt = await claimLoginAttempt(db, key);
+  const credential = await db
+    .prepare('SELECT password_hash FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1')
+    .bind(platformAdminId)
+    .first<{ password_hash: string }>();
+  if (!attempt.allowed || !credential || !(await verifyTenantPassword(password, credential.password_hash))) {
+    await recordPlatformAdminAccess(db, platformAdminId, null, 'step_up_failed');
+    if (!attempt.allowed || attempt.failureCount >= 5) {
+      await db
+        .prepare(
+          'UPDATE platform_admin_sessions SET revoked_at = ? WHERE token_hash = ? AND staff_id = ? AND revoked_at IS NULL',
+        )
+        .bind(new Date().toISOString(), sessionTokenHash, platformAdminId)
+        .run();
+    }
+    throw new AccessGrantError(403, 'Current password is incorrect or temporarily locked');
+  }
+  await clearLoginThrottle(db, key);
 }
 
 /**
@@ -66,13 +96,7 @@ export async function createAccessGrant(
     throw new AccessGrantError(401, 'Platform admin session is invalid');
   }
 
-  const credential = await db
-    .prepare(`SELECT password_hash FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`)
-    .bind(platformAdminId)
-    .first<{ password_hash: string }>();
-  if (!credential || !(await verifyTenantPassword(input.currentPassword, credential.password_hash))) {
-    throw new AccessGrantError(403, 'Current password is incorrect');
-  }
+  await verifyPlatformAdminStepUp(db, platformAdminId, input.currentPassword, input.sessionTokenHash);
 
   const tenant = await db.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`).bind(tenantId).first<{ id: string }>();
   if (!tenant) throw new AccessGrantError(404, 'Tenant not found');

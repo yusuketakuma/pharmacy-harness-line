@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type {
   ApiResponse,
@@ -32,7 +33,9 @@ export class ConversationsResource {
     if (params.limit !== undefined) query.set('limit', String(params.limit));
     if (params.before !== undefined) query.set('before', params.before);
     const qs = query.toString();
-    const path = qs ? `/api/conversations/${params.friendId}?${qs}` : `/api/conversations/${params.friendId}`;
+    const path = qs
+      ? `/api/conversations/${encodePathSegment(params.friendId)}?${qs}`
+      : `/api/conversations/${encodePathSegment(params.friendId)}`;
     const res = await this.http.get<ApiResponse<ConversationDetail>>(path);
     return res.data;
   }

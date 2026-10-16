@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, Form, FormSubmission, CreateFormInput, UpdateFormInput } from '../types.js';
 
@@ -10,7 +11,7 @@ export class FormsResource {
   }
 
   async get(id: string): Promise<Form> {
-    const res = await this.http.get<ApiResponse<Form>>(`/api/forms/${id}`);
+    const res = await this.http.get<ApiResponse<Form>>(`/api/forms/${encodePathSegment(id)}`);
     return res.data;
   }
 
@@ -20,16 +21,18 @@ export class FormsResource {
   }
 
   async update(id: string, input: UpdateFormInput): Promise<Form> {
-    const res = await this.http.put<ApiResponse<Form>>(`/api/forms/${id}`, input);
+    const res = await this.http.put<ApiResponse<Form>>(`/api/forms/${encodePathSegment(id)}`, input);
     return res.data;
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/forms/${id}`);
+    await this.http.delete(`/api/forms/${encodePathSegment(id)}`);
   }
 
   async getSubmissions(formId: string): Promise<FormSubmission[]> {
-    const res = await this.http.get<ApiResponse<FormSubmission[]>>(`/api/forms/${formId}/submissions`);
+    const res = await this.http.get<ApiResponse<FormSubmission[]>>(
+      `/api/forms/${encodePathSegment(formId)}/submissions`,
+    );
     return res.data;
   }
 }

@@ -3436,3 +3436,45 @@ describe('POST /api/rich-menu-groups/:groupId/apply-to-tag', () => {
     expect(res.status).toBe(428);
   });
 });
+
+test.each(['GET', 'DELETE'])('rejects richMenuId path injection before any upstream call (%s)', async (method) => {
+  const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  const response = await setupApp().request(
+    `/api/rich-menu-groups/external/..%2Fuser%2Fall%2Frichmenu${method === 'GET' ? '/image' : ''}?accountId=acc-1`,
+    { method },
+  );
+  expect(response.status).toBe(400);
+  expect(fetchSpy).not.toHaveBeenCalled();
+  fetchSpy.mockRestore();
+});
+
+test.each(['POST', 'PATCH'])('rejects script URIs at the persistence boundary (%s)', async (method) => {
+  dbMocks.getRichMenuGroupById.mockResolvedValue({ id: 'g1', account_id: 'acc-1', status: 'draft' });
+  for (const uri of ['javascript:alert(1)', 'data:text/html,synthetic', 'java\tscript:alert(1)']) {
+    const response = await setupApp().request(
+      method === 'POST' ? '/api/rich-menu-groups' : '/api/rich-menu-groups/g1',
+      {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: 'acc-1',
+          name: 'Synthetic',
+          chatBarText: 'Synthetic',
+          size: 'large',
+          pages: [
+            {
+              name: 'p1',
+              orderIndex: 0,
+              areas: [
+                { boundsX: 0, boundsY: 0, boundsWidth: 10, boundsHeight: 10, actionType: 'uri', actionData: { uri } },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+  }
+  expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
+  expect(dbMocks.replaceRichMenuPages).not.toHaveBeenCalled();
+});

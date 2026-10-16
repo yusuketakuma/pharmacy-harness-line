@@ -232,8 +232,8 @@ setup.get('/setup', async (c) => {
 
   <div class="container">
     <div class="tab-bar">
-      <button class="tab-btn active" data-tab="windows" onclick="switchTab('windows')">Windows</button>
-      <button class="tab-btn" data-tab="mac" onclick="switchTab('mac')">Mac</button>
+      <button class="tab-btn active" data-tab="windows">Windows</button>
+      <button class="tab-btn" data-tab="mac">Mac</button>
     </div>
 
     <!-- Windows -->
@@ -314,7 +314,7 @@ setup.get('/setup', async (c) => {
       <h2>実行コマンド</h2>
       <div class="command-box">
         <div class="command-preview">$ npx create-line-harness@latest</div>
-        <button class="copy-btn" onclick="copyCommand()">コピー</button>
+        <button class="copy-btn" id="copy-command">コピー</button>
       </div>
       <div class="copy-feedback" id="copy-feedback"></div>
     </div>
@@ -354,6 +354,10 @@ function showFeedback() {
   el.textContent = 'コピーしました！';
   setTimeout(function() { el.textContent = ''; }, 2000);
 }
+document.querySelectorAll('[data-tab]').forEach(function(button) {
+  button.addEventListener('click', function() { switchTab(button.dataset.tab); });
+});
+document.getElementById('copy-command').addEventListener('click', copyCommand);
 </script>
 </body>
 </html>`);

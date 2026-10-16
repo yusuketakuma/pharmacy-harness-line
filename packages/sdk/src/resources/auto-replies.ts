@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, AutoReply, CreateAutoReplyInput, UpdateAutoReplyInput } from '../types.js';
 
@@ -15,7 +16,7 @@ export class AutoRepliesResource {
   }
 
   async get(id: string): Promise<AutoReply> {
-    const res = await this.http.get<ApiResponse<AutoReply>>(`/api/auto-replies/${id}`);
+    const res = await this.http.get<ApiResponse<AutoReply>>(`/api/auto-replies/${encodePathSegment(id)}`);
     return res.data;
   }
 
@@ -29,11 +30,11 @@ export class AutoRepliesResource {
   }
 
   async update(id: string, input: UpdateAutoReplyInput): Promise<AutoReply> {
-    const res = await this.http.put<ApiResponse<AutoReply>>(`/api/auto-replies/${id}`, input);
+    const res = await this.http.put<ApiResponse<AutoReply>>(`/api/auto-replies/${encodePathSegment(id)}`, input);
     return res.data;
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/auto-replies/${id}`);
+    await this.http.delete(`/api/auto-replies/${encodePathSegment(id)}`);
   }
 }

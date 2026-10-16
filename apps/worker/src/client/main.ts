@@ -19,7 +19,7 @@
 
 import { initBooking } from './booking.js';
 import { initForm } from './form.js';
-import { safeRedirectTarget } from '../lib/safe-redirect.js';
+import { safeLiffRedirectTarget } from '../lib/safe-redirect.js';
 
 declare const liff: {
   init(config: { liffId: string }): Promise<void>;
@@ -76,7 +76,7 @@ function getRedirectUrl(): string | null {
   // open-redirect / javascript: abuse, mirroring the server-side /auth/callback
   // guard. A directly-crafted LIFF URL never reaches the server route, so the
   // client must validate too.
-  return safeRedirectTarget(params.get('redirect'));
+  return safeLiffRedirectTarget(params.get('redirect'), window.location.origin);
 }
 
 function getRef(): string | null {
@@ -101,9 +101,12 @@ function saveUuid(uuid: string): void {
 }
 
 function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ─── UI States ──────────────────────────────────────────
@@ -115,7 +118,7 @@ function showFriendAdd(profile: { displayName: string; pictureUrl?: string }) {
   container.innerHTML = `
     <div class="card">
       <div class="profile">
-        ${profile.pictureUrl ? `<img src="${profile.pictureUrl}" alt="" />` : ''}
+        ${profile.pictureUrl ? `<img src="${escapeHtml(profile.pictureUrl)}" alt="" />` : ''}
         <p class="name">${escapeHtml(profile.displayName)} さん</p>
       </div>
       <p class="message">まずは友だち追加をお願いします</p>
@@ -210,7 +213,7 @@ function showCompletion(profile: { displayName: string; pictureUrl?: string }, i
       <div class="check-icon">${isRecovery ? '🔄' : '✓'}</div>
       <h2>${isRecovery ? 'おかえりなさい！' : '登録完了！'}</h2>
       <div class="profile">
-        ${profile.pictureUrl ? `<img src="${profile.pictureUrl}" alt="" />` : ''}
+        ${profile.pictureUrl ? `<img src="${escapeHtml(profile.pictureUrl)}" alt="" />` : ''}
         <p class="name">${escapeHtml(profile.displayName)} さん</p>
       </div>
       <p class="message">
@@ -298,12 +301,7 @@ async function linkAndAddFlow() {
     if (redirectUrl) {
       await Promise.race([linkPromise, new Promise((r) => setTimeout(r, 500))]);
       // Append LINE userId to tracking links so clicks are attributed
-      if (redirectUrl.includes('/t/')) {
-        const sep = redirectUrl.includes('?') ? '&' : '?';
-        window.location.href = `${redirectUrl}${sep}lu=${encodeURIComponent(profile.userId)}`;
-      } else {
-        window.location.href = redirectUrl;
-      }
+      window.location.href = safeLiffRedirectTarget(redirectUrl, window.location.origin, profile.userId)!;
       return;
     }
 

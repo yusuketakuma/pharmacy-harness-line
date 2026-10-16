@@ -58,6 +58,7 @@ describe('custom_048 tenant admin audit events', () => {
       '029_custom_081_pharmacy_validity_notification_queue.sql',
       '030_custom_082_pharmacy_cron_scan_indexes.sql',
       '031_custom_083_pharmacy_status_notification_work.sql',
+      '032_custom_084_pharmacy_chat_template_editor.sql',
     ]);
   });
 

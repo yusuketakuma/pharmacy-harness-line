@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, RichMenu, CreateRichMenuInput } from '../types.js';
 
@@ -30,11 +31,11 @@ export class RichMenusResource {
   }
 
   async delete(richMenuId: string, accountId?: string): Promise<void> {
-    await this.http.delete(this.scopedPath(`/api/rich-menus/${encodeURIComponent(richMenuId)}`, accountId));
+    await this.http.delete(this.scopedPath(`/api/rich-menus/${encodePathSegment(richMenuId)}`, accountId));
   }
 
   async setDefault(richMenuId: string, accountId?: string): Promise<void> {
-    await this.http.post(this.scopedPath(`/api/rich-menus/${encodeURIComponent(richMenuId)}/default`, accountId));
+    await this.http.post(this.scopedPath(`/api/rich-menus/${encodePathSegment(richMenuId)}/default`, accountId));
   }
 
   async uploadImage(
@@ -43,7 +44,7 @@ export class RichMenusResource {
     contentType: string = 'image/png',
     accountId?: string,
   ): Promise<void> {
-    await this.http.post(this.scopedPath(`/api/rich-menus/${encodeURIComponent(richMenuId)}/image`, accountId), {
+    await this.http.post(this.scopedPath(`/api/rich-menus/${encodePathSegment(richMenuId)}/image`, accountId), {
       imageData,
       contentType,
     });

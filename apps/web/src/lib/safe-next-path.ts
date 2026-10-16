@@ -9,12 +9,17 @@ export function safeNextPath(value: string | null | undefined): string {
   const base = 'https://admin.invalid';
   try {
     const destination = new URL(value, base);
-    if (destination.origin !== base || destination.pathname === '/login' || destination.pathname === '/login/')
+    if (
+      destination.origin !== base ||
+      /^[/\\]{2}/.test(destination.pathname) ||
+      destination.pathname === '/login' ||
+      destination.pathname === '/login/'
+    )
       return '/';
+    return destination.pathname + destination.search + destination.hash;
   } catch {
     return '/';
   }
-  return value;
 }
 
 // Builds the /login URL for an unauthenticated redirect, remembering where the

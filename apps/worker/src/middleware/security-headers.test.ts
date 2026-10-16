@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { Hono } from 'hono';
 import { securityHeadersMiddleware } from './security-headers.js';
@@ -17,7 +18,7 @@ describe('securityHeadersMiddleware', () => {
   test('sets baseline headers on responses that lack them', async () => {
     const res = await app().fetch(new Request('http://localhost/x'));
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
-    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'none'");
+    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'none'; script-src-attr 'none'");
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
   });
@@ -31,4 +32,11 @@ describe('securityHeadersMiddleware', () => {
     expect(res.headers.get('Content-Security-Policy')).toBe("default-src 'none'");
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
   });
+});
+
+test('setup controls keep working under script-src-attr none', () => {
+  const source = readFileSync(new URL('../routes/admin/setup.ts', import.meta.url).pathname, 'utf8');
+  expect(source).not.toMatch(/\son(?:click|load|error)=/);
+  expect(source).toContain("button.addEventListener('click'");
+  expect(source).toContain("addEventListener('click', copyCommand)");
 });

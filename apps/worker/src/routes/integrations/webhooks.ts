@@ -346,11 +346,24 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
     }
 
     const rawBody = await c.req.text();
-    const expected = await computeHmacSha256Hex(wh.secret, rawBody);
+    const timestamp = c.req.header('X-Webhook-Timestamp');
+    const bodyDigest = await computeHmacSha256Hex(wh.secret, rawBody);
+    const expected =
+      timestamp === undefined ? bodyDigest : await computeHmacSha256Hex(wh.secret, `${timestamp}.${rawBody}`);
     if (!safeEqualHex(signatureHeader.toLowerCase(), expected)) {
       return c.json({ success: false, error: 'Invalid signature' }, 401);
     }
 
+    if (timestamp !== undefined) {
+      const seconds = Number(timestamp);
+      if (
+        !/^\d+$/.test(timestamp) ||
+        !Number.isSafeInteger(seconds) ||
+        Math.abs(Date.now() - seconds * 1000) > 5 * 60_000
+      ) {
+        return c.json({ success: false, error: 'Invalid or expired webhook timestamp' }, 401);
+      }
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(rawBody);
@@ -364,7 +377,8 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
     if (rawEventKey !== undefined && !OPAQUE_EVENT_KEY.test(rawEventKey)) {
       return c.json({ success: false, error: 'Invalid Idempotency-Key' }, 400);
     }
-    const eventKey = rawEventKey ? `${wh.id}:${rawEventKey}` : undefined;
+    // The verified body, never an unsigned sender header, identifies a delivery.
+    const eventKey = `${wh.id}:${bodyDigest}`;
     await fireEvent(
       c.env.DB,
       eventType,

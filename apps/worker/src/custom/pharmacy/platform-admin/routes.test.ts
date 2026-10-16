@@ -478,6 +478,8 @@ function fakeDb(rejectThrottle = false): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('INSERT INTO platform_admin_access_events')) {
+            if (sql.includes('WHERE EXISTS (SELECT 1 FROM platform_admins') && values[8] !== admin.staff_id)
+              return { meta: { changes: 0 } };
             if (sql.includes('FROM platform_admin_access_grants')) {
               if (sql.includes("'support_mode_started'")) {
                 const grant = grants.find(
@@ -1182,7 +1184,9 @@ describe('shared pharmacy login management', () => {
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
 
-    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue');
+    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue', {
+      currentPassword: 'Permanent password 84',
+    });
     expect(response.status).toBe(201);
     const body = (await response.json()) as {
       data: {
@@ -1228,7 +1232,9 @@ describe('shared pharmacy login management', () => {
     });
     expect(JSON.stringify(logBody)).not.toContain(body.data.temporaryPassword);
 
-    const duplicate = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue');
+    const duplicate = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue', {
+      currentPassword: 'Permanent password 84',
+    });
     expect(duplicate.status).toBe(409);
   });
 
@@ -1238,7 +1244,9 @@ describe('shared pharmacy login management', () => {
     const auth = await standardSession(testEnv);
     seedShared(store);
 
-    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/reset-password');
+    const response = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/reset-password', {
+      currentPassword: 'Permanent password 84',
+    });
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       data: { pharmacyCode: string; temporaryPassword: string; mustChangePassword: boolean };
@@ -1960,4 +1968,58 @@ describe('platform admin response caching', () => {
     expect(phi.status).toBe(200);
     expect(phi.headers.get('cache-control')).toBe('no-store, private');
   });
+});
+
+it('requires step-up or a session-bound grant for credentials, including old Admin requests', async () => {
+  const store = fakeDb();
+  const testEnv = env(store.db);
+  const auth = await standardSession(testEnv);
+  for (const action of ['issue', 'reset-password']) {
+    expect((await postAs(testEnv, auth, `/api/platform-admin/tenants/tenant-a/shared-login/${action}`)).status).toBe(
+      403,
+    );
+  }
+  seedGrant(store, auth.sessionHash);
+  // Previous Admin sends no body: its already reauthenticated support grant remains valid.
+  expect((await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/shared-login/issue')).status).toBe(201);
+  const other = await secondSession(testEnv);
+  expect(
+    (await postAs(testEnv, other, '/api/platform-admin/tenants/tenant-a/shared-login/reset-password')).status,
+  ).toBe(403);
+});
+
+it('uses durable throttling for unknown platform logins too', async () => {
+  const store = fakeDb();
+  const prepare = vi.spyOn(store.db, 'prepare');
+  const response = await app().request(
+    '/api/platform-admin/login',
+    loginRequest('incorrect password', 'unknown-login'),
+    env(store.db),
+  );
+  expect(response.status).toBe(401);
+  expect(prepare.mock.calls.filter(([sql]) => sql.includes('INSERT INTO admin_login_throttles'))).toHaveLength(1);
+  expect(prepare.mock.calls.filter(([sql]) => sql.includes('INSERT INTO platform_admin_access_events'))).toHaveLength(
+    1,
+  );
+  expect(store.auditEvents).toHaveLength(0);
+});
+
+it('shares a durable step-up budget across support grants and password changes', async () => {
+  const store = fakeDb();
+  const testEnv = env(store.db);
+  const auth = await standardSession(testEnv);
+  const prepare = vi.spyOn(store.db, 'prepare');
+  const grant = await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/support-grants', {
+    reason: 'Synthetic verification',
+    scopes: ['phi:read'],
+    currentPassword: 'incorrect password',
+  });
+  expect(grant.status).toBe(403);
+  const change = await postAs(testEnv, auth, '/api/platform-admin/change-password', {
+    currentPassword: 'incorrect password',
+    newPassword: 'Another synthetic pass 53',
+  });
+  expect(change.status).toBe(401);
+  expect(prepare.mock.calls.filter(([sql]) => sql.includes('INSERT INTO admin_login_throttles'))).toHaveLength(2);
+  expect(store.auditEvents.filter((event) => event.action === 'step_up_failed')).toHaveLength(2);
 });

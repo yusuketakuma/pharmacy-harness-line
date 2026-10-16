@@ -42,3 +42,10 @@ describe('safeNextPath', () => {
     }
   });
 });
+
+it.each(['/..//evil.example', '/.//evil.example', '/%2e%2e//evil.example'])(
+  'rejects a normalized protocol-relative router fallback: %s',
+  (path) => {
+    expect(safeNextPath(path)).toBe('/');
+  },
+);

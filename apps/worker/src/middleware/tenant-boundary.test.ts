@@ -349,3 +349,29 @@ describe('tenant rich-menu resource guard', () => {
     expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 200]);
   });
 });
+
+describe('missing tenant fails closed without breaking public route authentication', () => {
+  it.each([
+    tenantAccountSelectorGuard,
+    tenantFriendResourceGuard,
+    tenantScenarioResourceGuard,
+    tenantRichMenuResourceGuard,
+  ])('guards API requests', async (guard) => {
+    const root = new Hono<Env>();
+    root.use('*', guard);
+    root.all('*', (c) => c.json({ ok: true }));
+    for (const path of ['/api/friends/f/score', '/%61pi/users']) {
+      expect((await root.request(path)).status).toBe(401);
+    }
+    for (const [method, path] of [
+      ['GET', '/api/forms/f'],
+      ['POST', '/api/forms/f/submit'],
+      ['GET', '/api/liff/profile'],
+      ['POST', '/api/webhooks/incoming/w/receive'],
+      ['POST', '/api/auth/login'],
+    ]) {
+      expect((await root.request(path, { method })).status).toBe(200);
+    }
+    expect((await root.request('/api/forms/f', { method: 'DELETE' })).status).toBe(401);
+  });
+});

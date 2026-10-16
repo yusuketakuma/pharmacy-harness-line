@@ -592,3 +592,24 @@ describe('webhook URL / header validation (INJ-1)', () => {
     expect(res.status).toBe(201);
   });
 });
+
+test.each(['POST', 'PUT'])('rejects unsafe field definitions before persistence (%s)', async (method) => {
+  const app = new Hono<Env>();
+  app.route('/', forms);
+  for (const field of [
+    { name: 'answer', label: 'Synthetic', type: 'text" onfocus="alert(1)' },
+    { name: 'answer"]', label: 'Synthetic', type: 'text' },
+    { name: 'answer', label: 'Synthetic', type: 'select', options: [{}] },
+  ]) {
+    const response = await app.request(
+      method === 'POST' ? '/api/forms' : '/api/forms/synthetic',
+      {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Synthetic', fields: [field] }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(400);
+  }
+});

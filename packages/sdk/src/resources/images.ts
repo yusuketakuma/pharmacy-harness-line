@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, UploadedImage, UploadImageInput } from '../types.js';
 
@@ -10,6 +11,6 @@ export class ImagesResource {
   }
 
   async delete(key: string): Promise<void> {
-    await this.http.delete(`/api/images/${key}`);
+    await this.http.delete(`/api/images/${encodePathSegment(key)}`);
   }
 }

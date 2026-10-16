@@ -1,3 +1,4 @@
+import { isPublicApiRequest } from './public-api-path.js';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../index.js';
 import { isPharmacyModeAccount, resolveAccessiblePharmacyTenant } from '../custom/pharmacy/growth-loop/access.js';
@@ -69,7 +70,11 @@ export async function accountResourceOwnedByStaff(
 
 export const tenantAccountSelectorGuard: MiddlewareHandler<Env> = async (c, next) => {
   const tenantId = c.get('tenantId');
-  if (!tenantId) return next();
+  if (!tenantId) {
+    return isPublicApiRequest(c.req.method.toUpperCase(), c.req.path) || !c.req.path.startsWith('/api/')
+      ? next()
+      : deny(c, 401, 'tenant_required', 'Unauthorized');
+  }
 
   const accountIds = new Set<string>();
   for (const key of ACCOUNT_KEYS) addAccountIds(accountIds, c.req.query(key));
@@ -101,7 +106,11 @@ const FRIEND_COLLECTION_PATHS = new Set(['/api/friends/count', '/api/friends/ref
 
 export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next) => {
   const tenantId = c.get('tenantId');
-  if (!tenantId) return next();
+  if (!tenantId) {
+    return isPublicApiRequest(c.req.method.toUpperCase(), c.req.path) || !c.req.path.startsWith('/api/')
+      ? next()
+      : deny(c, 401, 'tenant_required', 'Unauthorized');
+  }
 
   const path = c.req.path; // decoded path Hono routed on; raw pathname may be percent-encoded
   const bodyFriendIds = new Set<string>();
@@ -158,7 +167,11 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
 
 export const tenantScenarioResourceGuard: MiddlewareHandler<Env> = async (c, next) => {
   const tenantId = c.get('tenantId');
-  if (!tenantId) return next();
+  if (!tenantId) {
+    return isPublicApiRequest(c.req.method.toUpperCase(), c.req.path) || !c.req.path.startsWith('/api/')
+      ? next()
+      : deny(c, 401, 'tenant_required', 'Unauthorized');
+  }
 
   const scenarioId = /^\/api\/scenarios\/([^/]+)/.exec(c.req.path)?.[1];
   if (!scenarioId) return next();
@@ -181,7 +194,11 @@ export const tenantScenarioResourceGuard: MiddlewareHandler<Env> = async (c, nex
 
 export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, next) => {
   const tenantId = c.get('tenantId');
-  if (!tenantId) return next();
+  if (!tenantId) {
+    return isPublicApiRequest(c.req.method.toUpperCase(), c.req.path) || !c.req.path.startsWith('/api/')
+      ? next()
+      : deny(c, 401, 'tenant_required', 'Unauthorized');
+  }
 
   const path = c.req.path; // decoded path Hono routed on; raw pathname may be percent-encoded
   const groupId = /^\/api\/rich-menu-groups\/([^/]+)/.exec(path)?.[1];

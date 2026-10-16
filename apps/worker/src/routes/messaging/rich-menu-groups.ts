@@ -229,6 +229,20 @@ function parseAreaInput(raw: unknown): Parsed<RichMenuAreaInput> {
   if (!r.actionData || typeof r.actionData !== 'object') {
     return { ok: false, error: 'area.actionData must be object' };
   }
+  if (r.actionType === 'uri') {
+    const uri = (r.actionData as Record<string, unknown>).uri;
+    try {
+      if (
+        typeof uri !== 'string' ||
+        /[\u0000-\u0020\u007F]/u.test(uri) ||
+        !['https:', 'http:', 'line:', 'tel:'].includes(new URL(uri).protocol)
+      ) {
+        return { ok: false, error: 'area URI scheme is not allowed' };
+      }
+    } catch {
+      return { ok: false, error: 'area URI is invalid' };
+    }
+  }
   return {
     ok: true,
     value: {
@@ -403,13 +417,14 @@ async function groupMatchesAccountScope(c: Context<Env>, group: Pick<RichMenuGro
 // admin 経由で取得して画面に流す)。
 richMenuGroups.get('/api/rich-menu-groups/external/:richMenuId/image', async (c) => {
   const richMenuId = c.req.param('richMenuId');
+  if (!/^[A-Za-z0-9_-]+$/.test(richMenuId)) return c.json({ success: false, error: 'Invalid richMenuId' }, 400);
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
   const accessToken = await resolveLineAccessToken(c, accountId);
   if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
-  const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+  const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -430,6 +445,8 @@ richMenuGroups.get('/api/rich-menu-groups/external/:richMenuId/image', async (c)
 richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   const accountId = c.req.query('accountId');
   const richMenuId = c.req.query('richMenuId');
+  if (richMenuId && !/^[A-Za-z0-9_-]+$/.test(richMenuId))
+    return c.json({ success: false, error: 'Invalid richMenuId' }, 400);
   if (!accountId || !richMenuId) {
     return c.json({ success: false, error: 'accountId and richMenuId query params required' }, 400);
   }
@@ -453,7 +470,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   const auth = `Bearer ${accessToken}`;
 
   // 1. LINE から rich menu 詳細を取得
-  const detailRes = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
+  const detailRes = await fetch(`https://api.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}`, {
     headers: { Authorization: auth },
   });
   if (!detailRes.ok) {
@@ -549,7 +566,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   }
 
   // 4. 画像を LINE から取得して R2 に保存
-  const imgRes = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+  const imgRes = await fetch(`https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`, {
     headers: { Authorization: auth },
   });
   if (!imgRes.ok) {
@@ -585,7 +602,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   // 7. alias を upsert (今後の再 publish 時の安定 ID として)
   const aliasId = `lhx-${created.id.slice(0, 8)}-0`;
   try {
-    await fetch(`https://api.line.me/v2/bot/richmenu/alias/${aliasId}`, {
+    await fetch(`https://api.line.me/v2/bot/richmenu/alias/${encodeURIComponent(aliasId)}`, {
       method: 'DELETE',
       headers: { Authorization: auth },
     });
@@ -699,6 +716,7 @@ richMenuGroups.get('/api/rich-menu-groups/external', async (c) => {
 // (Unpublish 経由で消すべき)。
 richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) => {
   const richMenuId = c.req.param('richMenuId');
+  if (!/^[A-Za-z0-9_-]+$/.test(richMenuId)) return c.json({ success: false, error: 'Invalid richMenuId' }, 400);
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   const account = await getScopedLineAccount(c, accountId);
@@ -728,7 +746,7 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
   }
 
   const auth = `Bearer ${accessToken}`;
-  const res = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
+  const res = await fetch(`https://api.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}`, {
     method: 'DELETE',
     headers: { Authorization: auth },
   });
@@ -1004,7 +1022,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
       return body.richMenuId;
     },
     async uploadRichMenuImage(richMenuId, image, contentType) {
-      const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+      const res = await fetch(`https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`, {
         method: 'POST',
         headers: { Authorization: auth, 'Content-Type': contentType },
         body: image,
@@ -1012,7 +1030,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
       if (!res.ok) throw new Error(`LINE uploadRichMenuImage failed: ${res.status}`);
     },
     async deleteRichMenuAlias(aliasId) {
-      const res = await fetch(`https://api.line.me/v2/bot/richmenu/alias/${aliasId}`, {
+      const res = await fetch(`https://api.line.me/v2/bot/richmenu/alias/${encodeURIComponent(aliasId)}`, {
         method: 'DELETE',
         headers: { Authorization: auth },
       });
@@ -1029,7 +1047,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
       if (!res.ok) throw new Error(`LINE createRichMenuAlias failed: ${res.status}`);
     },
     async deleteRichMenu(richMenuId) {
-      const res = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
+      const res = await fetch(`https://api.line.me/v2/bot/richmenu/${encodeURIComponent(richMenuId)}`, {
         method: 'DELETE',
         headers: { Authorization: auth },
       });
@@ -1038,7 +1056,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
       }
     },
     async setDefaultRichMenu(richMenuId) {
-      const res = await fetch(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, {
+      const res = await fetch(`https://api.line.me/v2/bot/user/all/richmenu/${encodeURIComponent(richMenuId)}`, {
         method: 'POST',
         headers: { Authorization: auth },
       });

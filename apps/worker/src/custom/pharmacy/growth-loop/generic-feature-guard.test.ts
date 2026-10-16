@@ -555,6 +555,12 @@ describe('pharmacy tenant API allowlist', () => {
     expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403, 403]);
   });
 
+  it('checks decoded paths consistently with Hono', async () => {
+    const { root, env } = allowlistApp(true);
+    expect((await root.request('/api/%75sers', {}, env)).status).toBe(403);
+    expect((await root.request('/api/%63ustom/pharmacy/prescriptions', {}, env)).status).toBe(200);
+  });
+
   it('keeps generic tenant APIs backward compatible', async () => {
     const { root, env } = allowlistApp(false);
     const response = await root.request('/api/users', {}, env);

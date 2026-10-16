@@ -40,6 +40,7 @@ const MIGRATION_MANIFEST = [
   '029_custom_081_pharmacy_validity_notification_queue.sql',
   '030_custom_082_pharmacy_cron_scan_indexes.sql',
   '031_custom_083_pharmacy_status_notification_work.sql',
+  '032_custom_084_pharmacy_chat_template_editor.sql',
 ] as const;
 const BASELINE = MIGRATION_MANIFEST[0];
 const baseline = readFileSync(join(MIGRATIONS_DIR, BASELINE));

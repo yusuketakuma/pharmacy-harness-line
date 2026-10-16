@@ -115,9 +115,12 @@ const state: FormState = {
 let _replierPoolReady = false;
 
 function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function apiCall(path: string, options?: RequestInit): Promise<Response> {
@@ -143,7 +146,7 @@ function getApp(): HTMLElement {
 
 // ========== Field Rendering ==========
 
-function renderField(field: FormField): string {
+export function renderField(field: FormField): string {
   const required = field.required ? ' required' : '';
   const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
   const requiredMark = field.required ? '<span class="required-mark">*</span>' : '';
@@ -443,7 +446,7 @@ function render(): void {
     formDef.hideProfile || !profile?.pictureUrl
       ? ''
       : `<div class="form-profile">
-        <img src="${profile.pictureUrl}" alt="" />
+        <img src="${escapeHtml(profile.pictureUrl)}" alt="" />
         <span>${escapeHtml(profile.displayName)} さん</span>
       </div>`;
 

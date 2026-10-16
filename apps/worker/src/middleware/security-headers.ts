@@ -14,7 +14,8 @@ export async function securityHeadersMiddleware(c: Context<Env>, next: Next): Pr
   await next();
   const headers = c.res.headers;
   if (!headers.has('X-Frame-Options')) headers.set('X-Frame-Options', 'DENY');
-  if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', "frame-ancestors 'none'");
+  if (!headers.has('Content-Security-Policy'))
+    headers.set('Content-Security-Policy', "frame-ancestors 'none'; script-src-attr 'none'");
   if (!headers.has('X-Content-Type-Options')) headers.set('X-Content-Type-Options', 'nosniff');
   if (!headers.has('Referrer-Policy')) headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 }

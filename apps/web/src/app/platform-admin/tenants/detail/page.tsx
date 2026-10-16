@@ -409,6 +409,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
 
 function SharedLoginPanel({ tenantId, pharmacyCode }: { tenantId: string; pharmacyCode: string }) {
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
 
@@ -423,12 +424,13 @@ function SharedLoginPanel({ tenantId, pharmacyCode }: { tenantId: string; pharma
     setTemporaryPassword(null);
     try {
       const response = reset
-        ? await platformAdminApi.resetSharedLoginPassword(tenantId)
-        : await platformAdminApi.issueSharedLogin(tenantId);
+        ? await platformAdminApi.resetSharedLoginPassword(tenantId, currentPassword)
+        : await platformAdminApi.issueSharedLogin(tenantId, currentPassword);
       setTemporaryPassword(response.data.temporaryPassword);
     } catch (caught) {
       setError(platformAdminErrorMessage(caught));
     } finally {
+      setCurrentPassword('');
       setWorking(false);
     }
   };
@@ -441,6 +443,16 @@ function SharedLoginPanel({ tenantId, pharmacyCode }: { tenantId: string; pharma
       <p className="mb-3 text-sm">
         薬局コード: <code className="font-mono">{pharmacyCode}</code>
       </p>
+      <label className="mb-3 block text-sm">
+        全体管理者の現在のパスワード（再確認）
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          className="mt-1 block rounded border border-gray-300 p-2"
+        />
+      </label>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"

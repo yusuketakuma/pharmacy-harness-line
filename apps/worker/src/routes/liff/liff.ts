@@ -1348,7 +1348,16 @@ liffRoutes.post('/api/liff/link', async (c) => {
       if (!targetUser) {
         return c.json({ success: false, error: 'Cross-account user not found' }, 400);
       }
-      await linkFriendToUser(db, friend.id, crossAccount.userId);
+      if (linkedUserId && linkedUserId !== crossAccount.userId) {
+        return c.json({ success: false, error: 'Friend already linked to another user' }, 409);
+      }
+      const linked = await db
+        .prepare(
+          `UPDATE friends SET user_id = ? WHERE id = ? AND line_account_id = ? AND (user_id IS NULL OR user_id = ?)`,
+        )
+        .bind(crossAccount.userId, friend.id, matchedAccount.id, crossAccount.userId)
+        .run();
+      if (!linked.meta.changes) return c.json({ success: false, error: 'Friend link conflict' }, 409);
       linkedUserId = crossAccount.userId;
     }
 

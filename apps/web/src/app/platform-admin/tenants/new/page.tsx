@@ -29,6 +29,7 @@ export default function PlatformAdminTenantNewPage() {
   const [loginChannelId, setLoginChannelId] = useState('');
   const [loginChannelSecret, setLoginChannelSecret] = useState('');
   const [liffId, setLiffId] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
 
   function next(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,7 +68,7 @@ export default function PlatformAdminTenantNewPage() {
       );
       let result = response.data;
       if (!result.sharedLoginIssued) {
-        const issued = await platformAdminApi.issueSharedLogin(result.tenantId);
+        const issued = await platformAdminApi.issueSharedLogin(result.tenantId, currentPassword);
         result = {
           ...result,
           sharedLoginIssued: true,
@@ -82,6 +83,7 @@ export default function PlatformAdminTenantNewPage() {
     } catch (caught) {
       setError(platformAdminErrorMessage(caught));
     } finally {
+      setCurrentPassword('');
       setSubmitting(false);
     }
   }
@@ -291,6 +293,16 @@ export default function PlatformAdminTenantNewPage() {
           <p className="text-sm text-gray-600">
             登録後にLINE接続確認とWebhook URL設定を行います。リッチメニューは自動公開しません。
           </p>
+          <label className="block text-sm">
+            全体管理者の現在のパスワード（共通ログイン発行時の再確認）
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              className={inputClass}
+            />
+          </label>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-gray-500">薬局・法人名</dt>

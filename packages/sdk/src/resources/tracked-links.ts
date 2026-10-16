@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type {
   ApiResponse,
@@ -21,16 +22,16 @@ export class TrackedLinksResource {
   }
 
   async update(id: string, input: UpdateTrackedLinkInput): Promise<TrackedLink> {
-    const res = await this.http.patch<ApiResponse<TrackedLink>>(`/api/tracked-links/${id}`, input);
+    const res = await this.http.patch<ApiResponse<TrackedLink>>(`/api/tracked-links/${encodePathSegment(id)}`, input);
     return res.data;
   }
 
   async get(id: string): Promise<TrackedLinkWithClicks> {
-    const res = await this.http.get<ApiResponse<TrackedLinkWithClicks>>(`/api/tracked-links/${id}`);
+    const res = await this.http.get<ApiResponse<TrackedLinkWithClicks>>(`/api/tracked-links/${encodePathSegment(id)}`);
     return res.data;
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/tracked-links/${id}`);
+    await this.http.delete(`/api/tracked-links/${encodePathSegment(id)}`);
   }
 }

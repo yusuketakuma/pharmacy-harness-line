@@ -10,10 +10,15 @@ export function registerManageFriends(server: McpServer): void {
       action: z.enum(['count', 'set_metadata', 'set_rich_menu', 'remove_rich_menu']).describe('Action to perform'),
       friendId: z
         .string()
+        .regex(/^[A-Za-z0-9_-]+$/, 'Invalid friend ID')
         .optional()
         .describe('Friend ID (required for set_metadata, set_rich_menu, remove_rich_menu)'),
       metadata: z.string().optional().describe("JSON string of metadata fields to set (for 'set_metadata')"),
-      richMenuId: z.string().optional().describe("Rich menu ID to assign (for 'set_rich_menu')"),
+      richMenuId: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]+$/, 'Invalid rich menu ID')
+        .optional()
+        .describe("Rich menu ID to assign (for 'set_rich_menu')"),
     },
     async ({ action, friendId, metadata, richMenuId }) => {
       try {

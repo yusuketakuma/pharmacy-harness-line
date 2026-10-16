@@ -26,6 +26,7 @@ import {
   listActiveGrants,
   PHI_READ_SCOPE,
   requireActiveGrant,
+  verifyPlatformAdminStepUp,
 } from './access-grant.js';
 import {
   PLATFORM_ADMIN_AUTH_COOKIE,
@@ -252,7 +253,11 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
         authorityId: row.staff_id,
         loginId: row.login_id,
       }
-    : null;
+    : {
+        realm: 'platform_admin' as const,
+        authorityId: `unknown:${await hashTenantAdminSessionToken(loginId.normalize('NFKC').trim().toLowerCase())}`,
+        loginId: loginId,
+      };
   let attemptAllowed = false;
   if (throttleKey) {
     try {
@@ -284,7 +289,21 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
     );
     // The audit table requires a real platform_admin_id, so only a known
     // admin's failed attempt can be recorded there; unknown logins stay log-only.
-    if (row) await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login_failed');
+    await c.env.DB.prepare(`INSERT INTO platform_admin_access_events
+      (id, platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM platform_admins WHERE staff_id = ?)`)
+      .bind(
+        crypto.randomUUID(),
+        row?.staff_id ?? throttleKey.authorityId,
+        null,
+        'login_failed',
+        null,
+        null,
+        null,
+        new Date().toISOString(),
+        row?.staff_id ?? throttleKey.authorityId,
+      )
+      .run();
     return c.json({ success: false, error: 'Unauthorized' }, 401);
   }
 
@@ -446,18 +465,13 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   )
     .bind(admin.id)
     .first<{ password_hash: string; credential_version: number }>();
-  if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
-    log(
-      'auth.password_change_failed',
-      {
-        realm: 'platform_admin',
-        platform_admin_id: admin.id,
-        reason: 'bad_current_password',
-      },
-      'warn',
-    );
-    return c.json({ success: false, error: 'Current password is incorrect' }, 401);
+  try {
+    await verifyPlatformAdminStepUp(c.env.DB, admin.id, currentPassword, sessionTokenHash);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, 401);
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
   }
+  if (!credential) return c.json({ success: false, error: 'Unauthorized' }, 401);
 
   const passwordHash = await hashTenantPassword(newPassword);
   const nextCredentialVersion = credential.credential_version + 1;
@@ -621,6 +635,17 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/issue', a
   const admin = await currentPlatformAdmin(c);
   if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
   const tenantId = c.req.param('id');
+  const sessionHash = await platformAdminSessionHash(c);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const password = stringBody(body, 'currentPassword');
+    if (password && sessionHash) await verifyPlatformAdminStepUp(c.env.DB, admin.id, password, sessionHash);
+    else await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, sessionHash);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
+
   const tenant = await c.env.DB.prepare(
     `SELECT id, tenant_code, display_name, status FROM tenants WHERE id = ? LIMIT 1`,
   )
@@ -731,6 +756,17 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/reset-pas
   const admin = await currentPlatformAdmin(c);
   if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
   const tenantId = c.req.param('id');
+  const sessionHash = await platformAdminSessionHash(c);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const password = stringBody(body, 'currentPassword');
+    if (password && sessionHash) await verifyPlatformAdminStepUp(c.env.DB, admin.id, password, sessionHash);
+    else await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, sessionHash);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
+
   const tenant = await c.env.DB.prepare(`SELECT id, tenant_code, status FROM tenants WHERE id = ? LIMIT 1`)
     .bind(tenantId)
     .first<{ id: string; tenant_code: string; status: string }>();

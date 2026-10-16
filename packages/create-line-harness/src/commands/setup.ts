@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readFileSync, writeFileSync, existsSync, rmSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -89,8 +89,10 @@ function loadState(repoDir: string): SetupState {
   return { completedSteps: [] };
 }
 
-function saveState(repoDir: string, state: SetupState): void {
-  writeFileSync(getStatePath(repoDir), JSON.stringify(state, null, 2) + '\n');
+export function saveState(repoDir: string, state: SetupState): void {
+  const path = getStatePath(repoDir);
+  if (existsSync(path)) chmodSync(path, 0o600);
+  writeFileSync(path, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
 }
 
 function removeStateFile(repoDir: string): void {

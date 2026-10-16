@@ -443,7 +443,17 @@ function Editor({ groupId, router }: { groupId: string; router: ReturnType<typeo
               onPreviewAction={(area) => {
                 if (area.actionType === 'uri') {
                   const uri = (area.actionData as { uri?: string }).uri;
-                  if (uri) window.open(uri, '_blank');
+                  if (uri) {
+                    try {
+                      if (
+                        !/[\u0000-\u0020\u007F]/u.test(uri) &&
+                        ['http:', 'https:', 'line:', 'tel:'].includes(new URL(uri).protocol)
+                      )
+                        window.open(uri, '_blank', 'noopener,noreferrer');
+                    } catch {
+                      /* Invalid stored URI cannot open a preview window. */
+                    }
+                  }
                 } else if (area.actionType === 'richmenuswitch') {
                   const targetId = (area.actionData as { targetPageId?: string }).targetPageId;
                   if (targetId && pages.some((p) => p.id === targetId)) {

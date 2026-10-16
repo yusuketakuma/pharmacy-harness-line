@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type {
   ApiResponse,
@@ -17,7 +18,7 @@ export class StaffResource {
   }
 
   async get(id: string): Promise<StaffMember> {
-    const res = await this.http.get<ApiResponse<StaffMember>>(`/api/staff/${id}`);
+    const res = await this.http.get<ApiResponse<StaffMember>>(`/api/staff/${encodePathSegment(id)}`);
     return res.data;
   }
 
@@ -32,16 +33,19 @@ export class StaffResource {
   }
 
   async update(id: string, input: UpdateStaffInput): Promise<StaffMember> {
-    const res = await this.http.patch<ApiResponse<StaffMember>>(`/api/staff/${id}`, input);
+    const res = await this.http.patch<ApiResponse<StaffMember>>(`/api/staff/${encodePathSegment(id)}`, input);
     return res.data;
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/staff/${id}`);
+    await this.http.delete(`/api/staff/${encodePathSegment(id)}`);
   }
 
   async resetPassword(id: string, loginId?: string): Promise<StaffCredentialIssue> {
-    const res = await this.http.post<ApiResponse<StaffCredentialIssue>>(`/api/staff/${id}/reset-password`, { loginId });
+    const res = await this.http.post<ApiResponse<StaffCredentialIssue>>(
+      `/api/staff/${encodePathSegment(id)}/reset-password`,
+      { loginId },
+    );
     return res.data;
   }
 }

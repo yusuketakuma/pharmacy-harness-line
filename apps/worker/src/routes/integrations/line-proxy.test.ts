@@ -1303,3 +1303,21 @@ describe('reply and passthrough', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+test.each(['staff', 'admin', 'owner'] as const)('staff-key proxy uses an endpoint allowlist (%s)', async (role) => {
+  vi.mocked(authenticateApiToken).mockResolvedValue({ id: 's1', name: 'Synthetic', role });
+  const { db } = fakeDb();
+  for (const path of ['/v2/bot/channel/webhook/endpoint', '/v2/bot/channel/webhook/test', '/v2/bot/unknown']) {
+    const response = await setupApp().request(
+      `/line-api${path}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer harness-key', 'X-Tenant-Id': 'tenant-a', 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      env(db),
+    );
+    expect(response.status).toBe(403);
+  }
+  expect(fetchMock).not.toHaveBeenCalled();
+});

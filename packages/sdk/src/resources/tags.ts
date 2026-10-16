@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, Tag, CreateTagInput } from '../types.js';
 
@@ -15,6 +16,6 @@ export class TagsResource {
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/tags/${id}`);
+    await this.http.delete(`/api/tags/${encodePathSegment(id)}`);
   }
 }

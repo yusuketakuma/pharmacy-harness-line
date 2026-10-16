@@ -173,7 +173,11 @@ adminAuth.post('/api/auth/login', async (c) => {
         authorityId: row.id,
         loginId: pharmacyCode,
       }
-    : null;
+    : {
+        realm: 'tenant' as const,
+        authorityId: `unknown:${await hashTenantAdminSessionToken(pharmacyCode.normalize('NFKC').trim().toLowerCase())}`,
+        loginId: pharmacyCode,
+      };
   let attemptAllowed = false;
   if (throttleKey) {
     try {

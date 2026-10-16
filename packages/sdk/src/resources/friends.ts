@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, PaginatedData, Friend, FriendListParams, MessageType } from '../types.js';
 
@@ -27,7 +28,7 @@ export class FriendsResource {
   }
 
   async get(id: string): Promise<Friend> {
-    const res = await this.http.get<ApiResponse<Friend>>(`/api/friends/${id}`);
+    const res = await this.http.get<ApiResponse<Friend>>(`/api/friends/${encodePathSegment(id)}`);
     return res.data;
   }
 
@@ -37,11 +38,11 @@ export class FriendsResource {
   }
 
   async addTag(friendId: string, tagId: string): Promise<void> {
-    await this.http.post(`/api/friends/${friendId}/tags`, { tagId });
+    await this.http.post(`/api/friends/${encodePathSegment(friendId)}/tags`, { tagId });
   }
 
   async removeTag(friendId: string, tagId: string): Promise<void> {
-    await this.http.delete(`/api/friends/${friendId}/tags/${tagId}`);
+    await this.http.delete(`/api/friends/${encodePathSegment(friendId)}/tags/${encodePathSegment(tagId)}`);
   }
 
   async sendMessage(
@@ -52,7 +53,7 @@ export class FriendsResource {
     options?: { trackLinks?: boolean; idempotencyKey?: string },
   ): Promise<{ messageId: string }> {
     const res = await this.http.post<ApiResponse<{ messageId: string }>>(
-      `/api/friends/${friendId}/messages`,
+      `/api/friends/${encodePathSegment(friendId)}/messages`,
       {
         messageType,
         content,
@@ -68,15 +69,18 @@ export class FriendsResource {
   }
 
   async setMetadata(friendId: string, fields: Record<string, unknown>): Promise<Friend> {
-    const res = await this.http.put<ApiResponse<Friend>>(`/api/friends/${friendId}/metadata`, fields);
+    const res = await this.http.put<ApiResponse<Friend>>(
+      `/api/friends/${encodePathSegment(friendId)}/metadata`,
+      fields,
+    );
     return res.data;
   }
 
   async setRichMenu(friendId: string, richMenuId: string): Promise<void> {
-    await this.http.post(`/api/friends/${friendId}/rich-menu`, { richMenuId });
+    await this.http.post(`/api/friends/${encodePathSegment(friendId)}/rich-menu`, { richMenuId });
   }
 
   async removeRichMenu(friendId: string): Promise<void> {
-    await this.http.delete(`/api/friends/${friendId}/rich-menu`);
+    await this.http.delete(`/api/friends/${encodePathSegment(friendId)}/rich-menu`);
   }
 }

@@ -17,9 +17,12 @@ import {
   applyMileageRulesForEvent,
 } from '@line-crm/db';
 import type { MileageRuleRow } from '@line-crm/db';
+import { tenantFriendResourceGuard } from '../../middleware/tenant-boundary.js';
 import type { Env } from '../../index.js';
 
 const scoring = new Hono<Env>();
+
+scoring.use('/api/friends/:id/score', tenantFriendResourceGuard);
 
 function serializeMileageRule(rule: MileageRuleRow) {
   let conditions: Record<string, unknown> = {};

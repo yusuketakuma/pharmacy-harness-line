@@ -164,7 +164,7 @@ export const platformAdminAuthMiddleware: MiddlewareHandler<Env> = async (c, nex
   // instances — and a future router cannot be added without inheriting it.
   c.header('Cache-Control', 'no-store, private');
 
-  const path = new URL(c.req.url).pathname;
+  const path = c.req.path;
   if (path === '/api/platform-admin/login') return next();
 
   const token = platformAdminSessionTokenFromCookie(c);

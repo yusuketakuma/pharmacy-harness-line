@@ -558,6 +558,22 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
 
     const method = c.req.method.toUpperCase();
     const isMessageSend = logSends && method === 'POST' && MESSAGE_SEND_PATHS.has(path);
+    if (caller.staff) {
+      const staffRead =
+        logSends &&
+        method === 'GET' &&
+        (path === '/v2/bot/info' ||
+          /^\/v2\/bot\/profile\/U[0-9a-f]{32}$/.test(path) ||
+          /^\/v2\/bot\/message\/(?:quota(?:\/consumption)?|delivery\/(?:push|multicast|broadcast|reply))$/.test(path));
+      const menuAdmin =
+        ['owner', 'admin'].includes(caller.staff.role) &&
+        ['GET', 'POST', 'PUT', 'DELETE'].includes(method) &&
+        /^\/v2\/bot\/(?:richmenu(?:\/[A-Za-z0-9_-]+)*|user\/(?:all|U[0-9a-f]{32})\/richmenu(?:\/[A-Za-z0-9_-]+)?)$/.test(
+          path,
+        );
+      if (!isMessageSend && !staffRead && !menuAdmin)
+        return c.json({ message: 'LINE operation not permitted for this staff key' }, 403);
+    }
 
     // Proxy 経由の自動送信と、人間が行う個別返信を区別する。未指定は従来どおり
     // external。manual は 1:1 push だけに限定し、一斉配信で未対応をまとめて消す

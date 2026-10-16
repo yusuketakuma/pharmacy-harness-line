@@ -81,7 +81,7 @@ export async function pharmacyTenantApiAllowlistGuard(c: Context<Env>, next: Nex
 
   if (!(await isPharmacyTenant(c.env.DB, tenantId))) return next();
 
-  const path = new URL(c.req.url).pathname;
+  const path = c.req.path;
   if (c.get('platformAdmin') && findPharmacyAdminApiCoverage(c.req.method, path)) {
     return next();
   }
@@ -181,7 +181,7 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 }
 
 export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): Promise<Response | void> {
-  const path = new URL(c.req.url).pathname;
+  const path = c.req.path;
   if (path === '/api/tags' && c.get('tenantId') && SAFE_METHODS.has(c.req.method.toUpperCase())) {
     return next();
   }

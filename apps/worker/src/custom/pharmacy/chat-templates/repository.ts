@@ -12,6 +12,7 @@ export interface PharmacyChatTemplate {
   version: number;
   created_by_staff_id: string;
   approved_by_staff_id: string | null;
+  last_edited_by_staff_id: string | null;
   approved_at: string | null;
   created_at: string;
   updated_at: string;
@@ -72,7 +73,7 @@ export async function listChatTemplates(db: D1Database, lineAccountId: string): 
   const result = await db
     .prepare(
       `SELECT line_account_id, template_id, title, body, status, version,
-            created_by_staff_id, approved_by_staff_id, approved_at,
+            created_by_staff_id, approved_by_staff_id, approved_at, last_edited_by_staff_id,
             created_at, updated_at
        FROM pharmacy_chat_templates
       WHERE line_account_id = ?
@@ -92,7 +93,7 @@ export async function getChatTemplate(
   return db
     .prepare(
       `SELECT line_account_id, template_id, title, body, status, version,
-            created_by_staff_id, approved_by_staff_id, approved_at,
+            created_by_staff_id, approved_by_staff_id, approved_at, last_edited_by_staff_id,
             created_at, updated_at
        FROM pharmacy_chat_templates
       WHERE line_account_id = ? AND template_id = ?
@@ -114,7 +115,7 @@ function mapScopeError(error: unknown): never {
   if (/CHAT_TEMPLATE_STAFF_SCOPE|CHAT_TEMPLATE_IDENTITY/.test(message)) {
     throw new Error('invalid chat template staff');
   }
-  if (/CHECK constraint/.test(message)) {
+  if (/CHECK constraint|CHAT_TEMPLATE_EDITOR_APPROVAL/.test(message)) {
     throw new Error('invalid chat template state');
   }
   throw error;
@@ -248,11 +249,11 @@ export async function updateChatTemplate(
         .prepare(
           `UPDATE pharmacy_chat_templates
             SET title = ?, body = ?, status = 'draft',
-                approved_by_staff_id = NULL, approved_at = NULL,
+                approved_by_staff_id = NULL, approved_at = NULL, last_edited_by_staff_id = ?,
                 version = version + 1, updated_at = ?
           WHERE line_account_id = ? AND template_id = ? AND version = ?`,
         )
-        .bind(title, body, timestamp, input.lineAccountId, input.templateId, input.expectedVersion),
+        .bind(title, body, input.actorStaffId, timestamp, input.lineAccountId, input.templateId, input.expectedVersion),
       action: 'pharmacy_chat_template_updated',
       detail: { status: 'draft' },
     };
@@ -265,7 +266,7 @@ export async function approveChatTemplate(
 ): Promise<PharmacyChatTemplate> {
   return mutateTemplate(db, input, (current, timestamp) => {
     if (current.status !== 'draft') throw new Error('invalid chat template state');
-    if (current.created_by_staff_id === input.actorStaffId) {
+    if (current.created_by_staff_id === input.actorStaffId || current.last_edited_by_staff_id === input.actorStaffId) {
       // Separation of duties: the author cannot approve their own text.
       throw new Error('invalid chat template state');
     }

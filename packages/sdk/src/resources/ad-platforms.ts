@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse } from '../types.js';
 
@@ -50,16 +51,18 @@ export class AdPlatformsResource {
   }
 
   async update(id: string, input: UpdateAdPlatformInput): Promise<AdPlatform> {
-    const res = await this.http.put<ApiResponse<AdPlatform>>(`/api/ad-platforms/${id}`, input);
+    const res = await this.http.put<ApiResponse<AdPlatform>>(`/api/ad-platforms/${encodePathSegment(id)}`, input);
     return res.data;
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.delete(`/api/ad-platforms/${id}`);
+    await this.http.delete(`/api/ad-platforms/${encodePathSegment(id)}`);
   }
 
   async getLogs(id: string, limit?: number): Promise<AdConversionLog[]> {
-    const path = limit ? `/api/ad-platforms/${id}/logs?limit=${limit}` : `/api/ad-platforms/${id}/logs`;
+    const path = limit
+      ? `/api/ad-platforms/${encodePathSegment(id)}/logs?limit=${limit}`
+      : `/api/ad-platforms/${encodePathSegment(id)}/logs`;
     const res = await this.http.get<ApiResponse<AdConversionLog[]>>(path);
     return res.data;
   }

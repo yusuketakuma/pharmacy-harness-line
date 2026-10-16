@@ -369,3 +369,13 @@ describe('platform admin control center UI contract', () => {
     expect(api).toContain('JSON.parse(grant.scopes)');
   });
 });
+
+it('passes step-up passwords only in request bodies for shared credential operations', () => {
+  const api = read('lib', 'platform-admin-api.ts');
+  const detail = read('app', 'platform-admin', 'tenants', 'detail', 'page.tsx');
+  expect(api).toContain('currentPassword?: string');
+  expect(api).toContain('JSON.stringify({ currentPassword })');
+  expect(detail).toContain('resetSharedLoginPassword(tenantId, currentPassword)');
+  expect(detail).toContain('autoComplete="current-password"');
+  expect(detail).toContain("setCurrentPassword('')");
+});

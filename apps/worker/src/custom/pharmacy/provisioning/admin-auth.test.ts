@@ -1091,3 +1091,19 @@ describe('tenant admin password authentication', () => {
     ).toBe(200);
   });
 });
+
+it('uses durable throttling for unknown pharmacy codes too', async () => {
+  const db = tenantDb();
+  const prepare = vi.spyOn(db, 'prepare');
+  const response = await app().request(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pharmacyCode: 'unknown-pharmacy', password: 'incorrect password' }),
+    },
+    env(db),
+  );
+  expect(response.status).toBe(401);
+  expect(prepare.mock.calls.filter(([sql]) => sql.includes('INSERT INTO admin_login_throttles'))).toHaveLength(1);
+});

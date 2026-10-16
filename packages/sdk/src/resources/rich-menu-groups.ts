@@ -1,3 +1,4 @@
+import { encodePathSegment } from '../path-segment.js';
 import type { HttpClient } from '../http.js';
 import type { ApiResponse, CreateRichMenuGroupInput, RichMenuGroup, UpdateRichMenuGroupInput } from '../types.js';
 
@@ -49,7 +50,7 @@ export class RichMenuGroupsResource {
 
   async get(groupId: string, accountId?: string): Promise<RichMenuGroup> {
     const res = await this.http.get<ApiResponse<RichMenuGroup>>(
-      this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}`, accountId),
+      this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}`, accountId),
     );
     return res.data;
   }
@@ -66,14 +67,14 @@ export class RichMenuGroupsResource {
 
   async update(groupId: string, input: UpdateRichMenuGroupInput, accountId?: string): Promise<RichMenuGroup> {
     const res = await this.http.patch<ApiResponse<RichMenuGroup>>(
-      this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}`, accountId),
+      this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}`, accountId),
       input,
     );
     return res.data;
   }
 
   async delete(groupId: string, options?: { force?: boolean; accountId?: string }): Promise<void> {
-    const path = this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}`, options?.accountId);
+    const path = this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}`, options?.accountId);
     const force = options?.force ? '&force=true' : '';
     await this.http.delete(`${path}${force}`);
   }
@@ -89,7 +90,7 @@ export class RichMenuGroupsResource {
       ApiResponse<{ imageR2Key: string; imageContentType: string; size: 'large' | 'compact' }>
     >(
       this.path(
-        `/api/rich-menu-groups/${encodeURIComponent(groupId)}/pages/${encodeURIComponent(pageId)}/image`,
+        `/api/rich-menu-groups/${encodePathSegment(groupId)}/pages/${encodePathSegment(pageId)}/image`,
         accountId,
       ),
       decodeBase64(imageData),
@@ -100,21 +101,21 @@ export class RichMenuGroupsResource {
 
   async publish(groupId: string, accountId?: string): Promise<RichMenuMutationResult> {
     const res = await this.http.post<ApiResponse<RichMenuMutationResult>>(
-      this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}/publish`, accountId),
+      this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}/publish`, accountId),
     );
     return res.data;
   }
 
   async unpublish(groupId: string, accountId?: string): Promise<RichMenuMutationResult> {
     const res = await this.http.post<ApiResponse<RichMenuMutationResult>>(
-      this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}/unpublish`, accountId),
+      this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}/unpublish`, accountId),
     );
     return res.data;
   }
 
   async applyToTag(groupId: string, input: RichMenuApplyInput, accountId?: string): Promise<RichMenuMutationResult> {
     const res = await this.http.post<ApiResponse<RichMenuMutationResult>>(
-      this.path(`/api/rich-menu-groups/${encodeURIComponent(groupId)}/apply-to-tag`, accountId),
+      this.path(`/api/rich-menu-groups/${encodePathSegment(groupId)}/apply-to-tag`, accountId),
       input,
     );
     return res.data;

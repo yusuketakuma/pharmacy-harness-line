@@ -1164,3 +1164,11 @@ describe('CORS allowed / blocked origins', () => {
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 });
+
+test.each(['/%61pi/admin/recent-messages', '/%61pi/users', '/api/liff/%70harmacy/admin-only'])(
+  'authenticates the same decoded API path Hono routes: %s',
+  async (path) => {
+    const response = await app().request(path, {}, env());
+    expect(response.status).toBe(401);
+  },
+);

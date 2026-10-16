@@ -60,6 +60,24 @@ function parseWebhookHeaders(raw: unknown): Record<string, string> | null {
   }
 }
 
+const FORM_FIELD_TYPES = new Set(['text', 'email', 'tel', 'number', 'textarea', 'select', 'radio', 'checkbox', 'date']);
+
+function validFormFields(fields: unknown): boolean {
+  if (!Array.isArray(fields)) return false;
+  return fields.every(
+    (field) =>
+      field &&
+      typeof field === 'object' &&
+      typeof field.name === 'string' &&
+      /^[A-Za-z_][A-Za-z0-9_-]*$/.test(field.name) &&
+      FORM_FIELD_TYPES.has(field.type) &&
+      typeof field.label === 'string' &&
+      (field.placeholder === undefined || typeof field.placeholder === 'string') &&
+      (field.options === undefined ||
+        (Array.isArray(field.options) && field.options.every((option: unknown) => typeof option === 'string'))),
+  );
+}
+
 const forms = new Hono<Env>();
 
 function optionalExecutionCtx(c: Context<Env>): ExecutionContext | undefined {
@@ -240,6 +258,9 @@ forms.post('/api/forms', async (c) => {
     if (!body.name) {
       return c.json({ success: false, error: 'name is required' }, 400);
     }
+    if (body.fields !== undefined && !validFormFields(body.fields)) {
+      return c.json({ success: false, error: 'Invalid form fields' }, 400);
+    }
     const webhookError = validateWebhookSettings(body.onSubmitWebhookUrl, body.onSubmitWebhookHeaders);
     if (webhookError) {
       return c.json({ success: false, error: webhookError }, 400);
@@ -292,6 +313,9 @@ forms.put('/api/forms/:id', async (c) => {
       ogImageUrl?: string | null;
     }>();
 
+    if (body.fields !== undefined && !validFormFields(body.fields)) {
+      return c.json({ success: false, error: 'Invalid form fields' }, 400);
+    }
     const webhookError = validateWebhookSettings(body.onSubmitWebhookUrl, body.onSubmitWebhookHeaders);
     if (webhookError) {
       return c.json({ success: false, error: webhookError }, 400);

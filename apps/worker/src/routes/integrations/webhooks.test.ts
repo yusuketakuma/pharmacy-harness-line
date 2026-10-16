@@ -608,8 +608,39 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
       undefined,
       null,
       'tenant-a',
-      'iwh-1:source-event-1',
+      `iwh-1:${hexSignature}`,
     );
+  });
+
+  test('deduplicates a signed body independently of unsigned headers and supports timestamp-free senders', async () => {
+    vi.mocked(getIncomingWebhookById).mockResolvedValue({
+      id: 'iwh-1',
+      tenant_id: 'tenant-a',
+      source_type: 'custom',
+      secret: VALID_SECRET,
+      is_active: 1,
+    } as never);
+    const body = JSON.stringify({ ping: true });
+    const signature = await signWebhookBody(body);
+    for (const key of [undefined, 'source-event-2', 'source-event-3']) {
+      const response = await setupApp().request(
+        '/api/webhooks/incoming/iwh-1/receive',
+        {
+          method: 'POST',
+          headers: { 'X-Webhook-Signature': signature, ...(key ? { 'Idempotency-Key': key } : {}) },
+          body,
+        },
+        baseEnv,
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(new Set(vi.mocked(fireEvent).mock.calls.map((call) => call[6]))).toEqual(new Set([`iwh-1:${signature}`]));
+    const expired = await setupApp().request(
+      '/api/webhooks/incoming/iwh-1/receive',
+      { method: 'POST', headers: { 'X-Webhook-Signature': signature, 'X-Webhook-Timestamp': '1' }, body },
+      baseEnv,
+    );
+    expect(expired.status).toBe(401);
   });
 
   test.each([

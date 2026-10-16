@@ -1,8 +1,17 @@
 import { Hono } from 'hono';
 import { LineClient } from '@line-crm/line-sdk';
+import { deny } from '../../middleware/deny.js';
 import type { Env } from '../../index.js';
 
 const profileRefresh = new Hono<Env>();
+
+profileRefresh.use('/api/admin/*', async (c, next) => {
+  if (!c.get('tenantId') || !c.get('staff')) return deny(c, 401, 'tenant_required', 'Unauthorized');
+  if (c.get('staff')?.role !== 'owner') return deny(c, 403, 'owner_required', 'Forbidden');
+  return next();
+});
+
+const TENANT_ACCOUNTS = 'SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?';
 
 /**
  * 友だち全員のプロフィール (display_name / picture_url / status_message) を
@@ -26,6 +35,7 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
   }
 
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
 
   // 対象 friend を line_account_id 込みで取得。既に block 済 (is_following=0)
   // も含めるか? → 含めない。送信対象だけリフレッシュすれば十分で、ブロック済は
@@ -34,7 +44,7 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
     SELECT f.id, f.provider_line_user_id AS line_user_id, f.line_account_id, a.channel_access_token
     FROM friends f
     LEFT JOIN line_accounts a ON a.id = f.line_account_id
-    WHERE f.is_following = 1
+    WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND f.is_following = 1
       AND f.provider_line_user_id IS NOT NULL
       ${accountIdFilter ? 'AND f.line_account_id = ?' : ''}
     ORDER BY f.id
@@ -42,7 +52,9 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
   `;
 
   const stmt = db.prepare(baseQuery);
-  const bound = accountIdFilter ? stmt.bind(accountIdFilter, limit, offset) : stmt.bind(limit, offset);
+  const bound = accountIdFilter
+    ? stmt.bind(tenantId, accountIdFilter, limit, offset)
+    : stmt.bind(tenantId, limit, offset);
 
   const batch = await bound.all<{
     id: string;
@@ -79,9 +91,15 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
                    picture_url     = ?,
                    status_message  = ?,
                    updated_at      = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours') || '+09:00'
-             WHERE id = ?`,
+             WHERE id = ? AND line_account_id IN (${TENANT_ACCOUNTS})`,
             )
-            .bind(profile.displayName ?? null, profile.pictureUrl ?? null, profile.statusMessage ?? null, row.id)
+            .bind(
+              profile.displayName ?? null,
+              profile.pictureUrl ?? null,
+              profile.statusMessage ?? null,
+              row.id,
+              tenantId,
+            )
             .run();
           updated += 1;
         } catch (err) {
@@ -126,6 +144,13 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
 profileRefresh.post('/api/admin/broadcasts/:id/reset-to-draft', async (c) => {
   const id = c.req.param('id');
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
+
+  const owned = await db
+    .prepare(`SELECT id FROM broadcasts WHERE id = ? AND line_account_id IN (${TENANT_ACCOUNTS})`)
+    .bind(id, tenantId)
+    .first();
+  if (!owned) return c.json({ success: false, error: 'broadcast not found' }, 404);
 
   const logged = await db
     .prepare(
@@ -158,9 +183,9 @@ profileRefresh.post('/api/admin/broadcasts/:id/reset-to-draft', async (c) => {
              sent_at = NULL,
              batch_lock_at = NULL,
              line_request_id = NULL
-       WHERE id = ?`,
+       WHERE id = ? AND line_account_id IN (${TENANT_ACCOUNTS})`,
     )
-    .bind(id)
+    .bind(id, tenantId)
     .run();
 
   return c.json({
@@ -183,6 +208,7 @@ profileRefresh.post('/api/admin/tag-leak-check', async (c) => {
     return c.json({ success: false, error: 'tagsA/tagsB must be string arrays' }, 400);
   }
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
 
   const buildIdentSql = (tagNames: string[]) => {
     const placeholders = tagNames.map(() => '?').join(',');
@@ -196,7 +222,7 @@ profileRefresh.post('/api/admin/tag-leak-check', async (c) => {
       FROM friends f
       INNER JOIN friend_tags ft ON ft.friend_id = f.id
       INNER JOIN tags t ON t.id = ft.tag_id
-      WHERE t.name IN (${placeholders})
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND t.name IN (${placeholders})
         AND f.is_following = 1
     `;
   };
@@ -212,7 +238,7 @@ profileRefresh.post('/api/admin/tag-leak-check', async (c) => {
   `;
   const row = await db
     .prepare(sql)
-    .bind(...body.tagsA, ...body.tagsB)
+    .bind(tenantId, ...body.tagsA, tenantId, ...body.tagsB)
     .first<{
       unique_a: number;
       unique_b: number;
@@ -239,6 +265,7 @@ profileRefresh.post('/api/admin/content-leak-check', async (c) => {
     return c.json({ success: false, error: 'tagName + contentSubstring required' }, 400);
   }
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
   const idCol = `COALESCE(
     CASE
       WHEN f.picture_url LIKE 'https://sprofile.line-scdn.net/%' THEN SUBSTR(f.picture_url, 42, 80)
@@ -251,14 +278,14 @@ profileRefresh.post('/api/admin/content-leak-check', async (c) => {
       FROM friends f
       INNER JOIN friend_tags ft ON ft.friend_id = f.id
       INNER JOIN tags t ON t.id = ft.tag_id
-      WHERE t.name = ? AND f.is_following = 1
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND t.name = ? AND f.is_following = 1
     ),
     received AS (
       -- 任意の friend_id (同一 + 別人物含む) で content マッチした受信者
       SELECT DISTINCT f.id AS friend_id, ${idCol} AS ident_key
       FROM friends f
       INNER JOIN messages_log ml ON ml.friend_id = f.id
-      WHERE ml.direction = 'outgoing' AND ml.content LIKE ?
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ml.direction = 'outgoing' AND ml.content LIKE ?
     )
     SELECT
       (SELECT COUNT(DISTINCT ident_key) FROM tag_friends) AS unique_in_tag,
@@ -269,7 +296,7 @@ profileRefresh.post('/api/admin/content-leak-check', async (c) => {
   `;
   const row = await db
     .prepare(sql)
-    .bind(body.tagName, '%' + body.contentSubstring + '%')
+    .bind(tenantId, body.tagName, tenantId, '%' + body.contentSubstring + '%')
     .first<{
       unique_in_tag: number;
       same_friend_overlap: number;
@@ -286,6 +313,7 @@ profileRefresh.post('/api/admin/content-leak-check', async (c) => {
 profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
   const body = await c.req.json<{ tagName: string; contentSubstring: string }>();
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
 
   const idCol = `COALESCE(
     CASE
@@ -308,13 +336,13 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
       ON ml.friend_id = f.id
       AND ml.direction = 'outgoing'
       AND ml.content LIKE ?
-    WHERE la.is_active = 1
+    WHERE la.id IN (${TENANT_ACCOUNTS}) AND la.is_active = 1
     GROUP BY la.id, la.name
     ORDER BY friends_total DESC
   `;
   const perAccount = await db
     .prepare(perAccountSql)
-    .bind('%' + body.contentSubstring + '%')
+    .bind('%' + body.contentSubstring + '%', tenantId)
     .all<{
       account_id: string;
       account_name: string;
@@ -328,13 +356,13 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
       SELECT f.id, f.line_account_id, ${idCol} AS ident_key
       FROM friends f
       INNER JOIN line_accounts la ON la.id = f.line_account_id
-      WHERE f.is_following = 1 AND la.is_active = 1
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND f.is_following = 1 AND la.is_active = 1
     ),
     received AS (
       SELECT DISTINCT f.id AS friend_id, ${idCol} AS ident_key
       FROM friends f
       INNER JOIN messages_log ml ON ml.friend_id = f.id
-      WHERE ml.direction = 'outgoing' AND ml.content LIKE ?
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ml.direction = 'outgoing' AND ml.content LIKE ?
     )
     SELECT
       (SELECT COUNT(DISTINCT ident_key) FROM all_following) AS unique_total,
@@ -344,7 +372,7 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
   `;
   const person = await db
     .prepare(personSql)
-    .bind('%' + body.contentSubstring + '%')
+    .bind(tenantId, tenantId, '%' + body.contentSubstring + '%')
     .first<{ unique_total: number; unique_received: number; unique_not_received: number }>();
 
   // 3. tag 内の重複漏れ詳細 — 「rest 配信したらどのアカで何人 leak するか」
@@ -356,13 +384,13 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
       FROM friends f
       INNER JOIN friend_tags ft ON ft.friend_id = f.id
       INNER JOIN tags t ON t.id = ft.tag_id
-      WHERE t.name = ? AND f.is_following = 1
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND t.name = ? AND f.is_following = 1
     ),
     received AS (
       SELECT DISTINCT f.id AS friend_id, ${idCol} AS ident_key
       FROM friends f
       INNER JOIN messages_log ml ON ml.friend_id = f.id
-      WHERE ml.direction = 'outgoing' AND ml.content LIKE ?
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ml.direction = 'outgoing' AND ml.content LIKE ?
     )
     SELECT
       tf.line_account_id AS account_id,
@@ -377,7 +405,7 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
   `;
   const tagLeakBreakdown = await db
     .prepare(tagLeakSql)
-    .bind(body.tagName, '%' + body.contentSubstring + '%')
+    .bind(tenantId, body.tagName, tenantId, '%' + body.contentSubstring + '%')
     .all<{
       account_id: string;
       account_name: string;
@@ -406,6 +434,7 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
 profileRefresh.post('/api/admin/tag-remove-content-dups', async (c) => {
   const body = await c.req.json<{ tagName: string; contentSubstring: string }>();
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
 
   const idCol = `COALESCE(
     CASE
@@ -418,21 +447,21 @@ profileRefresh.post('/api/admin/tag-remove-content-dups', async (c) => {
   // の行を削除する。received CTE は ident_key だけ持てば十分。
   const deleteSql = `
     DELETE FROM friend_tags
-    WHERE tag_id = (SELECT id FROM tags WHERE name = ?)
+    WHERE tag_id IN (SELECT id FROM tags WHERE name = ? AND tenant_id = ?)
       AND friend_id IN (
         WITH received_idents AS (
           SELECT DISTINCT ${idCol} AS ident_key
           FROM friends f
           INNER JOIN messages_log ml ON ml.friend_id = f.id
-          WHERE ml.direction = 'outgoing' AND ml.content LIKE ?
+          WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ml.direction = 'outgoing' AND ml.content LIKE ?
         )
         SELECT f.id FROM friends f
-        WHERE ${idCol} IN (SELECT ident_key FROM received_idents)
+        WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ${idCol} IN (SELECT ident_key FROM received_idents)
       )
   `;
   const result = await db
     .prepare(deleteSql)
-    .bind(body.tagName, '%' + body.contentSubstring + '%')
+    .bind(body.tagName, tenantId, tenantId, '%' + body.contentSubstring + '%', tenantId)
     .run();
 
   return c.json({
@@ -452,6 +481,7 @@ profileRefresh.post('/api/admin/tag-remove-content-dups', async (c) => {
  */
 profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
   const days = Number.parseInt(c.req.query('days') ?? '30', 10);
 
   // 1. 各アカウントで「auto_replies の keyword と一致する incoming text」の件数
@@ -466,14 +496,14 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
         COUNT(*) AS incoming_count
       FROM messages_log ml
       INNER JOIN friends f ON f.id = ml.friend_id
-      WHERE ml.direction = 'incoming'
+      WHERE f.line_account_id IN (${TENANT_ACCOUNTS}) AND ml.direction = 'incoming'
         AND ml.message_type = 'text'
         AND ml.created_at >= ?
-        AND ml.content IN (SELECT keyword FROM auto_replies WHERE is_active = 1)
+        AND ml.content IN (SELECT keyword FROM auto_replies WHERE is_active = 1 AND line_account_id IN (${TENANT_ACCOUNTS}))
       GROUP BY f.line_account_id, ml.content
       ORDER BY incoming_count DESC
     `)
-    .bind(sinceDate)
+    .bind(tenantId, sinceDate, tenantId)
     .all<{ account_id: string | null; keyword: string; incoming_count: number }>();
 
   // 2. 各アカウントで auto_reply / automation source の outgoing 件数
@@ -484,16 +514,19 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
         source,
         COUNT(*) AS outgoing_count
       FROM messages_log
-      WHERE direction = 'outgoing'
+      WHERE line_account_id IN (${TENANT_ACCOUNTS}) AND direction = 'outgoing'
         AND source IN ('auto_reply', 'automation', 'automation_backfill')
         AND created_at >= ?
       GROUP BY line_account_id, source
     `)
-    .bind(sinceDate)
+    .bind(tenantId, sinceDate)
     .all<{ account_id: string | null; source: string; outgoing_count: number }>();
 
   // 3. アカウント名 lookup
-  const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
+  const accRes = await db
+    .prepare(`SELECT id, name FROM line_accounts WHERE id IN (${TENANT_ACCOUNTS})`)
+    .bind(tenantId)
+    .all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
 
   return c.json({
@@ -523,6 +556,7 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
 profileRefresh.get('/api/admin/recent-messages', async (c) => {
   const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '20', 10), 100);
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
 
   const res = await db
     .prepare(`
@@ -531,13 +565,17 @@ profileRefresh.get('/api/admin/recent-messages', async (c) => {
              f.display_name, f.id AS friend_id
       FROM messages_log ml
       LEFT JOIN friends f ON f.id = ml.friend_id
+      WHERE ml.line_account_id IN (${TENANT_ACCOUNTS})
       ORDER BY ml.created_at DESC
       LIMIT ?
     `)
-    .bind(limit)
+    .bind(tenantId, limit)
     .all();
 
-  const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
+  const accRes = await db
+    .prepare(`SELECT id, name FROM line_accounts WHERE id IN (${TENANT_ACCOUNTS})`)
+    .bind(tenantId)
+    .all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
 
   return c.json({
@@ -566,12 +604,17 @@ profileRefresh.get('/api/admin/recent-messages', async (c) => {
  */
 profileRefresh.get('/api/admin/automations-summary', async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
   const res = await db
     .prepare(
-      `SELECT id, name, event_type, line_account_id, is_active, conditions, SUBSTR(actions, 1, 80) AS actions_preview FROM automations ORDER BY line_account_id, event_type`,
+      `SELECT id, name, event_type, line_account_id, is_active, conditions, SUBSTR(actions, 1, 80) AS actions_preview FROM automations WHERE line_account_id IN (${TENANT_ACCOUNTS}) ORDER BY line_account_id, event_type`,
     )
+    .bind(tenantId)
     .all();
-  const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
+  const accRes = await db
+    .prepare(`SELECT id, name FROM line_accounts WHERE id IN (${TENANT_ACCOUNTS})`)
+    .bind(tenantId)
+    .all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
   return c.json({
     success: true,
@@ -599,13 +642,17 @@ profileRefresh.get('/api/admin/automations-summary', async (c) => {
 profileRefresh.get('/api/admin/friend-debug/:id', async (c) => {
   const id = c.req.param('id');
   const db = c.env.DB;
+  const tenantId = c.get('tenantId')!;
   const friend = await db
     .prepare(
-      `SELECT id, display_name, provider_line_user_id AS line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ?`,
+      `SELECT id, display_name, provider_line_user_id AS line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ? AND line_account_id IN (${TENANT_ACCOUNTS})`,
     )
-    .bind(id)
+    .bind(id, tenantId)
     .first();
-  const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
+  const accRes = await db
+    .prepare(`SELECT id, name FROM line_accounts WHERE id IN (${TENANT_ACCOUNTS})`)
+    .bind(tenantId)
+    .all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
   const accId = (friend as Record<string, unknown> | null)?.line_account_id as string | null | undefined;
   return c.json({
