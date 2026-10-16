@@ -625,6 +625,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
           attachTagAndFireSideEffects(db, friendId, form.on_submit_tag_id, {
             defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
             workerUrl: c.env.WORKER_URL,
+            crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
           }),
         );
       }
@@ -705,7 +706,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
           const friend = await getFriendById(db, friendId!);
           if (!friend?.line_user_id) return;
           const accessToken = await resolveFriendAccessToken(db, friend, c.env.LINE_CHANNEL_ACCESS_TOKEN);
-          const { buildMessage, expandVariables } = await import('../../services/step-delivery.js');
+          const { buildMessage, expandVariablesWithSignedLinks } = await import('../../services/step-delivery.js');
           const apiOrigin = new URL(c.req.url).origin;
           const { resolveMetadata } = await import('../../services/step-delivery.js');
           const resolvedMeta = await resolveMetadata(c.env.DB, {
@@ -801,7 +802,9 @@ forms.post('/api/forms/:id/submit', async (c) => {
             messages.push(rewardFromTrackedLink as ReturnType<typeof buildMessage>);
           } else if (form.on_submit_message_type && form.on_submit_message_content) {
             // Custom form message replaces default diagnostic result
-            const expanded = expandVariables(
+            const expanded = await expandVariablesWithSignedLinks(
+              db,
+              c.env.CROSS_ACCOUNT_TOKEN_KEY,
               form.on_submit_message_content,
               friendData,
               apiOrigin,

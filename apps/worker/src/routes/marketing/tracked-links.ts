@@ -439,6 +439,7 @@ trackedLinks.get('/t/:linkId', async (c) => {
               attachTagAndFireSideEffects(c.env.DB, friendId, link.tag_id, {
                 defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
                 workerUrl: c.env.WORKER_URL,
+                crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
               }),
             );
           }

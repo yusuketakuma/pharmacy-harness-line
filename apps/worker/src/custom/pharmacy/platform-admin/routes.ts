@@ -1016,6 +1016,7 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/webhook-events/:webhoo
       db: c.env.DB,
       credentialRootSecret: c.env.LINE_CREDENTIAL_KEY_V1 ?? '',
       workerUrl: c.env.WORKER_URL || new URL(c.req.url).origin,
+      crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
       liffUrl: c.env.LIFF_URL,
       r2: c.env.IMAGES,
     },

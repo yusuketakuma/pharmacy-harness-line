@@ -286,6 +286,7 @@ async function applyRefAttribution(
     await attachTagAndFireSideEffects(db, friend.id, effectiveTagId, {
       defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
       workerUrl: c.env.WORKER_URL,
+      crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
       accountChannelId: options?.accountChannelId ?? null,
     });
   }
@@ -298,6 +299,7 @@ async function applyRefAttribution(
         {
           defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
           workerUrl: c.env.WORKER_URL,
+          crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
           accountChannelId: options?.accountChannelId ?? null,
         },
         // every-click: cooldown before enrolling, push even on re-clicks,
@@ -990,6 +992,7 @@ liffRoutes.get('/auth/callback', async (c) => {
               {
                 defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
                 workerUrl: c.env.WORKER_URL,
+                crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
                 accountChannelId: accountParam || null,
               },
               { enrollment, targetLineUserId: lineUserId },

@@ -66,6 +66,7 @@ interface WebhookEventRunner {
   db: D1Database;
   credentialRootSecret: string;
   workerUrl?: string;
+  crossAccountTokenKey?: string;
   liffUrl?: string;
   r2?: R2Bucket;
   proxyDispatch?: HarnessProxyDispatch;
@@ -191,6 +192,7 @@ export async function runWebhookInboxEvent(
         runner.liffUrl,
         runner.r2,
         runner.proxyDispatch,
+        runner.crossAccountTokenKey,
       );
     } finally {
       clearInterval(heartbeatTimer);
@@ -235,6 +237,7 @@ export async function sweepWebhookInbox(options: {
   db: D1Database;
   credentialRootSecret?: string;
   workerUrl?: string;
+  crossAccountTokenKey?: string;
   liffUrl?: string;
   r2?: R2Bucket;
   proxyDispatch?: HarnessProxyDispatch;
@@ -299,6 +302,7 @@ export async function sweepWebhookInbox(options: {
     db,
     credentialRootSecret: options.credentialRootSecret,
     workerUrl: options.workerUrl,
+    crossAccountTokenKey: options.crossAccountTokenKey,
     liffUrl: options.liffUrl,
     r2: options.r2,
     proxyDispatch: options.proxyDispatch,
@@ -503,6 +507,7 @@ webhook.post('/webhook', async (c) => {
     db,
     credentialRootSecret,
     workerUrl: c.env.WORKER_URL || new URL(c.req.url).origin,
+    crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
     liffUrl: c.env.LIFF_URL,
     r2: c.env.IMAGES,
     proxyDispatch: (request) => dispatchLineProxyLocally(request, c.env, c.executionCtx),
@@ -543,6 +548,7 @@ async function handleEvent(
   liffUrl?: string,
   r2?: R2Bucket,
   proxyDispatch?: HarnessProxyDispatch,
+  crossAccountTokenKey?: string,
 ): Promise<void> {
   // Dedup and retry state live in the durable inbox row that the request
   // handler (or the cron sweep) already claimed before calling this.
@@ -658,6 +664,7 @@ async function handleEvent(
             {
               defaultAccessToken: lineAccessToken,
               workerUrl,
+              crossAccountTokenKey,
               tenantId,
               lineAccountId,
               eventKey: webhookEventId,
@@ -730,7 +737,7 @@ async function handleEvent(
               db,
               friend.id,
               referralRoute.scenario_id,
-              { defaultAccessToken: lineAccessToken, workerUrl },
+              { defaultAccessToken: lineAccessToken, workerUrl, crossAccountTokenKey },
               { enrollment },
             );
           }
@@ -829,6 +836,7 @@ async function handleEvent(
         eventKey: webhookEventId,
         lineAccountId,
         workerUrl,
+        crossAccountTokenKey,
         liffUrl,
         logContext: 'postback',
         replyMessage: workerUrl
@@ -1224,6 +1232,7 @@ async function handleEvent(
         eventKey: webhookEventId,
         lineAccountId,
         workerUrl,
+        crossAccountTokenKey,
         liffUrl,
         replyMessage: workerUrl
           ? (token, messages) => replyViaHarnessProxy(workerUrl, lineAccessToken, token, messages, proxyDispatch)

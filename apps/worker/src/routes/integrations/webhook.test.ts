@@ -85,7 +85,7 @@ vi.mock('../../services/outbound-line-delivery.js', () => outboundDeliveryMocks)
 
 vi.mock('../../services/step-delivery.js', () => ({
   buildMessage: vi.fn(),
-  expandVariables: vi.fn(),
+  expandVariablesWithSignedLinks: vi.fn(),
   resolveMetadata: vi.fn(),
   messageToLogPayload: vi.fn(),
   isDeterministicInvalidReplyToken: vi.fn(
@@ -119,7 +119,7 @@ import { fireEvent } from '../../services/event-bus.js';
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
 import { deliverTrackedLinePush, deliverTrackedLineReply } from '../../services/outbound-line-delivery.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
-import { buildMessage, expandVariables, messageToLogPayload } from '../../services/step-delivery.js';
+import { buildMessage, expandVariablesWithSignedLinks, messageToLogPayload } from '../../services/step-delivery.js';
 import { webhook } from './webhook.js';
 
 function setupApp() {
@@ -796,7 +796,7 @@ describe('POST /webhook — postback events', () => {
       created_at: '2026-07-19T12:00:00.000+09:00',
       updated_at: '2026-07-19T12:00:00.000+09:00',
     });
-    vi.mocked(expandVariables).mockReturnValueOnce('reply');
+    vi.mocked(expandVariablesWithSignedLinks).mockResolvedValueOnce('reply');
     vi.mocked(buildMessage).mockReturnValueOnce({ type: 'text', text: 'reply' });
     vi.mocked(messageToLogPayload).mockReturnValueOnce({ messageType: 'text', content: 'reply' });
     vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(new Error('synthetic D1 prepare failure'));

@@ -4,7 +4,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../index.js';
 import { d1FromSqlite, DB_PACKAGE_ROOT, openTestSqlite } from '../../custom/pharmacy/test-sqlite.js';
-import { signCrossAccountToken } from '../../lib/cross-account-token.js';
+import { expandVariablesWithSignedLinks } from '../../services/step-delivery.js';
+import { signCrossAccountToken, verifyCrossAccountToken } from '../../lib/cross-account-token.js';
 import { liffRoutes } from './liff.js';
 
 vi.mock('../../custom/pharmacy/growth-loop/access.js', async (importOriginal) => ({
@@ -116,10 +117,24 @@ test.each(['bare-uuid', 'signed-token'])(
         ),
       );
       const key = 'synthetic-signing-key';
-      const uid =
-        mode === 'bare-uuid'
-          ? 'target-user'
-          : await signCrossAccountToken(key, { userId: 'target-user', targetAccountId: 'target-account' });
+      sqlite.exec(
+        "INSERT INTO friends (id,line_user_id,provider_line_user_id,user_id) VALUES ('source-friend','source-line','source-line','target-user')",
+      );
+      const expanded = await expandVariablesWithSignedLinks(
+        d1FromSqlite(sqlite),
+        key,
+        '{{auth_url:channel}}',
+        { id: 'source-friend', user_id: 'target-user', display_name: 'Synthetic' },
+        'https://worker.example.test',
+      );
+      const link = new URL(expanded);
+      expect(link.searchParams.has('uid')).toBe(false);
+      const signed = link.searchParams.get('crossAccountToken')!;
+      expect(await verifyCrossAccountToken(key, signed, Math.floor(Date.now() / 1000) + 6 * 24 * 60 * 60)).toEqual({
+        userId: 'target-user',
+        targetAccountId: 'target-account',
+      });
+      const uid = mode === 'bare-uuid' ? 'target-user' : signed;
       const state = btoa(JSON.stringify({ uid }));
       const app = new Hono<Env>();
       app.route('/', liffRoutes);

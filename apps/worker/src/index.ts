@@ -1169,7 +1169,7 @@ async function scheduled(event: ScheduledEvent, env: Env['Bindings'], ctx: Execu
   const jobs = [];
   if (runGenericCron) {
     jobs.push(
-      processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL),
+      processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL, env.CROSS_ACCOUNT_TOKEN_KEY),
       processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
       processReminderDeliveries(env.DB, defaultLineClient),
       processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
@@ -1243,6 +1243,7 @@ async function scheduled(event: ScheduledEvent, env: Env['Bindings'], ctx: Execu
         db: env.DB,
         credentialRootSecret: env.LINE_CREDENTIAL_KEY_V1,
         workerUrl: env.WORKER_URL || env.WORKER_PUBLIC_URL,
+        crossAccountTokenKey: env.CROSS_ACCOUNT_TOKEN_KEY,
         liffUrl: env.LIFF_URL,
         r2: env.IMAGES,
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),

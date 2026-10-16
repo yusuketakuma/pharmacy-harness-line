@@ -500,6 +500,7 @@ booking.post('/api/liff/booking/requests', async (c) => {
       attachTagAndFireSideEffects(c.env.DB, friendId, tagId, {
         defaultAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
         workerUrl: c.env.WORKER_URL,
+        crossAccountTokenKey: c.env.CROSS_ACCOUNT_TOKEN_KEY,
       })
         .then(() => undefined)
         .catch((err) => console.error('booking auto-tag failed:', err)),

@@ -1,3 +1,4 @@
+import { signCrossAccountToken } from '../lib/cross-account-token.js';
 import { extractFlexAltText } from '../utils/flex-alt-text.js';
 import {
   getFriendScenariosDueForDelivery,
@@ -32,7 +33,7 @@ import { log } from '../lib/log.js';
  * - {{name}}                → friend's display name
  * - {{uid}}                 → friend's user UUID
  * - {{friend_id}}           → friend's internal ID
- * - {{auth_url:CHANNEL_ID}} → full /auth/line URL with uid for cross-account linking
+ * - {{auth_url:CHANNEL_ID}} → full /auth/line URL with a signed token for cross-account linking
  * - {{metadata.KEY}}       → friend's metadata value (from form responses etc.)
  */
 export function expandVariables(
@@ -46,6 +47,7 @@ export function expandVariables(
   },
   apiOrigin?: string,
   messageType?: string,
+  authTokens?: ReadonlyMap<string, string>,
 ): string {
   let result = content;
   result = result.replace(/\{\{name\}\}/g, friend.display_name || '');
@@ -87,11 +89,48 @@ export function expandVariables(
   if (apiOrigin) {
     result = result.replace(/\{\{auth_url:([^}]+)\}\}/g, (_match, channelId) => {
       const params = new URLSearchParams({ account: channelId, ref: 'cross-link' });
-      if (friend.user_id) params.set('uid', friend.user_id);
+      const token = authTokens?.get(channelId);
+      if (token) params.set('crossAccountToken', token);
       return `${apiOrigin}/auth/line?${params.toString()}`;
     });
   }
   return result;
+}
+
+/** Message links may be opened days later; tokens are bounded to seven days and a target account. */
+export async function expandVariablesWithSignedLinks(
+  db: D1Database,
+  signingKey: string | undefined,
+  content: string,
+  friend: Parameters<typeof expandVariables>[1],
+  apiOrigin?: string,
+  messageType?: string,
+): Promise<string> {
+  const tokens = new Map<string, string>();
+  if (signingKey && friend.user_id && apiOrigin) {
+    for (const [, channelId] of content.matchAll(/\{\{auth_url:([^}]+)\}\}/g)) {
+      if (tokens.has(channelId)) continue;
+      const target = await db
+        .prepare(`SELECT target.id FROM line_accounts AS target
+        INNER JOIN friends AS source ON source.id = ? AND source.user_id = ?
+        LEFT JOIN tenant_line_accounts AS source_scope ON source_scope.line_account_id = source.line_account_id
+        LEFT JOIN tenant_line_accounts AS target_scope ON target_scope.line_account_id = target.id
+        WHERE target.channel_id = ? AND target.is_active = 1
+          AND target_scope.tenant_id IS source_scope.tenant_id LIMIT 1`)
+        .bind(friend.id, friend.user_id, channelId)
+        .first<{ id: string }>();
+      if (target)
+        tokens.set(
+          channelId,
+          await signCrossAccountToken(signingKey, {
+            userId: friend.user_id,
+            targetAccountId: target.id,
+            expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+          }),
+        );
+    }
+  }
+  return expandVariables(content, friend, apiOrigin, messageType, tokens);
 }
 
 /**
@@ -187,7 +226,12 @@ export function isPermanentLineDeliveryError(err: unknown): boolean {
   return status !== null && status >= 400 && status < 500 && ![408, 409, 429].includes(status);
 }
 
-export async function processStepDeliveries(db: D1Database, lineClient: LineClient, workerUrl?: string): Promise<void> {
+export async function processStepDeliveries(
+  db: D1Database,
+  lineClient: LineClient,
+  workerUrl?: string,
+  crossAccountTokenKey?: string,
+): Promise<void> {
   // Crash recovery: a claim (active→delivering) that never got released means
   // the worker died mid-delivery — without this, the enrollment is stranded
   // forever because the due query only picks up 'active' rows. Reclaim after
@@ -212,7 +256,7 @@ export async function processStepDeliveries(db: D1Database, lineClient: LineClie
       if (i > 0) {
         await sleep(addJitter(50, 200));
       }
-      const sent = await processSingleDelivery(db, lineClient, fs, workerUrl);
+      const sent = await processSingleDelivery(db, lineClient, fs, workerUrl, crossAccountTokenKey);
       if (sent) sendCount++;
     } catch (err) {
       console.error('Error processing friend_scenario:', err);
@@ -264,6 +308,7 @@ async function processSingleDelivery(
     started_at: string;
   },
   workerUrl?: string,
+  crossAccountTokenKey?: string,
 ): Promise<boolean> {
   // Optimistic lock: claim this delivery (prevents duplicate sends from parallel workers)
   const claimToken = await claimFriendScenarioForDelivery(db, fs.id, fs.current_step_order);
@@ -399,7 +444,14 @@ async function processSingleDelivery(
     metadata: (friend as unknown as Record<string, string | null>).metadata,
   });
   const friendWithMeta = { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1];
-  const expandedContent = expandVariables(resolved.messageContent, friendWithMeta, workerUrl, resolved.messageType);
+  const expandedContent = await expandVariablesWithSignedLinks(
+    db,
+    crossAccountTokenKey,
+    resolved.messageContent,
+    friendWithMeta,
+    workerUrl,
+    resolved.messageType,
+  );
   // Auto-wrap URLs with tracking links + bake f=<friendId> into /t links —
   // shared pipeline with the instant first-step push (immediate-first-step.ts).
   // リンクの所有アカウントは実際に配信するアカウント (= friend の account) に合わせる

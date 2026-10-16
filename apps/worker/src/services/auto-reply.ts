@@ -6,7 +6,7 @@ import { deliverTrackedLineReply } from './outbound-line-delivery.js';
 import { renderBroadcastMessageContent } from './render-message.js';
 import {
   buildMessage,
-  expandVariables,
+  expandVariablesWithSignedLinks,
   isDeterministicInvalidReplyToken,
   messageToLogPayload,
   resolveMetadata,
@@ -76,6 +76,7 @@ export async function matchAndReply(
     eventKey?: string;
     lineAccountId?: string | null;
     workerUrl?: string;
+    crossAccountTokenKey?: string;
     liffUrl?: string;
     logContext?: string;
     replyMessage?: AutoReplySender;
@@ -107,7 +108,9 @@ export async function matchAndReply(
   try {
     const resolvedMeta = await resolveMetadata(db, friend);
     const resolved = await resolveAutoReplyContent(db, rule);
-    let expandedContent = expandVariables(
+    let expandedContent = await expandVariablesWithSignedLinks(
+      db,
+      opts.crossAccountTokenKey,
       resolved.content,
       { ...friend, metadata: resolvedMeta },
       workerUrl,

@@ -25,7 +25,7 @@ vi.mock('./outbound-line-delivery.js', () => ({ deliverTrackedLineReply }));
 
 vi.mock('./step-delivery.js', () => ({
   resolveMetadata: vi.fn().mockResolvedValue({}),
-  expandVariables: vi.fn((content: string) => content),
+  expandVariablesWithSignedLinks: vi.fn((_db: unknown, _key: unknown, content: string) => content),
   isDeterministicInvalidReplyToken: vi.fn(
     (error: unknown) =>
       error instanceof Error && error.message.includes('400') && error.message.includes('Invalid reply token'),

@@ -57,7 +57,7 @@ const stepDeliveryMocks = vi.hoisted(() => ({
 }));
 vi.mock('./step-delivery.js', () => ({
   buildMessage: vi.fn((type: string, content: string) => ({ type, text: content })),
-  expandVariables: vi.fn((content: string) => content),
+  expandVariablesWithSignedLinks: vi.fn((_db: unknown, _key: unknown, content: string) => content),
   resolveMetadata: vi.fn(async () => ({})),
   messageToLogPayload: vi.fn((msg: { type: string; text: string }) => ({
     messageType: msg.type,

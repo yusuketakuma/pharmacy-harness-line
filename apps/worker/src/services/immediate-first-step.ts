@@ -19,6 +19,7 @@ import { LineClient } from '@line-crm/line-sdk';
 import {
   buildMessage,
   expandVariables,
+  expandVariablesWithSignedLinks,
   resolveMetadata,
   messageToLogPayload,
   evaluateCondition,
@@ -36,6 +37,7 @@ export interface ImmediatePushContext {
    *  WORKER_URL whenever it is in scope; undefined leaves those variables
    *  unexpanded (matching expandVariables' own fallback). */
   workerUrl?: string;
+  crossAccountTokenKey?: string;
   accountChannelId?: string | null;
   /** Trusted server-resolved scope for a reply-token delivery. */
   tenantId?: string;
@@ -380,7 +382,9 @@ export async function pushImmediateFirstStep(
       await releaseClaim();
       return false;
     }
-    const expanded = expandVariables(
+    const expanded = await expandVariablesWithSignedLinks(
+      db,
+      ctx.crossAccountTokenKey,
       resolved.messageContent,
       { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1],
       ctx.workerUrl,
