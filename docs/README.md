@@ -3,9 +3,7 @@
 このリポジトリは汎用 LINE CRM「LINE Harness」(upstream: `Shudesu/line-harness-oss`) を
 薬局向けにフォークしたものです。
 
-コードベースの構造・機能別リファレンス (アーキテクチャ、画面、API、ドメイン用語) は
-Devin Cloud が生成する wiki を参照してください。`AGENTS.md` の「Devin Wiki」節にある
-`.devin/wiki.md` からたどれます。リポジトリ内の `docs/` には、wiki では代替できない
+コードベースの構造・機能別の詳細はコードと `AGENTS.md` を正本とします。リポジトリ内の `docs/` には、
 **正本となる契約・監査証跡・人向けの運用文書**だけを残しています。
 
 | フォルダ | 内容 |

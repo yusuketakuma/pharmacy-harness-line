@@ -198,7 +198,6 @@ OSS パッケージの version (`package.json`) と、薬局サービスのリ�
   - [docs/pharmacy/ADMIN-AUTH.md](docs/pharmacy/ADMIN-AUTH.md) — 管理画面認証
   - [docs/pharmacy/evidence](docs/pharmacy/evidence) — リリース証跡
 - [AGENTS.md](AGENTS.md) — このリポジトリで作業する際の境界 (custom/pharmacy seam、PHI-free、human gate)
-- コード構造・機能別リファレンスは Devin 生成 wiki (`AGENTS.md` の「Devin Wiki」節) を参照してください。
 
 ---
 
