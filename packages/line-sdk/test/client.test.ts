@@ -3,6 +3,35 @@ import { LineClient } from '../src/client.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe.each(['broadcast', 'multicast'] as const)('LineClient %s request correlation', (method) => {
+  test.each([
+    { status: 200, headers: { 'x-line-request-id': 'accepted-request' }, expected: 'accepted-request' },
+    {
+      status: 409,
+      headers: { 'x-line-request-id': 'retry-request', 'x-line-accepted-request-id': 'accepted-request' },
+      expected: 'accepted-request',
+    },
+    { status: 409, headers: { 'x-line-accepted-request-id': 'accepted-request' }, expected: 'accepted-request' },
+    { status: 409, headers: { 'x-line-request-id': 'retry-request' }, expected: 'retry-request' },
+    { status: 409, headers: {}, expected: null },
+  ])('uses the accepted operation ID for $status with $headers', async ({ status, headers, expected }) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status, headers: headers as Record<string, string> })),
+    );
+    const client = new LineClient('synthetic-token');
+    const messages = [{ type: 'text' as const, text: 'test' }];
+    const response =
+      method === 'broadcast'
+        ? await client.broadcast(messages, 'retry-key')
+        : await client.multicast(['synthetic-user'], messages, undefined, 'retry-key');
+    expect(response).toEqual({
+      data: status === 409 ? { retryAccepted: true } : undefined,
+      requestId: expected,
+    });
+  });
+});
+
 describe('LineClient error messages', () => {
   test.each(['message', 'error'])('does not expose upstream %s through any error entry point', async (field) => {
     const sentinel = 'synthetic-patient-private-details';

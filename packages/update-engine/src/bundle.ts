@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto';
 import { createGunzip } from 'node:zlib';
-import type { Readable } from 'node:stream';
+import { pipeline, type Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
 
 export interface ParsedBundle {
@@ -59,22 +59,11 @@ export function parseBundleStream(input: Readable): Promise<ParsedBundle> {
     const gunzip = createGunzip();
     const extract = tarExtract();
 
-    let settled = false;
-    const fail = (err: Error): void => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    };
-    const done = (): void => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
     extract.on('entry', (header, stream, next) => {
       // Only regular files contribute content. Directory headers, symlinks,
       // hardlinks etc. are skipped (their content stream is empty but we still
       // need to drain it so tar-stream advances to the next entry).
+      stream.on('error', (err) => extract.destroy(err));
       if (header.type !== 'file') {
         stream.on('end', next);
         stream.resume();
@@ -88,15 +77,14 @@ export function parseBundleStream(input: Readable): Promise<ParsedBundle> {
         routeEntry(result, header.name, buf);
         next();
       });
-      stream.on('error', (err) => fail(err));
     });
 
-    extract.on('finish', done);
-    extract.on('error', fail);
-    gunzip.on('error', fail);
-    input.on('error', fail);
-
-    input.pipe(gunzip).pipe(extract);
+    // Own the whole chain: propagate premature close and tear down the
+    // download/decompressor/parser together on any error.
+    pipeline(input, gunzip, extract, (error) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
   });
 }
 
@@ -111,39 +99,16 @@ function routeEntry(result: ParsedBundle, name: string, buf: Buffer): void {
     return;
   }
 
-  const workerAssetsPrefix = 'worker-assets/';
-  if (cleaned.startsWith(workerAssetsPrefix)) {
-    const rest = cleaned.slice(workerAssetsPrefix.length);
-    if (rest.length > 0 && !rest.endsWith('/')) {
-      result.workerAssetFiles.set(rest, buf);
-    }
-    return;
-  }
-
-  const adminPrefix = 'admin/';
-  if (cleaned.startsWith(adminPrefix)) {
-    const rest = cleaned.slice(adminPrefix.length);
-    if (rest.length > 0 && !rest.endsWith('/')) {
-      result.adminFiles.set(rest, buf);
-    }
-    return;
-  }
-
-  const liffPrefix = 'liff/';
-  if (cleaned.startsWith(liffPrefix)) {
-    const rest = cleaned.slice(liffPrefix.length);
-    if (rest.length > 0 && !rest.endsWith('/')) {
-      result.liffFiles.set(rest, buf);
-    }
-    return;
-  }
-
-  const migPrefix = 'migrations/';
-  if (cleaned.startsWith(migPrefix)) {
-    const rest = cleaned.slice(migPrefix.length);
-    if (rest.length > 0 && !rest.endsWith('/')) {
-      result.migrations.set(rest, buf);
-    }
+  const buckets: [string, Map<string, Buffer>][] = [
+    ['worker-assets/', result.workerAssetFiles],
+    ['admin/', result.adminFiles],
+    ['liff/', result.liffFiles],
+    ['migrations/', result.migrations],
+  ];
+  for (const [prefix, files] of buckets) {
+    if (!cleaned.startsWith(prefix)) continue;
+    const rest = cleaned.slice(prefix.length);
+    if (rest.length > 0 && !rest.endsWith('/')) files.set(rest, buf);
     return;
   }
 

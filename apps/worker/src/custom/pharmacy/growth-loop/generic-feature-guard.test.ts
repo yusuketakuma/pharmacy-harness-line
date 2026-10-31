@@ -214,12 +214,13 @@ describe('pharmacy generic feature guard', () => {
 
     const responses = await Promise.all([
       root.request('/api/qr?data=hello', {}, env),
+      root.request('/api/%71r?data=hello', {}, env),
       root.request('/api/webhooks/incoming/webhook-a/receive', { method: 'POST' }, env),
       root.request('/api/integrations/stripe/webhook', { method: 'POST' }, env),
       root.request('/api/public/media-inquiries', { method: 'POST' }, env),
     ]);
 
-    expect(responses.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
+    expect(responses.map(({ status }) => status)).toEqual([403, 403, 403, 403, 403]);
   });
 
   it('server-resolves other high-risk generic resources', async () => {
@@ -529,6 +530,17 @@ describe('pharmacy tenant API allowlist', () => {
       root.request('/api/meet-consultations/event-a', { method: 'DELETE' }, env),
     ]);
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200, 200]);
+  });
+
+  it('applies the same pharmacy permissions to encoded route spellings', async () => {
+    const { root, env } = allowlistApp(true);
+    const responses = await Promise.all([
+      root.request('/%61pi/chats', {}, env),
+      root.request('/api/%63hats', {}, env),
+      root.request('/api/%74emplates', {}, env),
+      root.request('/api/%69mages/image.jpg', { method: 'DELETE' }, env),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 403, 403]);
   });
 
   it('allows account-scoped image upload but blocks pharmacy image deletion', async () => {

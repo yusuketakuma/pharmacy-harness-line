@@ -5,6 +5,9 @@ import { mkdirSync, rmSync, writeFileSync, createReadStream, existsSync } from '
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
+import { gzipSync } from 'node:zlib';
+import { pack } from 'tar-stream';
 import { parseBundleStream, verifyBundleHashes, assertHashesMatch } from '../src/bundle.js';
 
 // ─── Fixture helpers ──────────────────────────────────────────────────────────
@@ -125,6 +128,56 @@ describe('parseBundleStream', () => {
     const parsed = await parseBundleStream(stream);
 
     expect(parsed.adminFiles.get('sub/app.js')?.equals(fixture.adminSubApp)).toBe(true);
+  });
+
+  it('preserves bucket routing, one-dot normalization, duplicates and ignored entries', async () => {
+    const tar = pack();
+    const chunks: Buffer[] = [];
+    const collected = (async () => {
+      for await (const chunk of tar) chunks.push(chunk);
+    })();
+    for (const name of [
+      './worker/index.js',
+      './worker-assets/nested/a.js',
+      './admin/nested/a.js',
+      './liff/nested/a.js',
+      './migrations/nested/a.sql',
+      'admin/nested/a.js',
+      '././admin/ignored.js',
+      'unknown/a.js',
+      'admin/',
+    ]) {
+      tar.entry({ name }, name);
+    }
+    tar.entry({ name: 'admin/link.js', type: 'symlink', linkname: 'nested/a.js' });
+    tar.finalize();
+    await collected;
+    const result = await parseBundleStream(Readable.from([gzipSync(Buffer.concat(chunks))]));
+    expect(result.workerJs.toString()).toBe('./worker/index.js');
+    expect([...result.workerAssetFiles]).toEqual([['nested/a.js', Buffer.from('./worker-assets/nested/a.js')]]);
+    expect([...result.adminFiles]).toEqual([['nested/a.js', Buffer.from('admin/nested/a.js')]]);
+    expect([...result.liffFiles]).toEqual([['nested/a.js', Buffer.from('./liff/nested/a.js')]]);
+    expect([...result.migrations]).toEqual([['nested/a.sql', Buffer.from('./migrations/nested/a.sql')]]);
+  });
+
+  it('rejects a prematurely closed input instead of leaving the caller pending', async () => {
+    const input = new PassThrough();
+    const parsed = parseBundleStream(input);
+    const rejected = expect(parsed).rejects.toThrow(/premature close/i);
+    input.destroy();
+    await rejected;
+  }, 1000);
+
+  it('destroys the input when gzip decoding fails', async () => {
+    const input = new PassThrough();
+    const rejected = expect(parseBundleStream(input)).rejects.toThrow();
+    input.write(Buffer.from('not a gzip stream'));
+    try {
+      await rejected;
+      expect(input.destroyed).toBe(true);
+    } finally {
+      input.destroy();
+    }
   });
 
   it('rejects on stream error', async () => {

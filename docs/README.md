@@ -45,6 +45,7 @@ Devin Cloud が生成する wiki を参照してください。`AGENTS.md` の�
 | 文書 | 目的 |
 | --- | --- |
 | [SECURITY_REVIEW_EVIDENCE_2026-08-19.md](pharmacy/SECURITY_REVIEW_EVIDENCE_2026-08-19.md) | セキュリティレビューの証跡 |
+| [v5契約保全監査](pharmacy/evidence/audit-v5-20260928.md) | 2026-09-28のローカル修復・未完検証・再開記録 |
 | [evidence/](pharmacy/evidence) | リリースごとの検証マニフェスト (JSON) |
 
 ## 新しい文書を追加するとき

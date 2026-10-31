@@ -169,6 +169,49 @@ function cookieFor(res: Response, name: string): string | undefined {
   return setCookies(res).find((c) => c.startsWith(`${name}=`));
 }
 
+describe('authentication uses the routed path', () => {
+  test.each(['/%61pi/protected', '/a%70i/protected', '/ap%69/protected', '/api/%70rotected'])(
+    'rejects an unauthenticated encoded protected route: %s',
+    async (path) => {
+      const response = await app().request(path, {}, env());
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ success: false, error: 'Unauthorized' });
+    },
+  );
+
+  test('resolves tenant identity for an encoded authenticated route', async () => {
+    const response = await app().request(
+      '/%61pi/protected',
+      { headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID } },
+      env(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: { id: 'staff-1', tenantId: TENANT_ID } });
+  });
+
+  test.each(['/api/forms/form-1', '/api/f%6Frms/form-1'])(
+    'keeps public form reads public and mutations authenticated: %s',
+    async (path) => {
+      expect((await app().request(path, {}, env())).status).toBe(200);
+      expect((await app().request(path, { method: 'PUT' }, env())).status).toBe(401);
+      expect((await app().request(path, { method: 'DELETE' }, env())).status).toBe(401);
+    },
+  );
+
+  test('does not reach the real template repository through an encoded API prefix', async () => {
+    const prepare = vi.fn(() => {
+      throw new Error('unauthenticated request reached storage');
+    });
+    const response = await worker.fetch(
+      new Request(`${WORKERS}/%61pi/templates`),
+      env({ DB: { prepare } as unknown as D1Database }),
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(401);
+    expect(prepare).not.toHaveBeenCalled();
+  });
+});
+
 describe('admin login boundary', () => {
   test('does not allow the retired browser API-key header through CORS', () => {
     expect(CORS_ALLOW_HEADERS.map((header) => header.toLowerCase())).not.toContain('x-admin-api-key');

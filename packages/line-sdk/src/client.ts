@@ -12,6 +12,11 @@ import { createLineApiError } from './errors.js';
 
 const LINE_API_BASE = 'https://api.line.me';
 
+function acceptedRequestId(headers: Headers): string | null {
+  // A 409 retry has its own request ID; analytics must use the original send.
+  return headers.get('x-line-accepted-request-id') ?? headers.get('x-line-request-id');
+}
+
 export interface FollowersInsight {
   status: string;
   followers?: number;
@@ -116,7 +121,7 @@ export class LineClient {
       body,
       retryKey ? { 'X-Line-Retry-Key': retryKey } : {},
     );
-    return { data, requestId: headers.get('x-line-request-id') };
+    return { data, requestId: acceptedRequestId(headers) };
   }
 
   async broadcast(messages: Message[], retryKey?: string): Promise<{ data: unknown; requestId: string | null }> {
@@ -127,7 +132,7 @@ export class LineClient {
       body,
       retryKey ? { 'X-Line-Retry-Key': retryKey } : {},
     );
-    return { data, requestId: headers.get('x-line-request-id') };
+    return { data, requestId: acceptedRequestId(headers) };
   }
 
   async replyMessage(replyToken: string, messages: Message[]): Promise<unknown> {
