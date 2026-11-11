@@ -15,9 +15,9 @@ overrides:
   sharp@<0.35.5: 0.35.5
   undici@>=7.0.0 <7.29.1: 7.29.1
   brace-expansion@>=5.0.0 <5.0.12: 5.0.12
-  body-parser@<2.4.0: 2.4.0
-  follow-redirects@<1.16.2: 1.16.3
-  zod@<4.6.6: 4.6.7
+  body-parser@>=2.0.0 <2.4.0: 2.4.0
+  follow-redirects@>=1.0.0 <1.16.2: 1.16.3
+  zod@>=4.0.0 <4.6.6: 4.6.7
   compression@<1.8.2: 1.8.2
   '@cyclonedx/cdxgen@12.8.4>undici': 7.29.1
   miniflare@5.20260831.0-alpha>sharp: 0.35.5
