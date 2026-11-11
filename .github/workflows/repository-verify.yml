@@ -74,29 +74,6 @@ jobs:
           NEXT_PUBLIC_LIFF_ORIGIN: https://liff.example.invalid
           VITE_API_BASE: https://worker.example.invalid
 
-      - name: Diagnose APT mirror reachability
-        run: |
-          set -u
-          echo "== runner =="
-          uname -a
-          (. /etc/os-release 2>/dev/null && echo "os=$PRETTY_NAME") || true
-          echo "== apt source fields =="
-          grep -rhoE '^(URIs|Suites|Components|Signed-By):.*' /etc/apt/sources.list.d/ 2>/dev/null | sort -u | head -40 || true
-          grep -rhoE '^(deb|deb-src)\s+.*' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null | sed -E 's/^(deb|deb-src) +\[[^]]*\] +//' | sort -u | head -40 || true
-          echo "== resolver comparison =="
-          for h in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
-            echo "-- $h"
-            getent ahosts "$h" 2>/dev/null | head -3 || echo "getent: no result"
-          done
-          echo "== InRelease probe (connect timeout 8s; reachability only, not signature verification) =="
-          for u in \
-            "http://azure.archive.ubuntu.com/ubuntu/dists/noble/InRelease" \
-            "http://archive.ubuntu.com/ubuntu/dists/noble/InRelease" \
-            "http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease"; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 --max-time 10 "$u" 2>/dev/null || echo "CURL_ERR")
-            echo "$u -> $code"
-          done
-
       - name: Install Chromium
         run: pnpm --filter liff exec playwright install --with-deps chromium
 
