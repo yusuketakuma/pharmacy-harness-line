@@ -1,5 +1,23 @@
 # Project Instructions
 
+## コード品質と構造設計
+
+- 常にコードをクリーンに保ち、適切にモジュール化し、アーキテクチャと関心の分離を守る。
+- 依頼されたことだけを理由に機能や例外を継ぎ足さず、既存の責務・共通経路へ自然に組み込む。
+- 自然で簡潔な実装が見つからず、全体をクリーンにするためのリファクタリングが必要と判断した場合は、継ぎ足す前の早い段階で該当する実装を止め、問題・推奨する整理・影響範囲を伝える。
+- 最小変更は、構造の健全性と検証・互換性を満たす範囲で選ぶ。この方針は、無関係な全面改修や安全ゲートの変更、外部操作の権限を追加しない。
+
+## Model contract — GPT-6 Astra
+
+この節は GPT-6 Astra 向けの最適化。他のモデル・エージェント（Devin・Gemini・Claude系・GPT-6.1系など）で読む場合は、本文の規約を正本として適用し、この節は参考として扱う。対の `CLAUDE.md` は Fable 5.2 向け。
+
+- ユーザーの明示指示はこのファイル・skill・pluginの一般的推奨より優先する。skillの手順が立ち止まり・確認・脱線を要求するときは、該当ファイルと文言を指摘して要件と解釈を切り分ける。
+- 実行依頼はタスク全体の承認として扱い、成果と必須検証が揃うまで完遂する。読取・可逆的なローカル作業・競合解消・検証に追加承認は要らない。能力確認や計画提示だけで止まらない。
+- 承認が必要なのは破壊的・不可逆・外部公開・個別ゲートのある操作だけ。その承認も、レビュー可能な具体的結果を先に用意してから求める。仮想的リスクへの警告・免責・承認確認を増やさない。
+- 要点を最初に述べ、平易で直接的な文体で書く。並列・連続した項目だけをリスト化し、入れ子リスト・造語ラベル・定型句・対比構文は避ける。
+- 委譲は独立して並列化できる十分に大きな作業だけ。小さい作業や逐次作業は自分でやる。
+- 変更に必要な範囲の検証をする。小さな変更に全リポジトリsuiteを課さず、要求された対象のチェックは外さない。retryで通ったものはFLAKYとして報告する。
+
 - このリポジトリでのコミュニケーションは日本語で行ってください。回答・説明・提案・質問はすべて日本語で記述します。ただし、コード識別子、ファイル名、コマンド、ログのキー、JSONのフィールド名、Conventional Commit のプレフィックス(`feat:` / `fix:` / `docs:` など)は原語のまま維持してください。
 - ゴールから外れる提案をしないでください。
 - 実行依頼は承認済み範囲の検証まで完了させる。進捗と次の行動は必要な場合だけ説明し、完了後に追加タスクや定型句を必須にしない。
@@ -45,15 +63,6 @@ metadata, deployment evidence, and production operation are distinct claims.
 
 プロジェクト質問は `.devin/wiki.md` を読み、実コードと照合する。無ければ `~/.local/share/devin/cli/wiki/*/meta.json` の `repo_identifier` と git remote の `host/owner/repo` が一致するものだけを参照する。コード・正式文書を正本とし、確認済み結果は同じタスク内で再利用する。
 
-## Semantic code search (jevgrep)
-
-- 場所・関係・影響が未確定の探索は `jg`。既知ファイル・正確なシンボル・局所修正は read/rg/LSP。全体調査は主要領域を横断、または領域ごとに検索し、実ソースで確認する。
-- ユーザー継続承認（2026-09-28）により、全リポジトリの非公開コードと質問をコード探索・理解・動作確認のため `jg` の設定済み provider / Jevgrep 処理サービスへ送れる。この範囲の一般的な事前承認も充足済み。他の外部送信・公開・push/PR/merge/deploy・契約/課金変更は含まない。
-- PHI/PII・認証情報・secret・本番/実データ・送信権限のない第三者資料は送らない。実行前に対象を確認・除外し、混在時は安全なサブツリーか確認済みコピーを使う。拡張検索フラグも同じ条件で、既定除外を安全の証明にせず `--include-sensitive` でも禁止情報を送らない。
-- 利用不能・認証/通信エラー・安全な対象を作れない場合は理由を示してローカル探索を続ける。対象領域・重要な未探索範囲・不完全さを報告し、検索結果を正しさ・網羅性・テスト成功の証明にしない。
-
-<!-- OPENWIKI:START -->
-
 ## OpenWiki
 
 This repository has a generated `openwiki/` evidence index. It is optional just-in-time context, not required startup reading.
@@ -68,3 +77,5 @@ This repository has a generated `openwiki/` evidence index. It is optional just-
 The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
 
 <!-- OPENWIKI:END -->
+
+ドキュメントと既存のコードが食い違うときはコードの書き方に従い、見つけた食い違いを最後の返答ですべて挙げること
