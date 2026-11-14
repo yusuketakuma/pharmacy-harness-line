@@ -1,5 +1,9 @@
 # Project Instructions
 
+- このリポジトリでは日本語で回答・説明・提案・質問を書く。コード識別子・ファイル名・コマンド・ログのキー・JSONのフィールド名・Conventional Commitのプレフィックスは原語を維持する。
+- ゴールから外れる提案をしないでください。
+- 進捗と次の行動は必要な場合だけ説明し、完了後に追加タスクや定型句を必須にしない。
+- 全リポジトリや全計画を常時読み込まない。
 - 私が大学生だと思って、言語化してください。
 - LINE Harness Proxy から担当者として1対1返信する場合は、`X-Line-Harness-Source: manual` を必ず付けてください。予約通知などの自動送信には付けないでください。
 - Google Meetの個別相談を確定・変更した場合は、カレンダー更新だけで終えず、`POST /api/meet-consultations` にGoogle Calendar event ID・LINE friend ID・日時・Meet URLを登録してください。前日・1時間前のLINEリマインドを必須セットにします。キャンセル時は `DELETE /api/meet-consultations/:externalEventId` も実行してください。
@@ -34,8 +38,26 @@ metadata, deployment evidence, and production operation are distinct claims.
 - `PLANS.md` はタスク台帳、`CHANGELOG.md` はリリース履歴。
 - `.claude/`、`.omc/` などエージェントのランタイム状態はコミットしない。
 
-## Wiki参照
+## Devin Wiki
 
 - Wikiは依頼されたとき、未知の構造・依存関係が作業に影響するとき、コード確認後も重要な不明点が残るときに参照する。
 - Devin Wikiは `.devin/wiki.md` を使う。無ければ `~/.local/share/devin/cli/wiki/*/meta.json` の `repo_identifier` とgit remoteの `host/owner/repo` が一致するものだけを参照する。
-- OpenWikiの取得ツールが使えなければ `openwiki/quickstart.md` の関連リンクを読む。生成ページは明示依頼なしに手動編集しない。
+
+以下のOpenWiki管理ブロックはツールが更新する。自動更新の記述は稼働の証拠ではない。`.github/workflows/openwiki-update.yml` の有無と実行結果で判断する。
+
+<!-- OPENWIKI:START -->
+
+## OpenWiki
+
+This repository has a generated `openwiki/` evidence index. It is optional just-in-time context, not required startup reading.
+
+- Do not enumerate, preload, or search wikis at task start. Use retrieval when the user asks for it, when unfamiliar architecture or dependency behavior materially affects the task, or when source inspection leaves an important uncertainty. Stop once the question is grounded.
+- When those conditions apply and OpenWiki retrieval tools are available, use `openwiki_search` for just-in-time context and `openwiki_read` for the relevant complete sections. If search returns `workspace_required`, ask which listed workspace to use and retry with its ID.
+- Use `openwiki_list_workspaces` or `openwiki_list_wikis` when workspace membership itself needs to be discovered.
+- If the retrieval tools are unavailable, read `openwiki/quickstart.md` and follow its links to the relevant pages.
+- Treat source code and tests as authoritative. A brief's unknowns and review items are verification gaps, not automatic requirements.
+- Prefer the narrowest quiet validation that proves the changed behavior. Preserve complete failure output.
+
+The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
+
+<!-- OPENWIKI:END -->
